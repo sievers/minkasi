@@ -147,6 +147,48 @@ void many_fft_r2r_1d(double *dat, double *trans, int n, int type, int ntrans)
 
 }
 
+/*--------------------------------------------------------------------------------*/
+void many_fftf_r2r_1d(float *dat, float *trans, int n, int type, int ntrans)
+{
+  fftw_r2r_kind flag=FFTW_REDFT00;
+  switch (type) {
+  case 1:
+    flag=FFTW_REDFT00;
+    break;
+  case 2:
+    flag=FFTW_REDFT10;
+    break;
+  case 3:
+    flag=FFTW_REDFT01;
+    break;
+  case 4:
+    flag=FFTW_REDFT11;
+    break;
+
+  case 11:
+    flag=FFTW_RODFT00;
+    break;
+  case 12:
+    flag=FFTW_RODFT10;
+    break;
+  case 13:
+    flag=FFTW_RODFT01;
+    break;
+  case 14:
+    flag=FFTW_RODFT11;
+    break;
+    
+  }
+  flag=FFTW_REDFT00;
+  fftwf_plan plan=fftwf_plan_r2r_1d(n,dat,trans,flag,FFTW_ESTIMATE);
+  //printf("first two elements are %12.4g %12.4g\n",dat[0],dat[1]);
+#pragma omp parallel for
+  for (int i=0;i<ntrans;i++)
+    fftwf_execute_r2r(plan,dat+i*n,trans+i*n);
+  fftwf_destroy_plan(plan);
+
+}
+
 
 /*--------------------------------------------------------------------------------*/
 void read_wisdom(char *double_file, char *single_file)

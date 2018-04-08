@@ -7,6 +7,7 @@ mylib=ctypes.cdll.LoadLibrary("libpyfftw.so")
 many_fft_r2c_1d_c=mylib.many_fft_r2c_1d
 many_fft_r2c_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int]
 
+
 many_fftf_r2c_1d_c=mylib.many_fftf_r2c_1d
 many_fftf_r2c_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int]
 
@@ -22,6 +23,10 @@ fft_r2r_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int
 
 many_fft_r2r_1d_c=mylib.many_fft_r2r_1d
 many_fft_r2r_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int]
+
+many_fftf_r2r_1d_c=mylib.many_fftf_r2r_1d
+many_fftf_r2r_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int]
+
 
 
 set_threaded_c=mylib.set_threaded
@@ -68,17 +73,25 @@ def fft_c2r(datft):
     return dat
 
 
-def fft_r2r_1d(dat,type=1):
+def fft_r2r_1d(dat,kind=1):
     nn=dat.size
     trans=numpy.zeros(nn)
-    fft_r2r_1d_c(dat.ctypes.data,trans.ctypes.data,nn,type)
+    fft_r2r_1d_c(dat.ctypes.data,trans.ctypes.data,nn,kind)
     return trans
 
-def fft_r2r(dat,type=1):
+def fft_r2r(dat,kind=1):
+    if len(dat.shape)==1:
+        return fft_r2r_1d(dat,kind)
     ntrans=dat.shape[0]
     n=dat.shape[1]
-    trans=numpy.zeros([ntrans,n])
-    many_fft_r2r_1d_c(dat.ctypes.data,trans.ctypes.data,n,type,ntrans)
+    trans=numpy.zeros([ntrans,n],dtype=type(dat[0,0]))
+    
+
+    if type(dat[0,0])==numpy.dtype('float32'):
+        #print 'first two element in python are ',dat[0,0],dat[0,1]
+        many_fftf_r2r_1d_c(dat.ctypes.data,trans.ctypes.data,n,kind,ntrans)
+    else:
+        many_fft_r2r_1d_c(dat.ctypes.data,trans.ctypes.data,n,kind,ntrans)
     return trans
 
 

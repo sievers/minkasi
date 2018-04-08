@@ -2,6 +2,10 @@ import numpy
 import ctypes
 import time
 import pyfftw
+import pyfits
+import astropy
+from astropy import wcs
+from astropy.io import fits
 
 
 mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
@@ -162,14 +166,39 @@ def smooth_spectra(spec,fwhm):
     x=numpy.arange(n)
     sig=fwhm/numpy.sqrt(8*numpy.log(2))
     to_conv=numpy.exp(-0.5*(x/sig)**2)
-    to_conv=to_conv/to_conv.sum()/2/n
-    to_conv_ft=pyfftw.fft_r2r_1d(to_conv)
-    print to_conv_ft.sum(), to_conv.sum()
+    tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
+    to_conv=to_conv/tot
+    to_conv_ft=pyfftw.fft_r2r(to_conv)
     xtrans=pyfftw.fft_r2r(spec)
     for i in range(nspec):
         xtrans[i,:]=xtrans[i,:]*to_conv_ft
-    return pyfftw.fft_r2r(xtrans),to_conv
-
+    #return pyfftw.fft_r2r(xtrans)/(2*(xtrans.shape[1]-1)),to_conv
+    return xtrans,to_conv_ft
+def smooth_many_vecs(vecs,fwhm=20):
+    n=vecs.shape[1]
+    nvec=vecs.shape[0]
+    x=numpy.arange(n)
+    sig=fwhm/numpy.sqrt(8*numpy.log(2))
+    to_conv=numpy.exp(-0.5*(x/sig)**2)
+    tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
+    to_conv=to_conv/tot
+    to_conv_ft=pyfftw.fft_r2r(to_conv)
+    xtrans=pyfftw.fft_r2r(vecs)
+    for i in range(nvec):
+        xtrans[i,:]=xtrans[i,:]*to_conv_ft
+    back=pyfftw.fft_r2r(xtrans)
+    return back/(2*(n-1))
+def smooth_vec(vec,fwhm=20):
+    n=vec.size
+    x=numpy.arange(n)
+    sig=fwhm/numpy.sqrt(8*numpy.log(2))
+    to_conv=numpy.exp(-0.5*(x/sig)**2)
+    tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
+    to_conv=to_conv/tot
+    to_conv_ft=pyfftw.fft_r2r(to_conv)
+    xtrans=pyfftw.fft_r2r(vec)
+    back=pyfftw.fft_r2r(xtrans*to_conv_ft)
+    return back/2.0/(n-1)
 
 
 def fit_cm_plus_poly(dat,ord=2,cm_ord=1,niter=2,medsub=False):
@@ -341,6 +370,87 @@ class Mapset:
         mm.axpy(mapset,-1.0)
         return mm
 
+class SkyMap:
+    def __init__(self,lims,pixsize,proj='CAR',pad=2):
+        self.wcs=get_wcs(lims,pixsize,proj)
+        corners=numpy.zeros([4,2])
+        corners[0,:]=[lims[0],lims[2]]
+        corners[1,:]=[lims[0],lims[3]]
+        corners[2,:]=[lims[1],lims[2]]
+        corners[3,:]=[lims[1],lims[3]]
+        pix_corners=self.wcs.wcs_world2pix(corners*180/numpy.pi,1)
+        #print pix_corners
+        if pix_corners.min()<0.5:
+            print 'corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.'
+        nx=(pix_corners[:,0].max()+pad)
+        ny=(pix_corners[:,1].max()+pad)
+        #print nx,ny
+        nx=int(nx)
+        ny=int(ny)
+        self.nx=nx
+        self.ny=ny
+        self.lims=lims
+        self.pixsize=pixsize
+        self.map=numpy.zeros([nx,ny])
+        self.proj=proj
+        self.pad=pad
+    def copy(self):
+        newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad)
+        newmap.map[:]=self.map[:]
+        return newmap
+    def clear(self):
+        self.map[:]=0
+    def axpy(self,map,a):
+        self.map[:]=self.map[:]+a*map.map[:]
+    def assign(self,arr):
+        assert(arr.shape[0]==self.nx)
+        assert(arr.shape[1]==self.ny)
+        self.map[:,:]=arr
+    def get_pix(self,tod):
+        ndet=tod.info['dx'].shape[0]
+        nsamp=tod.info['dx'].shape[1]
+        nn=ndet*nsamp
+        coords=numpy.zeros([nn,2])
+        coords[:,0]=numpy.reshape(tod.info['dx']*180/numpy.pi,nn)
+        coords[:,1]=numpy.reshape(tod.info['dy']*180/numpy.pi,nn)
+        #print coords.shape
+        pix=self.wcs.wcs_world2pix(coords,1)
+        #print pix.shape
+        xpix=numpy.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+        ypix=numpy.reshape(pix[:,1],[ndet,nsamp])-1  
+        xpix=numpy.round(xpix)
+        ypix=numpy.round(ypix)
+        ipix=numpy.asarray(xpix*self.ny+ypix,dtype='int32')
+        return ipix
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+
+    def tod2map(self,tod,dat,do_add=True,do_omp=True):
+        if do_add==False:
+            self.clear()
+        if do_omp:
+            tod2map_omp(self.map,dat,tod.info['ipix'])
+        else:
+            tod2map_simple(self.map,dat,tod.info['ipix'])
+
+    def r_th_maps(self):
+        xvec=numpy.arange(self.nx)
+        xvec=xvec-xvec.mean()        
+        yvec=numpy.arange(self.ny)
+        yvec=yvec-yvec.mean()
+        ymat,xmat=numpy.meshgrid(yvec,xvec)
+        rmat=numpy.sqrt(xmat**2+ymat**2)
+        th=numpy.arctan2(xmat,ymat)
+        return rmat,th
+    def dot(self,map):
+        tot=numpy.sum(self.map*map.map)
+        return tot
+
+    def write(self,fname='map.fits'):
+        header=self.wcs.to_header()
+        hdu=fits.PrimaryHDU(self.map,header=header)
+        hdu.writeto(fname,overwrite=True)
+        
 class SkyMapCar:
     def __init__(self,lims,pixsize):
         try:
@@ -412,7 +522,19 @@ class Tod:
         self.info['tag']=tag
     def copy(self):
         return Tod(self.info)
-
+    def set_noise_smoothed_svd(self,fwhm=50):
+        u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+        print 'got svd'
+        ndet=s.size
+        n=self.info['dat_calib'].shape[1]
+        self.info['v']=numpy.zeros([ndet,ndet])
+        self.info['v'][:]=u.transpose()
+        dat_rot=numpy.dot(self.info['v'],self.info['dat_calib'])
+        dat_trans=pyfftw.fft_r2r(dat_rot)
+        spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
+        self.info['mywt']=1.0/spec_smooth
+        #return dat_rot
+        
     def apply_noise(self,dat=None):
         if dat is None:
             dat=self.info['dat_calib']
@@ -482,6 +604,82 @@ class TodVec:
                 map.tod2map(tod,dat_filt)
         
 
+def read_tod_from_fits(fname,hdu=1):
+    f=pyfits.open(fname)
+    raw=f[hdu].data
+    pixid=raw['PIXID']
+    dets=numpy.unique(pixid)
+    ndet=len(dets)
+    nsamp=len(pixid)/len(dets)
+    print 'nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname
+    #print raw.names
+    dat={}
+    #this bit of odd gymnastics is because a straightforward reshape doesn't seem to leave the data in
+    #memory-contiguous order, which causes problems down the road
+    #also, float32 is a bit on the edge for pointing, so cast to float64
+    dx=raw['DX']
+    #dat['dx']=numpy.zeros([ndet,nsamp],dtype=type(dx[0]))
+    dat['dx']=numpy.zeros([ndet,nsamp],dtype='float64')
+    dat['dx'][:]=numpy.reshape(dx,[ndet,nsamp])[:]
+    dy=raw['DY']
+    #dat['dy']=numpy.zeros([ndet,nsamp],dtype=type(dy[0]))
+    dat['dy']=numpy.zeros([ndet,nsamp],dtype='float64')
+    dat['dy'][:]=numpy.reshape(dy,[ndet,nsamp])[:]
+
+    tt=numpy.reshape(raw['TIME'],[ndet,nsamp])
+    tt=tt[0,:]
+    dt=numpy.median(numpy.diff(tt))
+    dat['dt']=dt
+    pixid=numpy.reshape(pixid,[ndet,nsamp])
+    pixid=pixid[:,0]
+    dat['pixid']=pixid
+    dat_calib=raw['FNU']
+    #dat['dat_calib']=numpy.zeros([ndet,nsamp],dtype=type(dat_calib[0]))
+    dat['dat_calib']=numpy.zeros([ndet,nsamp],dtype='float64') #go to double because why not
+    dat_calib=numpy.reshape(dat_calib,[ndet,nsamp])
+    dat['dat_calib'][:]=dat_calib[:]
+    f.close()
+    return dat
+
+
+def downsample_array_r2r(arr,fac):
+
+    n=arr.shape[1]
+    nn=int(n/fac)
+    arr_ft=pyfftw.fft_r2r(arr)
+    arr_ft=arr_ft[:,0:nn].copy()
+    arr=pyfftw.fft_r2r(arr_ft)/(2*(n-1))
+    return arr
+
+def downsample_tod(dat,fac=10):
+    ndata=dat['dat_calib'].shape[1]
+    keys=dat.keys()
+    for key in dat.keys():
+        try:
+            if dat[key].shape[1]==ndata:
+                #print 'downsampling ' + key
+                dat[key]=downsample_array_r2r(dat[key],fac)
+        except:
+            #print 'not downsampling ' + key
+            pass
+    
+
+def truncate_tod(dat,primes=[2,3,5,7,11]):
+    
+    n=dat['dat_calib'].shape[1]
+    lens=find_good_fft_lens(n-1,primes)
+    n_new=lens.max()+1
+    if n_new<n:
+        #print 'truncating from ',n,' to ',n_new
+        for key in dat.keys():
+            try:
+                if dat[key].shape[1]==n:
+                    dat[key]=dat[key][:,0:n_new].copy()
+            except:
+                #print 'skipping key ' + key
+                pass
+
+
 def todvec_from_files_octave(fnames):
     todvec=TodVec()
     for fname in fnames:
@@ -497,3 +695,28 @@ def make_hits(todvec,map):
         tmp=numpy.ones(tod.info['dat_calib'].shape)
         hits.tod2map(tod,tmp)
     return hits
+
+
+def decimate(vec,nrep=1):
+    for i in range(nrep):
+        if len(vec)%2:
+            vec=vec[:-1]
+        vec=0.5*(vec[0::2]+vec[1::2])
+    return vec
+def plot_ps(vec,downsamp=0):
+    vecft=pyfftw.fft_r2r(vec)
+    
+def get_wcs(lims,pixsize,proj='CAR'):
+    w=wcs.WCS(naxis=2)    
+    dec=0.5*(lims[2]+lims[3])
+    cosdec=numpy.cos(dec)
+    if proj=='CAR':
+        #CAR in FITS seems to already correct for cosin(dec), which has me confused, but whatever...
+        cosdec=1.0
+        w.wcs.crpix=[1.0,1.0]
+        w.wcs.crval=[lims[1]*180/numpy.pi,lims[2]*180/numpy.pi]
+        w.wcs.cdelt=[-pixsize/cosdec*180/numpy.pi,pixsize*180/numpy.pi]
+        w.wcs.ctype=['RA---CAR','DEC--CAR']
+        return w
+    print 'unknown projection type ',proj,' in get_wcs.'
+    return None
