@@ -6,6 +6,7 @@
 //gcc-4.9 -fopenmp -std=c99 -O3 -shared -fPIC -o libminkasi.so minkasi.c  -lm -lgomp     
 
 
+
 void tod2map_simple(double *map, double *dat, int ndet, int ndata, int *pix)
 {
   long nn=ndet*ndata;

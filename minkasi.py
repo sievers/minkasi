@@ -266,6 +266,7 @@ def __run_pcg_old(b,x0,tods,mapset,precon):
     return x
 
 def run_pcg(b,x0,tods,mapset,precon=None,maxiter=25):
+    t1=time.time()
     Ax=tods.dot(x0)
 
     try:
@@ -282,8 +283,10 @@ def run_pcg(b,x0,tods,mapset,precon=None,maxiter=25):
 
     zr=r.dot(z)
     x=x0.copy()
+    t2=time.time()
     for iter in range(maxiter):
-        print iter,zr
+        print iter,zr,t2-t1
+        t1=time.time()
         Ap=tods.dot(p)
         pAp=p.dot(Ap)
         alpha=zr/pAp
@@ -315,6 +318,7 @@ def run_pcg(b,x0,tods,mapset,precon=None,maxiter=25):
         r=r_new
         zr=zr_new
         x=x_new
+        t2=time.time()
     return x
 
 def apply_noise(tod,dat=None):
@@ -449,7 +453,10 @@ class SkyMap:
     def write(self,fname='map.fits'):
         header=self.wcs.to_header()
         hdu=fits.PrimaryHDU(self.map,header=header)
-        hdu.writeto(fname,overwrite=True)
+        try:
+            hdu.writeto(fname,overwrite=True)
+        except:
+            hdu.writeto(fname,clobber=True)
         
 class SkyMapCar:
     def __init__(self,lims,pixsize):
