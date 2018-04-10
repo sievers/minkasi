@@ -28,6 +28,16 @@ set_nthread_c.argtypes=[ctypes.c_int]
 get_nthread_c=mylib.get_nthread
 get_nthread_c.argtypes=[ctypes.c_void_p]
 
+
+def invsafe(mat,thresh=1e-14):
+    u,s,v=numpy.linalg.svd(mat,0)
+    ii=numpy.abs(s)<thresh*s.max()
+    #print ii
+    s_inv=1/s
+    s_inv[ii]=0
+    tmp=numpy.dot(numpy.diag(s_inv),u.transpose())
+    return numpy.dot(v.transpose(),tmp)
+
 def tod2map_simple(map,dat,ipix):
     ndet=dat.shape[0]
     ndata=dat.shape[1]
@@ -265,7 +275,7 @@ def __run_pcg_old(b,x0,tods,mapset,precon):
         x=x_new
     return x
 
-def run_pcg(b,x0,tods,mapset,precon=None,maxiter=25):
+def run_pcg(b,x0,tods,precon=None,maxiter=25):
     t1=time.time()
     Ax=tods.dot(x0)
 
