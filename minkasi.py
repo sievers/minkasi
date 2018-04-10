@@ -333,6 +333,7 @@ def apply_noise(tod,dat=None):
     return dat
 
 
+
 class null_precon:
     def __init__(self):
         self.isnull=True
@@ -346,7 +347,7 @@ class Mapset:
         self.nmap=0
         self.maps=[]
     def add_map(self,map):
-        self.maps.append(map)
+        self.maps.append(map.copy())
         self.nmap=self.nmap+1
     def clear(self):
         for i in range(self.nmap):
@@ -364,14 +365,19 @@ class Mapset:
     def axpy(self,mapset,a):
         for i in range(self.nmap):
             self.maps[i].axpy(mapset.maps[i],a)
-    def add(self,mapset):
+    def __add__(self,mapset):
         mm=self.copy()
         mm.axpy(mapset,1.0)
         return mm
 
-    def sub(self,mapset):
+    def __sub__(self,mapset):
         mm=self.copy()
         mm.axpy(mapset,-1.0)
+        return mm
+    def __mul__(self,mapset):
+        mm=self.copy()
+        for i in range(self.nmap):
+            mm.maps[i]=self.maps[i]*mapset.maps[i]
         return mm
 
 class SkyMap:
@@ -457,7 +463,10 @@ class SkyMap:
             hdu.writeto(fname,overwrite=True)
         except:
             hdu.writeto(fname,clobber=True)
-        
+    def __mul__(self,map):
+        new_map=self.copy()
+        new_map.map[:]=self.map[:]*map.map[:]
+        return new_map
 class SkyMapCar:
     def __init__(self,lims,pixsize):
         try:
@@ -556,7 +565,7 @@ class Tod:
         tmp=0.0*self.info['dat_calib']
         for map in mapset.maps:
             map.map2tod(self,tmp)
-        self.apply_noise(tmp)
+        tmp=self.apply_noise(tmp)
         for map in mapset_out.maps:
             map.tod2map(self,tmp)
     
