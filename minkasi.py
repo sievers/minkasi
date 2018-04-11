@@ -159,8 +159,11 @@ def find_good_fft_lens(n,primes=[2,3,5,7]):
     r=numpy.log2(n+0.5)
     lp=numpy.log2(primes)
     npoint_max=(vol/2**np)*numpy.prod(r/lp)+30 #add a bit just to make sure we don't act up for small n
+    #print 'npoint max is ',npoint max
     npoint_max=numpy.int(npoint_max)
-    vals=numpy.zeros(npoint_max,dtype='int')
+
+    #vals=numpy.zeros(npoint_max,dtype='int')
+    vals=numpy.zeros(npoint_max)
     icur=0
     icur=_prime_loop(r,lp,icur,0.0,vals)
     assert(icur<=npoint_max)
@@ -628,6 +631,7 @@ class TodVec:
             xmax=comm.allreduce(xmax,op=MPI.MAX)
             ymin=comm.allreduce(ymin,op=MPI.MIN)
             ymax=comm.allreduce(ymax,op=MPI.MAX)
+            print 'after reduction lims are ',[xmin,xmax,ymin,ymax]
         return [xmin,xmax,ymin,ymax]
     def set_pix(self,map):
         for tod in self.tods:
@@ -728,7 +732,7 @@ def truncate_tod(dat,primes=[2,3,5,7,11]):
     lens=find_good_fft_lens(n-1,primes)
     n_new=lens.max()+1
     if n_new<n:
-        #print 'truncating from ',n,' to ',n_new
+        print 'truncating from ',n,' to ',n_new
         for key in dat.keys():
             try:
                 if dat[key].shape[1]==n:
@@ -752,6 +756,8 @@ def make_hits(todvec,map):
     for tod in todvec.tods:
         tmp=numpy.ones(tod.info['dat_calib'].shape)
         hits.tod2map(tod,tmp)
+    if have_mpi:
+        hits.mpi_reduce()
     return hits
 
 
