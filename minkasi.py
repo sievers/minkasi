@@ -7,6 +7,16 @@ import astropy
 from astropy import wcs
 from astropy.io import fits
 
+try:
+    from mpi4py import MPI
+    comm=MPI.COMM_WORLD
+    myrank = comm.Get_rank()
+    nproc=comm.Get_size()
+    have_mpi=True
+except:
+    have_mpi=False
+    myrank=0
+    nproc=1
 
 mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
 tod2map_simple_c=mylib.tod2map_simple
@@ -28,6 +38,11 @@ set_nthread_c.argtypes=[ctypes.c_int]
 get_nthread_c=mylib.get_nthread
 get_nthread_c.argtypes=[ctypes.c_void_p]
 
+def report_mpi():
+    if have_mpi:
+        print 'myrank is ',myrank,' out of ',nproc
+    else:
+        print 'mpi not found'
 
 def invsafe(mat,thresh=1e-14):
     u,s,v=numpy.linalg.svd(mat,0)
@@ -144,7 +159,8 @@ def find_good_fft_lens(n,primes=[2,3,5,7]):
     r=numpy.log2(n+0.5)
     lp=numpy.log2(primes)
     npoint_max=(vol/2**np)*numpy.prod(r/lp)+30 #add a bit just to make sure we don't act up for small n
-    vals=numpy.zeros(npoint_max)
+    npoint_max=numpy.int(npoint_max)
+    vals=numpy.zeros(npoint_max,dtype='int')
     icur=0
     icur=_prime_loop(r,lp,icur,0.0,vals)
     assert(icur<=npoint_max)
@@ -289,13 +305,14 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
     else:
         z=r.copy()
     p=z.copy()
-    k=0
+    k=0.0
 
     zr=r.dot(z)
     x=x0.copy()
     t2=time.time()
     for iter in range(maxiter):
-        print iter,zr,t2-t1
+        if myrank==0:
+            print iter,zr,t2-t1
         t1=time.time()
         Ap=tods.dot(p)
         pAp=p.dot(Ap)
@@ -389,7 +406,10 @@ class Mapset:
         for i in range(self.nmap):
             mm.maps[i]=self.maps[i]*mapset.maps[i]
         return mm
-
+    def mpi_reduce(self):
+        if have_mpi:
+            for map in self.maps:
+                map.mpi_reduce()
 class SkyMap:
     def __init__(self,lims,pixsize,proj='CAR',pad=2):
         self.wcs=get_wcs(lims,pixsize,proj)
@@ -477,6 +497,9 @@ class SkyMap:
         new_map=self.copy()
         new_map.map[:]=self.map[:]*map.map[:]
         return new_map
+    def mpi_reduce(self):
+        if have_mpi:
+            self.map=comm.allreduce(self.map)
 class SkyMapCar:
     def __init__(self,lims,pixsize):
         try:
@@ -599,6 +622,12 @@ class TodVec:
             xmax=max(x2,xmax)
             ymin=min(y1,ymin)
             ymax=max(y2,ymax)
+        if have_mpi:
+            print 'before reduction lims are ',[xmin,xmax,ymin,ymax]
+            xmin=comm.allreduce(xmin,op=MPI.MIN)
+            xmax=comm.allreduce(xmax,op=MPI.MAX)
+            ymin=comm.allreduce(ymin,op=MPI.MIN)
+            ymax=comm.allreduce(ymax,op=MPI.MAX)
         return [xmin,xmax,ymin,ymax]
     def set_pix(self,map):
         for tod in self.tods:
@@ -617,6 +646,8 @@ class TodVec:
             tod.dot(mapset,mapset2)
             t2=time.time()
             times[i]=t2-t1
+        if have_mpi:
+            mapset2.mpi_reduce()
         if report_times:
             return mapset2,times
         else:
@@ -629,7 +660,8 @@ class TodVec:
             for map in mapset.maps:
                 map.tod2map(tod,dat_filt)
         
-
+        if have_mpi:
+            mapset.mpi_reduce()
 def read_tod_from_fits(fname,hdu=1):
     f=pyfits.open(fname)
     raw=f[hdu].data
