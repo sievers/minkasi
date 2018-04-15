@@ -81,6 +81,141 @@ def get_nthread():
     get_nthread_c(nthread.ctypes.data)
     return nthread[0,0]
 
+def find_spikes(dat,inner=1,outer=10,rad=0.25,thresh=8,pad=2):
+    #find spikes in a block of timestreams
+    n=dat.shape[1];
+    ndet=dat.shape[0]
+    x=numpy.arange(n);
+    filt1=numpy.exp(-0.5*x**2/inner**2)
+    filt1=filt1+numpy.exp(-0.5*(x-n)**2/inner**2);
+    filt1=filt1/filt1.sum()
+
+    filt2=numpy.exp(-0.5*x**2/outer**2)
+    filt2=filt2+numpy.exp(-0.5*(x-n)**2/outer**2);
+    filt2=filt2/filt2.sum()
+    
+    filt=filt1-filt2 #make a filter that is the difference of two Gaussians, one narrow, one wide
+    filtft=numpy.fft.rfft(filt)
+    datft=numpy.fft.rfft(dat,axis=1)
+    datfilt=numpy.fft.irfft(filtft*datft,axis=1,n=n)
+    jumps=[None]*ndet
+    mystd=numpy.median(numpy.abs(datfilt),axis=1)
+    for i in range(ndet):
+        while numpy.max(numpy.abs(datfilt[i,:]))>thresh*mystd[i]:
+            ind=numpy.argmax(numpy.abs(datfilt[i,:]))
+            if jumps[i] is None:
+                jumps[i]=[ind]
+            else:
+                jumps[i].append(ind)
+            datfilt[i,ind]=0
+    return jumps,datfilt
+            
+        
+    
+    return mystd
+
+
+def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
+    #find jumps in a block of timestreams, preferably with the common mode removed
+    #width is width in pixels to average over when looking for a jump
+    #pad is the length in units of width to mask at beginning/end of timestream
+    #thresh is threshold in units of filtered data median absolute deviation to qualify as a jump
+    #rat is the ratio of largest neighboring opposite-sign jump to the found jump.  If
+    #  there is an opposite-sign jump nearby, the jump finder has probably just picked up a spike.
+    n=dat.shape[1]
+    ndet=dat.shape[0]
+
+    #make a filter template that is a gaussian with sigma with, sign-flipped in the center
+    #so, positive half-gaussian starting from zero, and negative half-gaussian at the end
+    x=numpy.arange(n)
+    myfilt=numpy.exp(-0.5*x**2/width**2)
+    myfilt=myfilt-numpy.exp( (-0.5*(x-n)**2/width**2))
+    fac=numpy.abs(myfilt).sum()/2.0
+    myfilt=myfilt/fac
+
+    dat_filt=numpy.fft.rfft(dat,axis=1)
+
+    myfilt_ft=numpy.fft.rfft(myfilt)
+    dat_filt=dat_filt*numpy.repeat([myfilt_ft],ndet,axis=0)
+    dat_filt=numpy.fft.irfft(dat_filt,axis=1,n=n)
+    dat_filt_org=dat_filt.copy()
+
+    print dat_filt.shape
+    dat_filt[:,0:pad*width]=0
+    dat_filt[:,-pad*width:]=0
+    det_thresh=thresh*numpy.median(numpy.abs(dat_filt),axis=1)
+    dat_dejump=dat.copy()
+    jumps=[None]*ndet
+    print 'have filtered data, now searching for jumps'
+    for i in range(ndet):
+        while numpy.max(numpy.abs(dat_filt[i,:]))>det_thresh[i]:            
+            ind=numpy.argmax(numpy.abs(dat_filt[i,:]))+1 #+1 seems to be the right index to use
+            imin=ind-width
+            if imin<0:
+                imin=0
+            imax=ind+width
+            if imax>n:
+                imax=n
+            val=dat_filt[i,ind]
+            if val>0:
+                val2=numpy.min(dat_filt[i,imin:imax])
+            else:
+                val2=numpy.max(dat_filt[i,imin:imax])
+            
+            
+            print 'found jump on detector ',i,' at sample ',ind
+            if numpy.abs(val2/val)>rat:
+                print 'I think this is a spike due to ratio ',numpy.abs(val2/val)
+            else:
+                if jumps[i] is None:
+                    jumps[i]=[ind]
+                else:
+                    jumps[i].append(ind)
+            #independent of if we think it is a spike or a jump, zap that stretch of the data
+            dat_dejump[i,ind:]=dat_dejump[i,ind:]+dat_filt[i,ind]
+            dat_filt[i,ind-pad*width:ind+pad*width]=0
+        if not(jumps[i] is None):
+            jumps[i]=numpy.sort(jumps[i])
+    #return dat_dejump,jumps,dat_filt_org
+    return jumps
+
+def fit_jumps_from_cm(dat,jumps,cm,cm_order=1,poly_order=1):
+    jump_vals=jumps[:]
+    ndet=len(jumps)
+    n=dat.shape[1]
+    x=numpy.linspace(-1,1,n)
+    m1=numpy.polynomial.legendre.legvander(x,poly_order)
+    m2=numpy.polynomial.legendre.legvander(x,cm_order-1)
+    for i in range(cm_order):
+        m2[:,i]=m2[:,i]*cm
+    mat=numpy.append(m1,m2,axis=1)
+    np=mat.shape[1]
+
+    dat_dejump=dat.copy()
+    for i in range(ndet):
+        if not(jumps[i] is None):
+            njump=len(jumps[i])
+            segs=numpy.append(jumps[i],n)
+            print 'working on detector ',i,' who has ', len(jumps[i]),' jumps with segments ',segs
+            mm=numpy.zeros([n,np+njump])
+            mm[:,:np]=mat
+            for j in range(njump):
+                mm[segs[j]:segs[j+1],j+np]=1.0
+            lhs=numpy.dot(mm.transpose(),mm)
+            #print lhs
+            rhs=numpy.dot(mm.transpose(),dat[i,:].transpose())
+            lhs_inv=numpy.linalg.inv(lhs)
+            fitp=numpy.dot(lhs_inv,rhs)
+            jump_vals[i]=fitp[np:]
+            jump_pred=numpy.dot(mm[:,np:],fitp[np:])
+            dat_dejump[i,:]=dat_dejump[i,:]-jump_pred
+
+
+    return dat_dejump
+            
+
+    #for i in range(ndet):
+
 
 def get_type(nbyte):
     if nbyte==8:
@@ -230,7 +365,7 @@ def smooth_vec(vec,fwhm=20):
     return back/2.0/(n-1)
 
 
-def fit_cm_plus_poly(dat,ord=2,cm_ord=1,niter=2,medsub=False):
+def fit_cm_plus_poly(dat,ord=2,cm_ord=1,niter=2,medsub=False,full_out=False):
     n=dat.shape[1]
     ndet=dat.shape[0]
     if medsub:
@@ -261,7 +396,8 @@ def fit_cm_plus_poly(dat,ord=2,cm_ord=1,niter=2,medsub=False):
         pred=pred1+pred2
         dd=dat-pred1
         
-
+    if full_out:
+        return dd,pred2,cm #if requested, return the modelled CM as well
     return dd
 
 
@@ -413,6 +549,19 @@ class Mapset:
         if have_mpi:
             for map in self.maps:
                 map.mpi_reduce()
+class Cuts:
+    def __init__(self,tod):
+        self.tag=tod.info['tag']
+        self.ndet=tod.info['dat_calib'].shape[0]
+        self.cuts=[None]*self.ndet
+
+class CutsVec:
+    def __init__(self,todvec):
+        self.ntod=todvec.ntod
+        self.cuts=[None]*self.ntod
+        for tod in todvec.tods:
+            self.cuts[tod.info['tag']]=Cuts(tod)
+            
 class SkyMap:
     def __init__(self,lims,pixsize,proj='CAR',pad=2):
         self.wcs=get_wcs(lims,pixsize,proj)
@@ -560,10 +709,26 @@ class SkyMapCar:
     def dot(self,map):
         tot=numpy.sum(self.map*map.map)
         return tot
+def find_bad_skew_kurt(dat,skew_thresh=6.0,kurt_thresh=5.0):
+    ndet=dat.shape[0]
+    isgood=numpy.ones(ndet,dtype='bool')
+    skew=numpy.mean(dat**3,axis=1)
+    mystd=numpy.std(dat,axis=1)
+    skew=skew/mystd**1.5
+    mykurt=numpy.mean(dat**4,axis=1)
+    kurt=mykurt/mystd**4-3
+    
+    isgood[numpy.abs(skew)>skew_thresh*numpy.median(numpy.abs(skew))]=False
+    isgood[numpy.abs(kurt)>kurt_thresh*numpy.median(numpy.abs(kurt))]=False
+    
 
+
+    return skew,kurt,isgood
 class Tod:
     def __init__(self,info):
         self.info=info.copy()
+        self.jumps=None
+        self.cuts=None
     def lims(self):
         xmin=self.info['dx'].min()
         xmax=self.info['dx'].max()
@@ -573,7 +738,21 @@ class Tod:
     def set_tag(self,tag):
         self.info['tag']=tag
     def copy(self):
-        return Tod(self.info)
+        tod=Tod(self.info)
+        if not(self.jumps is None):
+            try:
+                tod.jumps=self.jumps.copy()
+            except:
+                tod.jumps=self.jumps[:]
+        if not(self.cuts is None):
+            try:
+                tod.cuts=self.cuts.copy()
+            except:
+                tod.cuts=self.cuts[:]
+            tod.cuts=self.cuts[:]
+            
+        return tod
+    
     def set_noise_smoothed_svd(self,fwhm=50):
         u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
         print 'got svd'
@@ -604,8 +783,45 @@ class Tod:
         tmp=self.apply_noise(tmp)
         for map in mapset_out.maps:
             map.tod2map(self,tmp)
-    
+    def set_jumps(self,jumps):
+        self.jumps=jumps
+    def cut_detectors(self,isgood):
+        #cut all detectors not in boolean array isgood
+        isbad=numpy.asarray(1-isgood,dtype='bool')
+        bad_inds=numpy.where(isbad)
+        bad_inds=numpy.fliplr(bad_inds)
+        bad_inds=bad_inds[0]
+        print bad_inds
+        nkeep=numpy.sum(isgood)
+        for key in self.info.keys():
+            if isinstance(self.info[key],numpy.ndarray):
+                self.info[key]=slice_with_copy(self.info[key],isgood)
+        if not(self.jumps is None):
+            for i in bad_inds:
+                print 'i in bad_inds is ',i
+                del(self.jumps[i])
+        if not(self.cuts is None):
+            for i in bad_inds:
+                del(self.cuts[i])
+                
 
+
+def slice_with_copy(arr,ind):
+    if isinstance(arr,numpy.ndarray):
+        myshape=arr.shape
+
+        if len(myshape)==1:
+            ans=numpy.zeros(ind.sum(),dtype=arr.dtype)
+            print ans.shape
+            print ind.sum()
+            ans[:]=arr[ind]
+        else:   
+            mydims=numpy.append(numpy.sum(ind),myshape[1:])
+            print mydims,mydims.dtype
+            ans=numpy.zeros(mydims,dtype=arr.dtype)
+            ans[:,:]=arr[ind,:].copy()
+        return ans
+    return None #should not get here
 class TodVec:
     def __init__(self):
         self.tods=[]
