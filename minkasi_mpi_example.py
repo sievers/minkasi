@@ -9,9 +9,15 @@ plt.ion()
 #find tod files we want to map
 dir='../data/m0717_raw/'
 tod_names=glob.glob(dir+'*.fits')  
+
 #if running MPI, you would want to split up files between processes
-#one easy way is to say:
-#tod_names=tod_names[myid::nproc]
+#one easy way is to say to this:
+tod_names=tod_names[minkasi.myrank::minkasi.nproc]
+#NB - minkasi checks to see if MPI is around, if not
+#it sets rank to 0 an nproc to 1, so this would still
+#run in a non-MPI environment
+
+
 todvec=minkasi.TodVec()
 
 #loop over each file, and read it.
@@ -86,7 +92,10 @@ precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
-mapset_out.maps[0].write('first_map_precon_mpi.fits') #and write out the map as a FITS file
+if minkasi.myrank==0:
+    mapset_out.maps[0].write('first_map_precon_mpi.fits') #and write out the map as a FITS file
+else:
+    print 'not writing map on process ',minkasi.myrank
 
 #if you wanted to run another round of PCG starting from the previous solution, 
 #you could, replacing x0 with mapset_out.  
