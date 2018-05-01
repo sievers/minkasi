@@ -38,6 +38,15 @@ set_nthread_c.argtypes=[ctypes.c_int]
 get_nthread_c=mylib.get_nthread
 get_nthread_c.argtypes=[ctypes.c_void_p]
 
+fill_isobeta_c=mylib.fill_isobeta
+fill_isobeta_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+
+fill_gauss_src_c=mylib.fill_gauss_src
+fill_gauss_src_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+
+
+
+
 def report_mpi():
     if have_mpi:
         print 'myrank is ',myrank,' out of ',nproc
@@ -563,7 +572,7 @@ class CutsVec:
             self.cuts[tod.info['tag']]=Cuts(tod)
             
 class SkyMap:
-    def __init__(self,lims,pixsize,proj='CAR',pad=2):
+    def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None):
         self.wcs=get_wcs(lims,pixsize,proj)
         corners=numpy.zeros([4,2])
         corners[0,:]=[lims[0],lims[2]]
@@ -579,6 +588,15 @@ class SkyMap:
         #print nx,ny
         nx=int(nx)
         ny=int(ny)
+        if not(primes is None):
+            lens=find_good_fft_lens(2*(nx+ny),primes)
+            #print 'nx and ny initially are ',nx,ny
+            nx=lens[lens>=nx].min()
+            ny=lens[lens>=ny].min()
+            #print 'small prime nx and ny are now ',nx,ny
+            self.primes=primes[:]
+        else:
+            self.primes=None
         self.nx=nx
         self.ny=ny
         self.lims=lims
@@ -586,8 +604,9 @@ class SkyMap:
         self.map=numpy.zeros([nx,ny])
         self.proj=proj
         self.pad=pad
+
     def copy(self):
-        newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad)
+        newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes)
         newmap.map[:]=self.map[:]
         return newmap
     def clear(self):
@@ -724,6 +743,113 @@ def find_bad_skew_kurt(dat,skew_thresh=6.0,kurt_thresh=5.0):
 
 
     return skew,kurt,isgood
+
+def timestreams_from_gauss(ra,dec,fwhm,tod,pred=None):
+    if pred is None:
+        pred=numpy.zeros(tod.info['dat_calib'].shape)
+    n=tod.info['dat_calib'].size
+    assert(pred.size==n)
+    npar_src=4 #x,y,sig,amp
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    pp=numpy.zeros(npar_src)
+    pp[0]=ra
+    pp[1]=dec
+    pp[2]=fwhm/numpy.sqrt(8*numpy.log(2))*numpy.pi/180/3600 
+    pp[3]=1
+    fill_gauss_src_c(pp.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)    
+    return pred
+
+def timestreams_from_isobeta_c(params,tod,pred=None):
+    if pred is None:
+        pred=numpy.zeros(tod.info['dat_calib'].shape)
+    n=tod.info['dat_calib'].size
+    assert(pred.size==n)
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    fill_isobeta_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)
+
+    npar_beta=5 #x,y,theta,beta,amp
+    npar_src=4 #x,y,sig,amp
+    nsrc=(params.size-npar_beta)/npar_src
+    for i in range(nsrc):
+        pp=numpy.zeros(npar_src)
+        ioff=i*npar_src+npar_beta
+        pp[:]=params[ioff:(ioff+npar_src)]
+        fill_gauss_src_c(pp.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)
+
+
+    return pred
+def timestreams_from_isobeta(params,tod):
+    npar_beta=5 #x,y,theta,beta,amp
+    npar_src=4 #x,y,sig,amp
+    nsrc=(params.size-npar_beta)/npar_src
+    assert(params.size==nsrc*npar_src+npar_beta)
+    x0=params[0]
+    y0=params[1]
+    theta=params[2]
+    beta=params[3]
+    amp=params[4]
+    cosdec=numpy.cos(y0)
+
+
+    dx=(tod.info['dx']-x0)*cosdec
+    dy=tod.info['dy']-y0
+    rsqr=dx*dx+dy*dy
+    rsqr=rsqr/theta**2
+    #print rsqr.max()
+    pred=amp*(1+rsqr)**(0.5-1.5*beta)
+    for i in range(nsrc):
+        src_x=params[i*npar_src+npar_beta+0]
+        src_y=params[i*npar_src+npar_beta+1]
+        src_sig=params[i*npar_src+npar_beta+2]
+        src_amp=params[i*npar_src+npar_beta+3]
+        
+        dx=tod.info['dx']-src_x
+        dy=tod.info['dy']-src_y
+        rsqr=( (dx*numpy.cos(src_y))**2+dy**2)
+        pred=pred+src_amp*numpy.exp(-0.5*rsqr/src_sig**2)
+
+    return pred
+
+    
+
+def isobeta_src_chisq(params,tods):
+    chisq=0.0
+    for tod in tods.tods:
+        pred=timestreams_from_isobeta_c(params,tod)
+        chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+
+    return chisq
+    npar_beta=5 #x,y,theta,beta,amp
+    npar_src=4 #x,y,sig,amp
+    nsrc=(params.size-npar_beta)/npar_src
+    assert(params.size==nsrc*npar_src+npar_beta)
+    x0=params[0]
+    y0=params[1]
+    theta=params[2]
+    beta=params[3]
+    amp=params[4]
+    cosdec=numpy.cos(y0)
+    chisq=0.0
+    for tod in tods.tods:
+        dx=tod.info['dx']-x0
+        dy=tod.info['dy']-y0
+        rsqr=(dx*cosdec)**2+dy**2
+        pred=amp*(1+rsqr/theta**2)**(0.5-1.5*beta)
+        for i in range(nsrc):
+            src_x=params[i*npar_src+npar_beta+0]
+            src_y=params[i*npar_src+npar_beta+1]
+            src_sig=params[i*npar_src+npar_beta+2]
+            src_amp=params[i*npar_src+npar_beta+3]
+
+            dx=tod.info['dx']-src_x
+            dy=tod.info['dy']-src_y
+            rsqr=( (dx*numpy.cos(src_y))**2+dy**2)
+            pred=pred+src_amp*numpy.exp(-0.5*rsqr/src_sig**2)
+        chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+    return chisq
+
 class Tod:
     def __init__(self,info):
         self.info=info.copy()
@@ -804,7 +930,12 @@ class Tod:
             for i in bad_inds:
                 del(self.cuts[i])
                 
-
+    def timestream_chisq(self,dat=None):
+        if dat is None:
+            dat=self.info['dat_calib']
+        dat_filt=self.apply_noise(dat)
+        chisq=numpy.sum(dat_filt*dat)
+        return chisq
 
 def slice_with_copy(arr,ind):
     if isinstance(arr,numpy.ndarray):
@@ -916,6 +1047,7 @@ def read_tod_from_fits(fname,hdu=1):
     dat['dat_calib']=numpy.zeros([ndet,nsamp],dtype='float64') #go to double because why not
     dat_calib=numpy.reshape(dat_calib,[ndet,nsamp])
     dat['dat_calib'][:]=dat_calib[:]
+    dat['fname']=fname
     f.close()
     return dat
 
@@ -1000,3 +1132,6 @@ def get_wcs(lims,pixsize,proj='CAR'):
         return w
     print 'unknown projection type ',proj,' in get_wcs.'
     return None
+
+
+
