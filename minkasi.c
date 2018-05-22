@@ -80,3 +80,44 @@ void get_nthread(int *nthread)
   *nthread=omp_get_num_threads();
 
 }
+
+/*--------------------------------------------------------------------------------*/
+void fill_gauss_src(double *param, double *dx, double *dy, double *dat, int n)
+{
+  double x0=param[0];
+  double y0=param[1];
+  double sig=param[2];
+  double fac=-0.5/sig/sig;
+  double amp=param[3];
+  double cosdec=cos(y0);
+  for (int i=0;i<n;i++) {
+    double delx=(x0-dx[i])*cosdec;
+    double dely=y0-dy[i];
+    double myarg=(delx*delx+dely*dely)*fac;
+    if (myarg>-20) {
+      //dat[i]+=amp*exp((delx*delx+dely*dely)*fac);
+      dat[i]+=amp*exp(myarg);
+    }
+  }
+}
+/*--------------------------------------------------------------------------------*/
+void fill_isobeta(double *param, double *dx, double *dy, double *dat, int n)
+{
+  double x0=param[0];
+  double y0=param[1];
+  double theta=param[2];
+  double theta_inv=1.0/theta;
+  theta_inv=theta_inv*theta_inv;
+  double beta=param[3];
+  double amp=param[4];
+  double cosdec=cos(y0);
+  double mypow=0.5-1.5*beta;
+#pragma omp parallel for
+  for (int i=0;i<n;i++) {
+    double delx=(x0-dx[i])*cosdec;
+    double dely=y0-dy[i];
+    double rr=1+theta_inv*(delx*delx+dely*dely);
+    dat[i]+=pow(rr,mypow)*amp;
+  }
+}
+/*--------------------------------------------------------------------------------*/
