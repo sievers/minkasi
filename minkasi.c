@@ -29,6 +29,7 @@ void tod2map_omp(double *map, double *dat, int ndet, int ndata, int *pix, int np
     #pragma omp critical
     for (long i=0;i<npix;i++)
       map[i]+=mymap[i];
+    free(mymap);
   }
 }
 
