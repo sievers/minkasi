@@ -422,8 +422,12 @@ class SkyMap:
         #print pix_corners
         if pix_corners.min()<0.5:
             print 'corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.'
-        nx=(pix_corners[:,0].max()+pad)
-        ny=(pix_corners[:,1].max()+pad)
+        if True: #try a patch to fix the wcs xxx
+            nx=(pix_corners[:,0].max()+pad)
+            ny=(pix_corners[:,1].max()+pad)
+        else:
+            nx=(pix_corners[:,0].max()+pad)
+            ny=(pix_corners[:,1].max()+pad)
         #print nx,ny
         nx=int(nx)
         ny=int(ny)
@@ -485,10 +489,14 @@ class SkyMap:
     def dot(self,map):
         tot=numpy.sum(self.map*map.map)
         return tot
-
+        
     def write(self,fname='map.fits'):
         header=self.wcs.to_header()
-        hdu=fits.PrimaryHDU(self.map,header=header)
+        if True: #try a patch to fix the wcs xxx 
+            tmp=self.map.transpose().copy()
+            hdu=fits.PrimaryHDU(tmp,header=header)
+        else:
+            hdu=fits.PrimaryHDU(self.map,header=header)
         try:
             hdu.writeto(fname,overwrite=True)
         except:
