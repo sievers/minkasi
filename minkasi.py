@@ -671,6 +671,89 @@ class SkyMap:
     def mpi_reduce(self):
         if have_mpi:
             self.map=comm.allreduce(self.map)
+class Cuts:
+    def __init__(self,tod,do_add=True):
+        #if class(tod)==Cuts: #for use in copy
+        if isinstance(tod,Cuts):
+            self.map=tod.map.copy()
+            self.bad_inds=tod.bad_inds.copy()
+            self.namps=tod.nsamp
+            self.do_add=tod.do_add
+            return
+        bad_inds=numpy.where(tod.info['bad_samples'])
+        dims=tod.info['dat_calib'].shape
+        bad_inds=numpy.ravel_multi_index(bad_inds,dims)
+        self.nsamp=len(bad_inds)
+        self.inds=bad_inds
+        self.map=numpy.zeros(self.nsamp)
+        self.do_add=do_add
+    def clear(self):
+        self.map[:]=0
+    def axpy(self,cuts,a):
+        self.map[:]=self.map[:]+a*cuts.map[:]
+    def map2tod(self,tod,dat):
+        dd=numpy.ravel(dat)
+        if self.do_add:
+            dd[self.inds]=self.map
+        else:
+            dd[self.inds]+=self.map
+    def tod2map(self,tod,dat):
+        dd=numpy.ravel(dat)
+        self.map[:]=dd[self.inds]
+    def dot(self,cuts):
+        tot=numpy.dot(self.map,cuts.map)
+        return tot
+    def copy(self):
+        return Cuts(self)
+    
+class CutsVecs:
+    def __init__(self,todvec,do_add=True):
+        #if class(todvec)==CutsVecs: #for use in copy
+        if isinstance(todvec,CutsVecs):
+            self.cuts=[None]*todvec.ntod
+            self.ntod=todvec.ntod
+            for i in range(todvec.ntod):
+                self.cuts[i]=todvec.cuts[i].copy()
+            return
+        #if class(todvec)!=TodVec:
+        if not(isinstance(todvec,TodVec)):
+            print 'error in CutsVecs init, must pass in a todvec class.'
+            return None
+        self.cuts=[None]*todvec.ntod
+        for i in range(todvec.ntod):
+            tod=todvec.tods[i]
+            if tod.info['tag']!=i:
+                print 'warning, tag mismatch in CutsVecs.__init__'
+                print 'continuing, but you should be careful...'
+            if iskey(tod.info['bad_samples']):
+                self.cuts[i]=Cuts(tod,do_add)
+    def copy(self):
+        return CutsVecs(self)
+    def clear(self):
+        for cuts in self.cuts:
+            cuts.clear()
+    def axpy(self,cutsvec,a):
+        assert(self.ntod==cutsvec.ntod)
+        for i in range(ntod):
+            self.cuts[i].axpy(cutsvec.cuts[i],a)
+    def map2tod(self,todvec):
+        assert(self.ntod==todvec.ntod)
+        for i in range(self.ntod):
+            self.cuts[i].map2tod(todvec.tods[i])
+    def tod2map(self,todvec,dat):
+        assert(self.ntod==todvec.ntod)
+        assert(self.ntod==dat.ntod)
+        for i in range(self.ntod):
+            self.cuts[i].tod2map(todvec.tods[i],dat.tods[i])
+    def dot(self,cutsvec):
+        tot=0.0
+        assert(self.ntod==cutsvec.ntod)
+        for i in range(self.ntod):
+            tot+=self.cuts[i].dot(cutsvec.cuts[i])
+        return tot
+        
+                                 
+            
 class SkyMapCar:
     def __init__(self,lims,pixsize):
         try:
