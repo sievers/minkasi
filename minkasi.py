@@ -12,7 +12,10 @@ try:
     comm=MPI.COMM_WORLD
     myrank = comm.Get_rank()
     nproc=comm.Get_size()
-    have_mpi=True
+    if nproc>1:
+        have_mpi=True
+    else:
+        have_mpi=False
 except:
     have_mpi=False
     myrank=0
@@ -24,6 +27,9 @@ tod2map_simple_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c
 
 tod2map_omp_c=mylib.tod2map_omp
 tod2map_omp_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
+
+tod2map_cached_c=mylib.tod2map_cached
+tod2map_cached_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
 
 map2tod_simple_c=mylib.map2tod_simple
 map2tod_simple_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
@@ -71,6 +77,11 @@ def tod2map_omp(map,dat,ipix):
     ndet=dat.shape[0]
     ndata=dat.shape[1]
     tod2map_omp_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.size)
+
+def tod2map_cached(map,dat,ipix):
+    ndet=dat.shape[0]
+    ndata=dat.shape[1]
+    tod2map_cached_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.shape[1])
     
 
 def map2tod(dat,map,ipix,do_add=False,do_omp=True):
@@ -460,9 +471,13 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
     t2=time.time()
     for iter in range(maxiter):
         if myrank==0:
-            print iter,zr,t2-t1
+            if iter>0:
+                print iter,zr,t2-t1,t3-t2,t3-t1
+            else:
+                print iter,zr,t2-t1
         t1=time.time()
         Ap=tods.dot(p)
+        t2=time.time()
         pAp=p.dot(Ap)
         alpha=zr/pAp
         try:
@@ -493,7 +508,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
         r=r_new
         zr=zr_new
         x=x_new
-        t2=time.time()
+        t3=time.time()
     return x
 
 def apply_noise(tod,dat=None):
@@ -554,6 +569,13 @@ class Mapset:
         for i in range(self.nmap):
             mm.maps[i]=self.maps[i]*mapset.maps[i]
         return mm
+    def get_caches(self):
+        for i in range(self.nmap):
+            self.maps[i].get_caches()
+    def clear_caches(self):
+        for i in range(self.nmap):
+            self.maps[i].clear_caches()
+
     def mpi_reduce(self):
         if have_mpi:
             for map in self.maps:
@@ -608,7 +630,14 @@ class SkyMap:
         self.map=numpy.zeros([nx,ny])
         self.proj=proj
         self.pad=pad
-
+        self.caches=None
+    def get_caches(self):
+        npix=self.nx*self.ny
+        nthread=get_nthread()
+        self.caches=numpy.zeros([nthread,npix])
+    def clear_caches(self):
+        self.map[:]=numpy.reshape(numpy.sum(self.caches,axis=0),self.map.shape)
+        self.caches=None
     def copy(self):
         newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes)
         newmap.map[:]=self.map[:]
@@ -643,10 +672,13 @@ class SkyMap:
     def tod2map(self,tod,dat,do_add=True,do_omp=True):
         if do_add==False:
             self.clear()
-        if do_omp:
-            tod2map_omp(self.map,dat,tod.info['ipix'])
+        if not(self.caches is None):
+            tod2map_cached(self.caches,dat,tod.info['ipix'])
         else:
-            tod2map_simple(self.map,dat,tod.info['ipix'])
+            if do_omp:
+                tod2map_omp(self.map,dat,tod.info['ipix'])
+            else:
+                tod2map_simple(self.map,dat,tod.info['ipix'])
 
     def r_th_maps(self):
         xvec=numpy.arange(self.nx)
@@ -992,10 +1024,27 @@ class TodVec:
         for tod in self.tods:
             ipix=map.get_pix(tod)
             tod.info['ipix']=ipix
-    def dot(self,mapset,mapset2=None,report_times=False):
+    def dot_cached(self,mapset,mapset2=None):
+        nthread=get_nthread()
+        mapset2.get_caches()
+        for i in range(self.ntod):
+            tod=self.tods[i]
+            tod.dot(mapset,mapset2)
+        mapset2.clear_caches()
+        if have_mpi:
+            mapset2.mpi_reduce()
+
+        return mapset2
+
+    def dot(self,mapset,mapset2=None,report_times=False,cache_maps=True):
         if mapset2 is None:
             mapset2=mapset.copy()
             mapset2.clear()
+
+        if cache_maps:
+            mapset2=self.dot_cached(mapset,mapset2)
+            return mapset2
+            
 
         times=numpy.zeros(self.ntod)
         #for tod in self.tods:

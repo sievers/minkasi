@@ -15,7 +15,18 @@ void tod2map_simple(double *map, double *dat, int ndet, int ndata, int *pix)
 }
 
 /*--------------------------------------------------------------------------------*/
-
+void tod2map_cached(double *maps, double *dat, int ndet, int ndata, int *ipix, int npix)
+{
+#pragma omp parallel
+  {
+    double *mymap=omp_get_thread_num()*npix+maps;
+    long nn=ndet*ndata;
+#pragma omp for
+    for (int i=0;i<nn;i++)
+      mymap[ipix[i]]+=dat[i];
+  }
+}
+/*--------------------------------------------------------------------------------*/
 void tod2map_omp(double *map, double *dat, int ndet, int ndata, int *pix, int npix)
 {
 
