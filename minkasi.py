@@ -1001,7 +1001,36 @@ class Tod:
             tod.cuts=self.cuts[:]
             
         return tod
-    
+    def set_noise_cm_white(self):
+        u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+        ndet=len(s)
+        ind=numpy.argmax(s)
+        mode=numpy.zeros(ndet)
+        mode[:]=u[:,0]
+        pred=numpy.outer(mode,v[0,:])        
+        dat_clean=self.info['dat_calib']-pred
+        myvar=numpy.std(dat_clean,1)**2
+        self.info['v']=mode
+        self.info['mywt']=1.0/myvar
+        self.info['noise']='cm_white'
+        
+    def apply_noise_cm_white(self,dat=None):
+        if dat is None:
+            dat=self.info['dat_calib']
+
+        mat=numpy.dot(self.info['v'],numpy.diag(self.info['mywt']))
+        lhs=numpy.dot(self.info['v'],mat.transpose())
+        rhs=numpy.dot(mat,dat)
+        #if len(lhs)>1:
+        if isinstance(lhs,numpy.ndarray):
+            cm=numpy.dot(numpy.linalg.inv(lhs),rhs)
+        else:
+            cm=rhs/lhs
+        dd=dat-numpy.outer(self.info['v'],cm)
+        tmp=numpy.repeat([self.info['mywt']],len(cm),axis=0).transpose()
+        dd=dd*tmp
+        return dd
+        
     def set_noise_smoothed_svd(self,fwhm=50):
         u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
         print 'got svd'
@@ -1013,11 +1042,14 @@ class Tod:
         dat_trans=pyfftw.fft_r2r(dat_rot)
         spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
         self.info['mywt']=1.0/spec_smooth
+        self.info['noise']='smoothed_svd'
         #return dat_rot
         
     def apply_noise(self,dat=None):
         if dat is None:
             dat=self.info['dat_calib']
+        if self.info['noise']=='cm_white':
+            return self.apply_noise_cm_white(dat)
         dat_rot=numpy.dot(self.info['v'],dat)
         datft=pyfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
