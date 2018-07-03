@@ -1318,3 +1318,121 @@ def get_wcs(lims,pixsize,proj='CAR'):
 
 
 
+
+def fit_linear_ps_uncorr(dat,vecs,tol=1e-3,guess=None,max_iter=15):
+    if guess is None:
+        lhs=numpy.dot(vecs,vecs.transpose())
+        rhs=numpy.dot(vecs,dat**2)
+        guess=numpy.dot(numpy.linalg.inv(lhs),rhs) 
+        guess=0.5*guess #scale down since we're less likely to run into convergence issues if we start low
+        #print guess
+    fitp=guess.copy()
+    converged=False
+    np=len(fitp)
+    iter=0
+    
+    grad_tr=numpy.zeros(np)
+    grad_chi=numpy.zeros(np)
+    curve=numpy.zeros([np,np])
+    datsqr=dat*dat
+    while (converged==False):
+        iter=iter+1
+        C=numpy.dot(fitp,vecs)
+        Cinv=1.0/C
+        for i in range(np):
+            grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+            grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
+            for j in range(i,np):
+                #curve[i,j]=-0.5*numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #data-only curvature
+                #curve[i,j]=-0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:]) #Fisher curvature
+                curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #exact
+                curve[j,i]=curve[i,j]
+        grad=grad_chi+grad_tr
+        curve_inv=numpy.linalg.inv(curve)
+        errs=numpy.diag(curve_inv)
+        dp=numpy.dot(grad,curve_inv)
+        fitp=fitp-dp
+        frac_shift=dp/errs
+        #print dp,errs,frac_shift
+        if numpy.max(numpy.abs(frac_shift))<tol:
+            print 'successful convergence after ',iter,' iterations with error estimate ',numpy.max(numpy.abs(frac_shift))
+            converged=True
+        if iter==max_iter:
+            print 'not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',numpy.max(numpy.abs(frac_shift))
+            converged=True
+
+    return fitp
+def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
+    datft=pyfftw.fft_r2r(dat)
+    n=len(datft)
+
+    dnu=0.5/(len(dat)*dt) #coefficient should reflect the type of fft you did...
+    nu=dnu*numpy.arange(n)
+    isgood=(nu>nu_min)&(nu<nu_max)
+    datft=datft[isgood]
+    nu=nu[isgood]
+    n=len(nu)
+    vecs=numpy.zeros([2,n])
+    vecs[0,:]=1.0 #white noise
+    vecs[1,:]=nu**ind
+    guess=fit_linear_ps_uncorr(datft,vecs)
+
+    rat=vecs[1,:]*guess[1]/(vecs[0,:]*guess[0])
+    my_ind=numpy.max(numpy.where(rat>1)[0])
+    nu_ref=numpy.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
+    #nu_ref=0.2*nu[my_ind] #WAG as to a sensible frequency pivot point
+    print 'knee is roughly at ',nu[my_ind],nu_ref
+
+    #model = guess[1]*nu^ind+guess[0]
+    #      = guess[1]*(nu/nu_ref*nu_ref)^ind+guess[0]
+    #      = guess[1]*(nu_ref)^in*(nu/nu_ref)^ind+guess[0]
+
+    nu_scale=nu/nu_ref
+    guess_scale=guess.copy()
+    guess_scale[1]=guess[1]*(nu_ref**ind)
+    print 'guess is ',guess
+    print 'guess_scale is ',guess_scale
+    C_scale=guess_scale[0]+guess_scale[1]*(nu_scale**ind)
+    
+
+    fitp=numpy.zeros(3)
+    fitp[0:2]=guess_scale
+    fitp[2]=ind
+
+    np=3
+    vecs=numpy.zeros([np,n])
+    vecs[0,:]=1.0
+    lognu=numpy.log(nu_scale)
+    curve=numpy.zeros([np,np])
+    grad_chi=numpy.zeros(np)
+    grad_tr=numpy.zeros(np)
+    datsqr=datft**2
+    for iter in range(20):
+        vec=nu_scale**fitp[2]
+        C=fitp[0]+fitp[1]*vec
+        Cinv=1.0/C
+        vecs[1,:]=vec
+        vecs[2,:]=fitp[1]*lognu*vec
+        for i in range(np):
+            grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+            grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
+            for j in range(i,np):
+                curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+                curve[j,i]=curve[i,j]
+        grad=grad_chi+grad_tr
+        curve_inv=numpy.linalg.inv(curve)
+        errs=numpy.diag(curve_inv)
+        dp=numpy.dot(grad,curve_inv)
+        fitp=fitp-dp
+        frac_shift=dp/errs
+        print fitp,errs,frac_shift
+
+
+    #C=numpy.dot(guess,vecs)
+    print 'mean diff is ',numpy.mean(numpy.abs(C_scale-C))
+    #return datft,vecs,nu,C
+    return fitp,nu_ref,C
+    
+    
+
+    
