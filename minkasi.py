@@ -1185,20 +1185,31 @@ class TodVec:
         
         if have_mpi:
             mapset.mpi_reduce()
-def read_tod_from_fits(fname,hdu=1):
+def read_tod_from_fits(fname,hdu=1,branch=None):
     f=pyfits.open(fname)
     raw=f[hdu].data
     pixid=raw['PIXID']
     dets=numpy.unique(pixid)
     ndet=len(dets)
     nsamp=len(pixid)/len(dets)
-    print 'nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname
+    if True:
+        ff=180/numpy.pi
+        xmin=raw['DX'].min()*ff
+        xmax=raw['DX'].max()*ff
+        ymin=raw['DY'].min()*ff
+        ymax=raw['DY'].max()*ff
+        print 'nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname, 'with lims ',xmin,xmax,ymin,ymax
+    else:
+        print 'nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname
     #print raw.names
     dat={}
     #this bit of odd gymnastics is because a straightforward reshape doesn't seem to leave the data in
     #memory-contiguous order, which causes problems down the road
     #also, float32 is a bit on the edge for pointing, so cast to float64
     dx=raw['DX']
+    if not(branch is None):
+        bb=branch*numpy.pi/180.0
+        dx[dx>bb]=dx[dx>bb]-2*numpy.pi
     #dat['dx']=numpy.zeros([ndet,nsamp],dtype=type(dx[0]))
     dat['dx']=numpy.zeros([ndet,nsamp],dtype='float64')
     dat['dx'][:]=numpy.reshape(dx,[ndet,nsamp])[:]
