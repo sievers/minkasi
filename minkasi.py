@@ -1066,8 +1066,14 @@ class Tod:
         dd=dd*tmp
         return dd
         
-    def set_noise_smoothed_svd(self,fwhm=50):
-        u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+    def set_noise_smoothed_svd(self,fwhm=50,func=None,pars=None):
+        '''If func comes in as not empy, assume we can call func(pars,tod) to get a predicted model for the tod that
+        we subtract off before estimating the noise.'''
+        if func is None:
+            u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+        else:
+            tmp=func(pars,self)
+            u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
         print 'got svd'
         ndet=s.size
         n=self.info['dat_calib'].shape[1]
@@ -1457,6 +1463,30 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
     #return datft,vecs,nu,C
     return fitp,nu_ref,C
     
+def get_derivs_tod_isosrc(pars,tod):
+    np_src=4
+    np_iso=5
+    nsrc=(len(pars)-np_iso)/np_src
+
+    fitp_iso=numpy.zeros(np_iso)
+    fitp_iso[:]=pars[:np_iso]
+    #print 'fitp_iso is ',fitp_iso
+    derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
+
+    nn=tod.info['dat_calib'].size
+    derivs=numpy.reshape(derivs_iso,[np_iso,nn])
+    pred=f_iso
+
+    for ii in range(nsrc):
+        fitp_src=numpy.zeros(np_src)
+        istart=np_iso+ii*np_src
+        fitp_src[:]=pars[istart:istart+np_src]
+        derivs_src,f_src=derivs_from_gauss_c(fitp_src,tod)
+        pred=pred+f_src
+        derivs_src_tmp=numpy.reshape(derivs_src,[np_src,nn])
+        derivs=numpy.append(derivs,derivs_src_tmp,axis=0)
+    return pred,derivs
+
 def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
     np_src=4
     np_iso=5
@@ -1512,3 +1542,84 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
         return grad,grad2,curve
 
     
+def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
+    '''Fit a model to timestreams.  func should return the model and the derivatives evaluated at 
+    the parameter values in pars.  to_fit says which parameters to float.  0 to fix, 1 to float, and anything
+    larger than 1 is expected to vary together (e.g. shifting a TOD pointing mode you could put in a 2 for all RA offsets 
+    and a 3 for all dec offsets.).  to_scale will normalize
+    by the input value, so one can do things like keep relative fluxes locked together.'''
+    
+
+    if not(to_fit is None):
+        #print 'working on creating rotmat'
+        to_fit=numpy.asarray(to_fit,dtype='int64')
+        inds=numpy.unique(to_fit)
+        nfloat=numpy.sum(to_fit==1)
+        ncovary=numpy.sum(inds>1)
+        nfit=nfloat+ncovary
+        rotmat=numpy.zeros([len(pars),nfit])
+
+        solo_inds=numpy.where(to_fit==1)[0]
+        icur=0
+        for ind in solo_inds:
+            rotmat[ind,icur]=1.0
+            icur=icur+1
+        if ncovary>0:
+            group_inds=inds[inds>1]
+            for ind in group_inds:
+                ii=numpy.where(to_fit==ind)[0]
+                rotmat[ii,icur]=1.0
+                icur=icur+1
+
+        
+    iter=0
+    converged=False
+    pp=pars.copy()
+    while (converged==False) and (iter<maxiter):
+        curve=0.0
+        grad=0.0
+        chisq=0.0
+        
+        for tod in tods.tods:
+            sz=tod.info['dat_calib'].shape
+            pred,derivs=func(pp,tod)
+            if not (to_fit is None):
+                derivs=numpy.dot(rotmat.transpose(),derivs)
+            derivs_filt=0*derivs
+            tmp=numpy.zeros(sz)
+            np=derivs.shape[0]
+            nn=derivs.shape[1]
+            delt=tod.info['dat_calib']-pred
+            delt_filt=tod.apply_noise(delt)
+            for i in range(np):
+                tmp[:,:]=numpy.reshape(derivs[i,:],sz)
+                tmp_filt=tod.apply_noise(tmp)
+                derivs_filt[i,:]=numpy.reshape(tmp_filt,nn)
+            delt=numpy.reshape(delt,nn)
+            delt_filt=numpy.reshape(delt_filt,nn)
+            grad1=numpy.dot(derivs,delt_filt)
+            grad2=numpy.dot(derivs_filt,delt)
+            grad=grad+0.5*(grad1+grad2)
+            curve=curve+numpy.dot(derivs,derivs_filt.transpose())
+            chisq=chisq+numpy.dot(delt,delt_filt)
+        if iter==0:
+            chi_ref=chisq
+        curve=0.5*(curve+curve.transpose())
+        curve_inv=numpy.linalg.inv(curve)
+        errs=numpy.sqrt(numpy.diag(curve_inv))
+        shifts=numpy.dot(curve_inv,grad)
+        #print errs,shifts
+        conv_fac=numpy.max(numpy.abs(shifts/errs))
+        if conv_fac<tol:
+            print 'We have converged.'
+            converged=True
+        if not (to_fit is None):
+            shifts=numpy.dot(rotmat,shifts)
+        if not(scale_facs is None):
+            if iter<len(scale_facs):
+                shifts=shifts*scale_facs[iter]
+        print 'iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,converged
+        pp=pp+shifts
+
+        iter=iter+1
+    return pp,chisq
