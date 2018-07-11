@@ -47,6 +47,12 @@ get_nthread_c.argtypes=[ctypes.c_void_p]
 fill_isobeta_c=mylib.fill_isobeta
 fill_isobeta_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
 
+fill_isobeta_derivs_c=mylib.fill_isobeta_derivs
+fill_isobeta_derivs_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+
+fill_gauss_derivs_c=mylib.fill_gauss_derivs
+fill_gauss_derivs_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+
 fill_gauss_src_c=mylib.fill_gauss_src
 fill_gauss_src_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
 
@@ -903,6 +909,35 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
 
 
     return pred
+
+def derivs_from_isobeta_c(params,tod):
+    npar=5;
+    n=tod.info['dat_calib'].size
+    sz_deriv=numpy.append(npar,tod.info['dat_calib'].shape)
+    
+    pred=numpy.zeros(tod.info['dat_calib'].shape)
+    derivs=numpy.zeros(sz_deriv)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    fill_isobeta_derivs_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,derivs.ctypes.data,n)
+
+    return derivs,pred
+
+def derivs_from_gauss_c(params,tod):
+    npar=4
+    n=tod.info['dat_calib'].size
+    sz_deriv=numpy.append(npar,tod.info['dat_calib'].shape)
+    
+    pred=numpy.zeros(tod.info['dat_calib'].shape)
+    derivs=numpy.zeros(sz_deriv)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    fill_gauss_derivs_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,derivs.ctypes.data,n)
+
+    return derivs,pred
+
 def timestreams_from_isobeta(params,tod):
     npar_beta=5 #x,y,theta,beta,amp
     npar_src=4 #x,y,sig,amp
@@ -1422,6 +1457,58 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
     #return datft,vecs,nu,C
     return fitp,nu_ref,C
     
+def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
+    np_src=4
+    np_iso=5
+    nsrc=(len(pars)-np_iso)/np_src
+
+    fitp_iso=numpy.zeros(np_iso)
+    fitp_iso[:]=pars[:np_iso]
+    #print 'fitp_iso is ',fitp_iso
+    derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
+    derivs_iso_filt=0*derivs_iso
+    tmp=0*tod.info['dat_calib']
+    nn=tod.info['dat_calib'].size
+    for i in range(np_iso):
+        tmp[:,:]=derivs_iso[i,:,:]
+        derivs_iso_filt[i,:,:]=tod.apply_noise(tmp)
+    derivs=numpy.reshape(derivs_iso,[np_iso,nn])
+    derivs_filt=numpy.reshape(derivs_iso_filt,[np_iso,nn])
+    pred=f_iso
+
+    for ii in range(nsrc):
+        fitp_src=numpy.zeros(np_src)
+        istart=np_iso+ii*np_src
+        fitp_src[:]=pars[istart:istart+np_src]
+        #print 'fitp_src is ',fitp_src
+        derivs_src,f_src=derivs_from_gauss_c(fitp_src,tod)
+        pred=pred+f_src
+        derivs_src_filt=0*derivs_src
+        for i in range(np_src):
+            tmp[:,:]=derivs_src[i,:,:]
+            derivs_src_filt[i,:,:]=tod.apply_noise(tmp)
+        derivs_src_tmp=numpy.reshape(derivs_src,[np_src,nn])
+        derivs=numpy.append(derivs,derivs_src_tmp,axis=0)
+        derivs_src_tmp=numpy.reshape(derivs_src_filt,[np_src,nn])
+        derivs_filt=numpy.append(derivs_filt,derivs_src_tmp,axis=0)
+
+    delt_filt=tod.apply_noise(tod.info['dat_calib']-pred)
+    delt_filt=numpy.reshape(delt_filt,nn)
+
+    dvec=numpy.reshape(tod.info['dat_calib'],nn)
+    predvec=numpy.reshape(pred,nn)
+    delt=dvec-predvec
     
+
+
+
+    grad=numpy.dot(derivs_filt,delt)
+    grad2=numpy.dot(derivs,delt_filt)
+    curve=numpy.dot(derivs_filt,derivs.transpose())
+    #return pred
+    if return_vecs:
+        return grad,grad2,curve,derivs,derivs_filt,delt,delt_filt
+    else:
+        return grad,grad2,curve
 
     

@@ -132,3 +132,76 @@ void fill_isobeta(double *param, double *dx, double *dy, double *dat, int n)
   }
 }
 /*--------------------------------------------------------------------------------*/
+void fill_gauss_derivs(double *param, double *dx, double *dy, double *dat, double *derivs, int n)
+{
+  double x0=param[0];
+  double y0=param[1];
+  double sig=param[2];
+  double amp=param[3];
+
+  double minus_2_sig_inv=-2.0/sig;
+  double half_sig_minus_2=-0.5/sig/sig;
+
+  double cosdec=cos(y0);
+  double cosinv=1/cosdec;
+  double sindec=sin(y0);
+#pragma omp parallel for
+  for (int i=0;i<n;i++) {
+    double delx=(x0-dx[i])*cosdec;
+    double dely=y0-dy[i];
+    double arg=(delx*delx+dely*dely)*half_sig_minus_2;
+    double myexp=exp(arg);
+    double f=myexp*amp;
+    double dfdx=f*delx*half_sig_minus_2*cosdec*2;
+    double dfdy=f*(dely-delx*delx*sindec*cosinv)*half_sig_minus_2*2;
+    double dfdsig=f*arg*minus_2_sig_inv;
+    dat[i]=f;
+    derivs[i]=dfdx;
+    derivs[i+n]=dfdy;
+    derivs[i+2*n]=dfdsig;
+    derivs[i+3*n]=myexp;
+
+  }
+}
+
+/*--------------------------------------------------------------------------------*/
+
+void fill_isobeta_derivs(double *param, double *dx, double *dy, double *dat, double *derivs, int n)
+{
+
+  double x0=param[0];
+  double y0=param[1];
+  double theta=param[2];
+  double theta_inv=1.0/theta;
+  double theta_inv_sqr=theta_inv*theta_inv;
+  double beta=param[3];
+  double amp=param[4];
+  double cosdec=cos(y0);
+  double cosdec_inv=1.0/cosdec;
+  double sindec=sin(y0);
+  double mypow=0.5-1.5*beta;
+#pragma omp parallel for
+  for (int i=0;i<n;i++) {
+    double delx=(x0-dx[i])*cosdec;
+    double dely=y0-dy[i];
+    double gg=theta_inv_sqr*(delx*delx+dely*dely);
+    double g=1+gg;
+    double dfda=pow(g,mypow);
+    double f=dfda*amp;
+    double dfdbeta=-1.5*log(g)*f;
+    double dfdg=f*(0.5-1.5*beta)/g;
+    double dfdx=dfdg*2*cosdec*delx*theta_inv_sqr;
+    double dfdy=dfdg*2*(dely-sindec*cosdec_inv*delx*delx)*theta_inv_sqr;
+    double dfdtheta=dfdg*(-2*gg*theta_inv);
+    
+
+    dat[i]=f;
+    derivs[i]=dfdx;
+    derivs[i+n]=dfdy;
+    derivs[i+2*n]=dfdtheta;
+    derivs[i+3*n]=dfdbeta;
+    derivs[i+4*n]=dfda;
+    
+  }
+}
+/*--------------------------------------------------------------------------------*/
