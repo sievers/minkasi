@@ -1474,10 +1474,16 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
     #return datft,vecs,nu,C
     return fitp,nu_ref,C
     
-def get_derivs_tod_isosrc(pars,tod):
+def get_derivs_tod_isosrc(pars,tod,niso=None):
     np_src=4
     np_iso=5
-    nsrc=(len(pars)-np_iso)/np_src
+    #nsrc=(len(pars)-np_iso)/np_src
+    np=len(pars)
+    if niso is None:
+        niso=(np%np_src)/(np_iso-np_src)
+    nsrc=(np-niso*np_iso)/np_src
+    #print nsrc,niso
+    
 
     fitp_iso=numpy.zeros(np_iso)
     fitp_iso[:]=pars[:np_iso]
@@ -1553,6 +1559,138 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
         return grad,grad2,curve
 
     
+
+def get_timestream_chisq_from_func(func,pars,tods):
+    chisq=0.0
+    for tod in tods.tods:
+        pred,derivs=func(pars,tod)
+        delt=tod.info['dat_calib']-pred
+        delt_filt=tod.apply_noise(delt)
+        delt_filt[:,0]=delt_filt[:,0]*0.5
+        delt_filt[:,-1]=delt_filt[:,-1]*0.5
+        chisq=chisq+numpy.sum(delt*delt_filt)
+    return chisq
+
+def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
+    chisq=0.0
+    grad=0.0
+    curve=0.0
+    #print 'inside func, len(tods) is ',len(tods.tods),len(pars)
+    for tod in tods.tods:
+        #print 'type of tod is ',type(tod)
+        pred,derivs=func(pars,tod)
+        if not(rotmat is None):
+            derivs=numpy.dot(rotmat.transpose(),derivs)
+        derivs_filt=0*derivs
+        sz=tod.info['dat_calib'].shape
+        tmp=numpy.zeros(sz)
+        np=derivs.shape[0]
+        nn=derivs.shape[1]
+        delt=tod.info['dat_calib']-pred
+        delt_filt=tod.apply_noise(delt)
+        #delt_filt[:,1:-1]=delt_filt[:,1:-1]*2
+        delt_filt[:,0]=delt_filt[:,0]*0.5
+        delt_filt[:,-1]=delt_filt[:,-1]*0.5
+        for i in range(np):
+            tmp[:,:]=numpy.reshape(derivs[i,:],sz)
+            tmp_filt=tod.apply_noise(tmp)
+            #tmp_filt[:,1:-1]=tmp_filt[:,1:-1]*2
+            tmp_filt[:,0]=tmp_filt[:,0]*0.5
+            tmp_filt[:,-1]=tmp_filt[:,-1]*0.5
+            derivs_filt[i,:]=numpy.reshape(tmp_filt,nn)
+        delt=numpy.reshape(delt,nn)
+        delt_filt=numpy.reshape(delt_filt,nn)
+        grad1=numpy.dot(derivs,delt_filt)
+        grad2=numpy.dot(derivs_filt,delt)
+        #print 'grad error is ',numpy.mean(numpy.abs((grad1-grad2)/(0.5*(numpy.abs(grad1)+numpy.abs(grad2)))))
+        grad=grad+0.5*(grad1+grad2)
+        curve=curve+numpy.dot(derivs,derivs_filt.transpose())
+        chisq=chisq+numpy.dot(delt,delt_filt)
+    curve=0.5*(curve+curve.transpose())
+    return chisq,grad,curve
+
+def update_lamda(lamda,success):
+    if success:
+        if lamda<0.2:
+            return 0
+        else:
+            return lamda/numpy.sqrt(2)
+    else:
+        if lamda==0.0:
+            return 1.0
+        else:
+            return 2.0*lamda
+        
+def invscale(mat):
+    vec=1/numpy.sqrt(numpy.diag(mat))
+    mm=numpy.outer(vec,vec)
+    mat=mm*mat
+    #ee,vv=numpy.linalg.eig(mat)
+    #print 'rcond is ',ee.max()/ee.min(),vv[:,numpy.argmin(ee)]
+    return mm*numpy.linalg.inv(mat)
+def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
+    if not(to_fit is None):
+        #print 'working on creating rotmat'
+        to_fit=numpy.asarray(to_fit,dtype='int64')
+        inds=numpy.unique(to_fit)
+        nfloat=numpy.sum(to_fit==1)
+        ncovary=numpy.sum(inds>1)
+        nfit=nfloat+ncovary
+        rotmat=numpy.zeros([len(pars),nfit])
+        
+        solo_inds=numpy.where(to_fit==1)[0]
+        icur=0
+        for ind in solo_inds:
+            rotmat[ind,icur]=1.0
+            icur=icur+1
+        if ncovary>0:
+            group_inds=inds[inds>1]
+            for ind in group_inds:
+                ii=numpy.where(to_fit==ind)[0]
+                rotmat[ii,icur]=1.0
+                icur=icur+1
+    else:
+        rotmat=None
+        
+    iter=0
+    converged=False
+    pp=pars.copy()
+    lamda=0.0
+    chi_ref,grad,curve=get_timestream_chisq_curve_deriv_from_func(func,pp,tods,rotmat)
+    chi_cur=chi_ref
+    iter=0
+    while (converged==False) and (iter<maxiter):
+        iter=iter+1
+        curve_tmp=curve+lamda*numpy.diag(numpy.diag(curve))
+        #curve_inv=numpy.linalg.inv(curve_tmp)
+        curve_inv=invscale(curve_tmp)
+        shifts=numpy.dot(curve_inv,grad)
+        if not(rotmat is None):
+            shifts_use=numpy.dot(rotmat,shifts)
+        else:
+            shifts_use=shifts
+        pp_tmp=pp+shifts_use
+        chi_new=get_timestream_chisq_from_func(func,pp_tmp,tods)
+        if chi_new<=chi_cur+chitol: #add in a bit of extra tolerance in chi^2 in case we're bopping about the minimum
+            success=True
+        else:
+            success=False
+        if success:
+            pp=pp_tmp
+            chi_cur=chi_new
+            chi_tmp,grad,curve=get_timestream_chisq_curve_deriv_from_func(func,pp,tods,rotmat)
+        lamda=update_lamda(lamda,success)
+        if (lamda==0)&success:
+            errs=numpy.sqrt(numpy.diag(curve_inv))
+            conv_fac=numpy.max(numpy.abs(shifts/errs))
+            if (conv_fac<tol):
+                print 'we have converged'
+                converged=True
+        else:
+            conv_fac=None
+        to_print=numpy.asarray([3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi,1.0,1.0,3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi*numpy.sqrt(8*numpy.log(2)),1.0])*(pp-pars)
+        print 'iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new
+    return pp,chi_cur
 def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
     '''Fit a model to timestreams.  func should return the model and the derivatives evaluated at 
     the parameter values in pars.  to_fit says which parameters to float.  0 to fix, 1 to float, and anything
@@ -1616,6 +1754,7 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
         if iter==0:
             chi_ref=chisq
         curve=0.5*(curve+curve.transpose())
+        curve=curve+2.0*numpy.diag(numpy.diag(curve)) #double the diagonal for testing purposes
         curve_inv=numpy.linalg.inv(curve)
         errs=numpy.sqrt(numpy.diag(curve_inv))
         shifts=numpy.dot(curve_inv,grad)
@@ -1628,8 +1767,10 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
             shifts=numpy.dot(rotmat,shifts)
         if not(scale_facs is None):
             if iter<len(scale_facs):
+                print 'rescaling shift by ',scale_facs[iter]
                 shifts=shifts*scale_facs[iter]
-        print 'iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,converged
+        to_print=numpy.asarray([3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi,1.0,1.0,3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi*numpy.sqrt(8*numpy.log(2)),1.0])*(pp-pars)
+        print 'iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,to_print #converged,pp,shifts
         pp=pp+shifts
 
         iter=iter+1
