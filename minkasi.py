@@ -526,6 +526,11 @@ def apply_noise(tod,dat=None):
     datft=datft*tod['mywt'][:,0:nn]
     dat_rot=pyfftw.fft_r2r(datft)
     dat=numpy.dot(tod['v'].transpose(),dat_rot)
+    #for fft_r2r, the first/last samples get counted for half of the interior ones, so 
+    #divide them by 2 in the post-filtering.  Makes symmetry much happier...
+    print 'hello'
+    dat[:,0]=dat[:,0]*0.5
+    dat[:,-1]=dat[:,-1]*0.5
     return dat
 
 
@@ -1090,6 +1095,7 @@ class Tod:
         if dat is None:
             dat=self.info['dat_calib']
         if self.info['noise']=='cm_white':
+            print 'calling cm_white'
             return self.apply_noise_cm_white(dat)
         dat_rot=numpy.dot(self.info['v'],dat)
         datft=pyfftw.fft_r2r(dat_rot)
@@ -1097,6 +1103,8 @@ class Tod:
         datft=datft*self.info['mywt'][:,0:nn]
         dat_rot=pyfftw.fft_r2r(datft)
         dat=numpy.dot(self.info['v'].transpose(),dat_rot)
+        dat[:,0]=0.5*dat[:,0]
+        dat[:,-1]=0.5*dat[:,-1]
         return dat
     def dot(self,mapset,mapset_out):
         tmp=0.0*self.info['dat_calib']
@@ -1578,14 +1586,14 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
         delt=tod.info['dat_calib']-pred
         delt_filt=tod.apply_noise(delt)
         #delt_filt[:,1:-1]=delt_filt[:,1:-1]*2
-        delt_filt[:,0]=delt_filt[:,0]*0.5
-        delt_filt[:,-1]=delt_filt[:,-1]*0.5
+        #delt_filt[:,0]=delt_filt[:,0]*0.5
+        #delt_filt[:,-1]=delt_filt[:,-1]*0.5
         for i in range(np):
             tmp[:,:]=numpy.reshape(derivs[i,:],sz)
             tmp_filt=tod.apply_noise(tmp)
             #tmp_filt[:,1:-1]=tmp_filt[:,1:-1]*2
-            tmp_filt[:,0]=tmp_filt[:,0]*0.5
-            tmp_filt[:,-1]=tmp_filt[:,-1]*0.5
+            #tmp_filt[:,0]=tmp_filt[:,0]*0.5
+            #tmp_filt[:,-1]=tmp_filt[:,-1]*0.5
             derivs_filt[i,:]=numpy.reshape(tmp_filt,nn)
         delt=numpy.reshape(delt,nn)
         delt_filt=numpy.reshape(delt_filt,nn)
@@ -1617,7 +1625,7 @@ def invscale(mat):
     #ee,vv=numpy.linalg.eig(mat)
     #print 'rcond is ',ee.max()/ee.min(),vv[:,numpy.argmin(ee)]
     return mm*numpy.linalg.inv(mat)
-def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
+def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
     if not(to_fit is None):
         #print 'working on creating rotmat'
         to_fit=numpy.asarray(to_fit,dtype='int64')
@@ -1680,7 +1688,7 @@ def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,to
         to_print=numpy.asarray([3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi,1.0,1.0,3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi*numpy.sqrt(8*numpy.log(2)),1.0])*(pp-pars)
         print 'iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new
     return pp,chi_cur
-def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
+def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
     '''Fit a model to timestreams.  func should return the model and the derivatives evaluated at 
     the parameter values in pars.  to_fit says which parameters to float.  0 to fix, 1 to float, and anything
     larger than 1 is expected to vary together (e.g. shifting a TOD pointing mode you could put in a 2 for all RA offsets 
