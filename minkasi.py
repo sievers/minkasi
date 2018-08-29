@@ -1026,8 +1026,15 @@ class Tod:
         return xmin,xmax,ymin,ymax
     def set_tag(self,tag):
         self.info['tag']=tag
-    def copy(self):
-        tod=Tod(self.info)
+    def copy(self,copy_info=False):
+        if copy_info:
+            myinfo=self.info.copy()
+            for key in myinfo.keys():
+                try:
+                    myinfo[key]=self.info[key].copy()
+            tod=Tod(myinfo)
+        else:
+            tod=Tod(self.info)
         if not(self.jumps is None):
             try:
                 tod.jumps=self.jumps.copy()
