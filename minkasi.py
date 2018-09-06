@@ -1102,9 +1102,9 @@ class Tod:
         dat_rot=numpy.dot(self.info['v'],self.info['dat_calib'])
         if fit_powlaw:
             spec_smooth=0*dat_rot
-            for i in range(ndet):
+            for ind in range(ndet):
                 fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
-                spec_smooth[i,1:]=C
+                spec_smooth[ind,1:]=C
         else:
             dat_trans=pyfftw.fft_r2r(dat_rot)
             spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
