@@ -1032,6 +1032,8 @@ class Tod:
             for key in myinfo.keys():
                 try:
                     myinfo[key]=self.info[key].copy()
+                except:
+                    pass
             tod=Tod(myinfo)
         else:
             tod=Tod(self.info)
@@ -1402,12 +1404,31 @@ def fit_linear_ps_uncorr(dat,vecs,tol=1e-3,guess=None,max_iter=15):
         if numpy.max(numpy.abs(frac_shift))<tol:
             print 'successful convergence after ',iter,' iterations with error estimate ',numpy.max(numpy.abs(frac_shift))
             converged=True
+            print C[0],C[-1]
         if iter==max_iter:
             print 'not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',numpy.max(numpy.abs(frac_shift))
             converged=True
-
+            
     return fitp
-def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
+
+def get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs):
+    vec=nu_scale**fitp[2]
+    C=fitp[0]+fitp[1]*vec
+    Cinv=1.0/C
+    vecs[1,:]=vec
+    vecs[2,:]=fitp[1]*lognu*vec
+    grad_chi=0.5*numpy.dot(vecs,datsqr*Cinv*Cinv)
+    grad_tr=-0.5*numpy.dot(vecs,Cinv)
+    grad=grad_chi+grad_tr
+    np=len(grad_chi)
+    curve=numpy.zeros([np,np])
+    for i in range(np):
+        for j in range(i,np):
+            curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+            curve[j,i]=curve[i,j]
+    like=-0.5*sum(datsqr*Cinv)-0.5*sum(numpy.log(C))
+    return like,grad,curve,C
+def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=0.01):
     datft=pyfftw.fft_r2r(dat)
     n=len(datft)
 
@@ -1421,8 +1442,12 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
     vecs[0,:]=1.0 #white noise
     vecs[1,:]=nu**ind
     guess=fit_linear_ps_uncorr(datft,vecs)
+    pred=numpy.dot(guess,vecs)
+    #pred=guess[0]*vecs[0]+guess[1]*vecs[1]
+    #return pred
 
     rat=vecs[1,:]*guess[1]/(vecs[0,:]*guess[0])
+    print 'rat lims are ',rat.max(),rat.min()
     my_ind=numpy.max(numpy.where(rat>1)[0])
     nu_ref=numpy.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
     #nu_ref=0.2*nu[my_ind] #WAG as to a sensible frequency pivot point
@@ -1452,31 +1477,64 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
     grad_chi=numpy.zeros(np)
     grad_tr=numpy.zeros(np)
     datsqr=datft**2
-    for iter in range(20):
-        vec=nu_scale**fitp[2]
-        C=fitp[0]+fitp[1]*vec
-        Cinv=1.0/C
-        vecs[1,:]=vec
-        vecs[2,:]=fitp[1]*lognu*vec
-        for i in range(np):
-            grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
-            grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
-            for j in range(i,np):
-                curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
-                curve[j,i]=curve[i,j]
-        grad=grad_chi+grad_tr
-        curve_inv=numpy.linalg.inv(curve)
-        errs=numpy.diag(curve_inv)
+    #for robustness, start with downscaling 1/f part
+    fitp[1]=0.5*fitp[1]
+    like,grad,curve,C=get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs)
+    lamda=0.0
+    print 'starting likelihood is',like
+    for iter in range(50):
+        tmp=curve+lamda*numpy.diag(numpy.diag(curve))
+        curve_inv=numpy.linalg.inv(tmp)
         dp=numpy.dot(grad,curve_inv)
-        fitp=fitp-dp
-        frac_shift=dp/errs
-        print fitp,errs,frac_shift
+        trial_fitp=fitp-dp
+        errs=numpy.sqrt(-numpy.diag(curve_inv))
+        frac=dp/errs
+        new_like,new_grad,new_curve,C=get_curve_deriv_powspec(trial_fitp,nu_scale,lognu,datsqr,vecs)
+
+        if (new_like>like):
+        #if True:
+            like=new_like
+            grad=new_grad
+            curve=new_curve
+            fitp=trial_fitp
+            lamda=update_lamda(lamda,True)
+        else:
+            lamda=update_lamda(lamda,False)
+        if (lamda==0)&(numpy.max(numpy.abs(frac))<tol):
+            converged=True
+        else:
+            converged=False
+        if False:
+            vec=nu_scale**fitp[2]
+            C=fitp[0]+fitp[1]*vec
+            Cinv=1.0/C
+            vecs[1,:]=vec
+            vecs[2,:]=fitp[1]*lognu*vec
+            like=-0.5*numpy.sum(datsqr*Cinv)-0.5*numpy.sum(numpy.log(C))
+            for i in range(np):
+                grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+                grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
+                for j in range(i,np):
+                    curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+                    curve[j,i]=curve[i,j]
+            grad=grad_chi+grad_tr
+            curve_inv=numpy.linalg.inv(curve)
+            errs=numpy.diag(curve_inv)
+            dp=numpy.dot(grad,curve_inv)
+            fitp=fitp-dp*scale_fac
+            frac_shift=dp/errs
+
+        #print fitp,errs,frac_shift,numpy.mean(numpy.abs(new_grad-grad))
+        print fitp,grad,frac,lamda
+        if converged:
+            print 'converged after ',iter,' iterations'
+            break
 
 
     #C=numpy.dot(guess,vecs)
     print 'mean diff is ',numpy.mean(numpy.abs(C_scale-C))
     #return datft,vecs,nu,C
-    return fitp,nu_ref,C
+    return fitp,datsqr,C
     
 def get_derivs_tod_isosrc(pars,tod,niso=None):
     np_src=4
