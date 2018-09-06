@@ -1079,24 +1079,40 @@ class Tod:
         tmp=numpy.repeat([self.info['mywt']],len(cm),axis=0).transpose()
         dd=dd*tmp
         return dd
-        
-    def set_noise_smoothed_svd(self,fwhm=50,func=None,pars=None):
-        '''If func comes in as not empy, assume we can call func(pars,tod) to get a predicted model for the tod that
+    def set_noise_smoothed_svd(self,fwhm=50,func=None,pars=None,prewhiten=False,fit_powlaw=False):
+        '''If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
         we subtract off before estimating the noise.'''
         if func is None:
-            u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+            #u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+            dat_use=self.info['dat_calib']
+            
         else:
-            tmp=func(pars,self)
-            u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
+            dat_use=func(pars,self)
+            dat_use=self.info['dat_calib']-dat_use
+            #u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
+        if prewhiten:
+            noisevec=numpy.median(numpy.abs(numpy.diff(dat_use,axis=1)),axis=1)
+            dat_use=dat_use/(numpy.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
+        u,s,v=numpy.linalg.svd(dat_use)
         print 'got svd'
         ndet=s.size
         n=self.info['dat_calib'].shape[1]
         self.info['v']=numpy.zeros([ndet,ndet])
         self.info['v'][:]=u.transpose()
         dat_rot=numpy.dot(self.info['v'],self.info['dat_calib'])
-        dat_trans=pyfftw.fft_r2r(dat_rot)
-        spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
-        self.info['mywt']=1.0/spec_smooth
+        if fit_powlaw:
+            spec_smooth=0*dat_rot
+            for i in range(ndet):
+                fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
+                spec_smooth[i,1:]=C
+        else:
+            dat_trans=pyfftw.fft_r2r(dat_rot)
+            spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
+        spec_smooth[:,1:]=1.0/spec_smooth[:,1:]
+        spec_smooth[:,0]=0
+        if prewhiten:
+            self.info['noisevec']=noisevec.copy()
+        self.info['mywt']=spec_smooth
         self.info['noise']='smoothed_svd'
         #return dat_rot
         
@@ -1104,14 +1120,19 @@ class Tod:
         if dat is None:
             dat=self.info['dat_calib']
         if self.info['noise']=='cm_white':
-            print 'calling cm_white'
+            #print 'calling cm_white'
             return self.apply_noise_cm_white(dat)
+        if self.info.has_key('noisevec'):
+            noisemat=numpy.repeat([self.info['noisevec']],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
         dat_rot=numpy.dot(self.info['v'],dat)
         datft=pyfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
         datft=datft*self.info['mywt'][:,0:nn]
         dat_rot=pyfftw.fft_r2r(datft)
         dat=numpy.dot(self.info['v'].transpose(),dat_rot)
+        if self.info.has_key('noisevec'):
+            dat=dat/noisemat
         dat[:,0]=0.5*dat[:,0]
         dat[:,-1]=0.5*dat[:,-1]
         return dat
@@ -1428,7 +1449,7 @@ def get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs):
             curve[j,i]=curve[i,j]
     like=-0.5*sum(datsqr*Cinv)-0.5*sum(numpy.log(C))
     return like,grad,curve,C
-def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=0.01):
+def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=0.01):
     datft=pyfftw.fft_r2r(dat)
     n=len(datft)
 
@@ -1447,11 +1468,11 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
     #return pred
 
     rat=vecs[1,:]*guess[1]/(vecs[0,:]*guess[0])
-    print 'rat lims are ',rat.max(),rat.min()
+    #print 'rat lims are ',rat.max(),rat.min()
     my_ind=numpy.max(numpy.where(rat>1)[0])
     nu_ref=numpy.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
     #nu_ref=0.2*nu[my_ind] #WAG as to a sensible frequency pivot point
-    print 'knee is roughly at ',nu[my_ind],nu_ref
+    #print 'knee is roughly at ',nu[my_ind],nu_ref
 
     #model = guess[1]*nu^ind+guess[0]
     #      = guess[1]*(nu/nu_ref*nu_ref)^ind+guess[0]
@@ -1460,8 +1481,8 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
     nu_scale=nu/nu_ref
     guess_scale=guess.copy()
     guess_scale[1]=guess[1]*(nu_ref**ind)
-    print 'guess is ',guess
-    print 'guess_scale is ',guess_scale
+    #print 'guess is ',guess
+    #print 'guess_scale is ',guess_scale
     C_scale=guess_scale[0]+guess_scale[1]*(nu_scale**ind)
     
 
@@ -1481,7 +1502,7 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
     fitp[1]=0.5*fitp[1]
     like,grad,curve,C=get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs)
     lamda=0.0
-    print 'starting likelihood is',like
+    #print 'starting likelihood is',like
     for iter in range(50):
         tmp=curve+lamda*numpy.diag(numpy.diag(curve))
         curve_inv=numpy.linalg.inv(tmp)
@@ -1525,7 +1546,7 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
             frac_shift=dp/errs
 
         #print fitp,errs,frac_shift,numpy.mean(numpy.abs(new_grad-grad))
-        print fitp,grad,frac,lamda
+        #print fitp,grad,frac,lamda
         if converged:
             print 'converged after ',iter,' iterations'
             break
