@@ -688,7 +688,7 @@ def apply_noise(tod,dat=None):
     nn=datft.shape[1]
     datft=datft*tod['mywt'][:,0:nn]
     dat_rot=pyfftw.fft_r2r(datft)
-    dat=numpy.dot(tod['v'].transpose(),dat_rot)
+    dat=np.dot(tod['v'].transpose(),dat_rot)
     #for fft_r2r, the first/last samples get counted for half of the interior ones, so 
     #divide them by 2 in the post-filtering.  Makes symmetry much happier...
     #print 'hello'
@@ -1262,15 +1262,15 @@ class Tod:
             dat_use=self.info['dat_calib']-dat_use
             #u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
         if prewhiten:
-            noisevec=numpy.median(numpy.abs(numpy.diff(dat_use,axis=1)),axis=1)
-            dat_use=dat_use/(numpy.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
-        u,s,v=numpy.linalg.svd(dat_use)
+            noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
+            dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
+        u,s,v=np.linalg.svd(dat_use)
         print 'got svd'
         ndet=s.size
         n=self.info['dat_calib'].shape[1]
         self.info['v']=np.zeros([ndet,ndet])
         self.info['v'][:]=u.transpose()
-        dat_rot=numpy.dot(self.info['v'],self.info['dat_calib'])
+        dat_rot=np.dot(self.info['v'],self.info['dat_calib'])
         if fit_powlaw:
             spec_smooth=0*dat_rot
             for ind in range(ndet):
@@ -1294,15 +1294,15 @@ class Tod:
             #print 'calling cm_white'
             return self.apply_noise_cm_white(dat)
         if self.info.has_key('noisevec'):
-            noisemat=numpy.repeat([self.info['noisevec']],dat.shape[1],axis=0).transpose()
+            noisemat=np.repeat([self.info['noisevec']],dat.shape[1],axis=0).transpose()
             dat=dat/noisemat
-        dat_rot=numpy.dot(self.info['v'],dat)
+        dat_rot=np.dot(self.info['v'],dat)
 
         datft=pyfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
         datft=datft*self.info['mywt'][:,0:nn]
         dat_rot=pyfftw.fft_r2r(datft)
-        dat=numpy.dot(self.info['v'].transpose(),dat_rot)
+        dat=np.dot(self.info['v'].transpose(),dat_rot)
         if self.info.has_key('noisevec'):
             dat=dat/noisemat
         dat[:,0]=0.5*dat[:,0]
@@ -1631,18 +1631,18 @@ def get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs):
     Cinv=1.0/C
     vecs[1,:]=vec
     vecs[2,:]=fitp[1]*lognu*vec
-    grad_chi=0.5*numpy.dot(vecs,datsqr*Cinv*Cinv)
-    grad_tr=-0.5*numpy.dot(vecs,Cinv)
+    grad_chi=0.5*np.dot(vecs,datsqr*Cinv*Cinv)
+    grad_tr=-0.5*np.dot(vecs,Cinv)
     grad=grad_chi+grad_tr
     np=len(grad_chi)
-    curve=numpy.zeros([np,np])
+    curve=np.zeros([np,np])
     for i in range(np):
         for j in range(i,np):
-            curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+            curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
             curve[j,i]=curve[i,j]
-    like=-0.5*sum(datsqr*Cinv)-0.5*sum(numpy.log(C))
+    like=-0.5*sum(datsqr*Cinv)-0.5*sum(np.log(C))
     return like,grad,curve,C
-def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=0.01):
+def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=np.inf,scale_fac=1.0,tol=0.01):
 
     datft=pyfftw.fft_r2r(dat)
     n=len(datft)
@@ -1657,14 +1657,14 @@ def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
     vecs[0,:]=1.0 #white noise
     vecs[1,:]=nu**ind
     guess=fit_linear_ps_uncorr(datft,vecs)
-    pred=numpy.dot(guess,vecs)
+    pred=np.dot(guess,vecs)
     #pred=guess[0]*vecs[0]+guess[1]*vecs[1]
     #return pred
 
     rat=vecs[1,:]*guess[1]/(vecs[0,:]*guess[0])
     #print 'rat lims are ',rat.max(),rat.min()
-    my_ind=numpy.max(numpy.where(rat>1)[0])
-    nu_ref=numpy.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
+    my_ind=np.max(np.where(rat>1)[0])
+    nu_ref=np.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
 
     #nu_ref=0.2*nu[my_ind] #WAG as to a sensible frequency pivot point
     #print 'knee is roughly at ',nu[my_ind],nu_ref
@@ -1699,11 +1699,11 @@ def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
     lamda=0.0
     #print 'starting likelihood is',like
     for iter in range(50):
-        tmp=curve+lamda*numpy.diag(numpy.diag(curve))
-        curve_inv=numpy.linalg.inv(tmp)
-        dp=numpy.dot(grad,curve_inv)
+        tmp=curve+lamda*np.diag(np.diag(curve))
+        curve_inv=np.linalg.inv(tmp)
+        dp=np.dot(grad,curve_inv)
         trial_fitp=fitp-dp
-        errs=numpy.sqrt(-numpy.diag(curve_inv))
+        errs=np.sqrt(-np.diag(curve_inv))
         frac=dp/errs
         new_like,new_grad,new_curve,C=get_curve_deriv_powspec(trial_fitp,nu_scale,lognu,datsqr,vecs)
 
@@ -1716,7 +1716,7 @@ def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
             lamda=update_lamda(lamda,True)
         else:
             lamda=update_lamda(lamda,False)
-        if (lamda==0)&(numpy.max(numpy.abs(frac))<tol):
+        if (lamda==0)&(np.max(np.abs(frac))<tol):
             converged=True
         else:
             converged=False
@@ -1726,21 +1726,21 @@ def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=numpy.inf,scale_fac=1.0,tol=
             Cinv=1.0/C
             vecs[1,:]=vec
             vecs[2,:]=fitp[1]*lognu*vec
-            like=-0.5*numpy.sum(datsqr*Cinv)-0.5*numpy.sum(numpy.log(C))
+            like=-0.5*np.sum(datsqr*Cinv)-0.5*np.sum(np.log(C))
             for i in range(np):
-                grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
-                grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
+                grad_chi[i]=0.5*np.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+                grad_tr[i]=-0.5*np.sum(vecs[i,:]*Cinv)
                 for j in range(i,np):
-                    curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+                    curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
                     curve[j,i]=curve[i,j]
             grad=grad_chi+grad_tr
-            curve_inv=numpy.linalg.inv(curve)
-            errs=numpy.diag(curve_inv)
-            dp=numpy.dot(grad,curve_inv)
+            curve_inv=np.linalg.inv(curve)
+            errs=np.diag(curve_inv)
+            dp=np.dot(grad,curve_inv)
             fitp=fitp-dp*scale_fac
             frac_shift=dp/errs
 
-        #print fitp,errs,frac_shift,numpy.mean(numpy.abs(new_grad-grad))
+        #print fitp,errs,frac_shift,np.mean(np.abs(new_grad-grad))
         #print fitp,grad,frac,lamda
         if converged:
             print 'converged after ',iter,' iterations'
