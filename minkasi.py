@@ -1,4 +1,4 @@
-import numpy 
+import numpy as np
 import ctypes
 import time
 import pyfftw
@@ -66,13 +66,13 @@ def report_mpi():
         print 'mpi not found'
 
 def invsafe(mat,thresh=1e-14):
-    u,s,v=numpy.linalg.svd(mat,0)
-    ii=numpy.abs(s)<thresh*s.max()
+    u,s,v=np.linalg.svd(mat,0)
+    ii=np.abs(s)<thresh*s.max()
     #print ii
     s_inv=1/s
     s_inv[ii]=0
-    tmp=numpy.dot(numpy.diag(s_inv),u.transpose())
-    return numpy.dot(v.transpose(),tmp)
+    tmp=np.dot(np.diag(s_inv),u.transpose())
+    return np.dot(v.transpose(),tmp)
 
 def tod2map_simple(map,dat,ipix):
     ndet=dat.shape[0]
@@ -103,32 +103,53 @@ def set_nthread(nthread):
     set_nthread_c(nthread)
 
 def get_nthread():
-    nthread=numpy.zeros([1,1],dtype='int32')
+    nthread=np.zeros([1,1],dtype='int32')
     get_nthread_c(nthread.ctypes.data)
     return nthread[0,0]
+
+
+def cut_blacklist(tod_names,blacklist):
+    mydict={}
+    for nm in tod_names:
+        tt=nm.split('/')[-1]
+        mydict[tt]=nm
+    ncut=0
+    for nm in blacklist:
+        tt=nm.split('/')[-1]
+        if mydict.has_key(tt):
+            ncut=ncut+1
+            del(mydict[tt])
+    if ncut>0:
+        print 'deleted ',ncut,' bad files.'
+        mynames=mydict.values()
+        mynames.sort()
+        return mynames
+    else:
+        return tod_names 
+
 
 def find_spikes(dat,inner=1,outer=10,rad=0.25,thresh=8,pad=2):
     #find spikes in a block of timestreams
     n=dat.shape[1];
     ndet=dat.shape[0]
-    x=numpy.arange(n);
-    filt1=numpy.exp(-0.5*x**2/inner**2)
-    filt1=filt1+numpy.exp(-0.5*(x-n)**2/inner**2);
+    x=np.arange(n);
+    filt1=np.exp(-0.5*x**2/inner**2)
+    filt1=filt1+np.exp(-0.5*(x-n)**2/inner**2);
     filt1=filt1/filt1.sum()
 
-    filt2=numpy.exp(-0.5*x**2/outer**2)
-    filt2=filt2+numpy.exp(-0.5*(x-n)**2/outer**2);
+    filt2=np.exp(-0.5*x**2/outer**2)
+    filt2=filt2+np.exp(-0.5*(x-n)**2/outer**2);
     filt2=filt2/filt2.sum()
     
     filt=filt1-filt2 #make a filter that is the difference of two Gaussians, one narrow, one wide
-    filtft=numpy.fft.rfft(filt)
-    datft=numpy.fft.rfft(dat,axis=1)
-    datfilt=numpy.fft.irfft(filtft*datft,axis=1,n=n)
+    filtft=np.fft.rfft(filt)
+    datft=np.fft.rfft(dat,axis=1)
+    datfilt=np.fft.irfft(filtft*datft,axis=1,n=n)
     jumps=[None]*ndet
-    mystd=numpy.median(numpy.abs(datfilt),axis=1)
+    mystd=np.median(np.abs(datfilt),axis=1)
     for i in range(ndet):
-        while numpy.max(numpy.abs(datfilt[i,:]))>thresh*mystd[i]:
-            ind=numpy.argmax(numpy.abs(datfilt[i,:]))
+        while np.max(np.abs(datfilt[i,:]))>thresh*mystd[i]:
+            ind=np.argmax(np.abs(datfilt[i,:]))
             if jumps[i] is None:
                 jumps[i]=[ind]
             else:
@@ -139,6 +160,52 @@ def find_spikes(dat,inner=1,outer=10,rad=0.25,thresh=8,pad=2):
         
     
     return mystd
+
+def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None):
+    xvec=np.arange(map.nx)
+    yvec=np.arange(map.ny)
+    xvec[map.nx/2:]=xvec[map.nx/2:]-map.nx
+    yvec[map.ny/2:]=yvec[map.ny/2:]-map.ny
+
+    xmat=np.repeat([xvec],map.ny,axis=0).transpose()
+    ymat=np.repeat([yvec],map.nx,axis=0)
+
+    rmat=np.sqrt(xmat**2+ymat**2)*pixsize
+    if isinstance(fwhm,int)|isinstance(fwhm,float):
+        sig=fwhm/np.sqrt(8*np.log(2))
+        src_map=np.exp(-0.5*rmat**2/sig**2)
+        src_map=src_map/src_map.sum()
+    else:
+        sig=fwhm[0]/np.sqrt(8*np.log(2))
+        src_map=np.exp(-0.5*rmat**2/sig**2)*amps[0]
+        for i in range(1,len(fwhm)):
+            sig=fwhm[i]/np.sqrt(8*np.log(2))
+            src_map=src_map+np.exp(-0.5*rmat**2/sig**2)*amps[i]
+
+        src_map=src_map/src_map.sum()
+        beam_area=pixsize**2/src_map.max()
+        beam_area=beam_area/3600**2/(360**2/np.pi)
+        print 'beam_area is ',beam_area*1e9,' nsr'
+    nring=len(edges)-1
+    rings=np.zeros([nring,map.nx,map.ny])
+    mypix=map.wcs.wcs_world2pix(cent[0],cent[1],1)
+    print 'mypix is ',mypix
+
+    xvec=np.arange(map.nx)
+    yvec=np.arange(map.ny)
+    xmat=np.repeat([xvec],map.ny,axis=0).transpose()
+    ymat=np.repeat([yvec],map.nx,axis=0)
+
+
+    srcft=np.fft.fft2(src_map)
+    rmat=np.sqrt( (xmat-mypix[0])**2+(ymat-mypix[1])**2)*pixsize
+    for i in range(nring):
+        #rings[i,(rmat>=edges[i])&(rmat<edges[i+1]=1.0
+        rings[i,(rmat>=edges[i])]=1.0
+        rings[i,(rmat>=edges[i+1])]=0.0
+        rings[i,:,:]=np.real(np.fft.ifft2(np.fft.fft2(rings[i,:,:])*srcft))
+    return rings
+        
 
 
 def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
@@ -153,29 +220,29 @@ def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
 
     #make a filter template that is a gaussian with sigma with, sign-flipped in the center
     #so, positive half-gaussian starting from zero, and negative half-gaussian at the end
-    x=numpy.arange(n)
-    myfilt=numpy.exp(-0.5*x**2/width**2)
-    myfilt=myfilt-numpy.exp( (-0.5*(x-n)**2/width**2))
-    fac=numpy.abs(myfilt).sum()/2.0
+    x=np.arange(n)
+    myfilt=np.exp(-0.5*x**2/width**2)
+    myfilt=myfilt-np.exp( (-0.5*(x-n)**2/width**2))
+    fac=np.abs(myfilt).sum()/2.0
     myfilt=myfilt/fac
 
-    dat_filt=numpy.fft.rfft(dat,axis=1)
+    dat_filt=np.fft.rfft(dat,axis=1)
 
-    myfilt_ft=numpy.fft.rfft(myfilt)
-    dat_filt=dat_filt*numpy.repeat([myfilt_ft],ndet,axis=0)
-    dat_filt=numpy.fft.irfft(dat_filt,axis=1,n=n)
+    myfilt_ft=np.fft.rfft(myfilt)
+    dat_filt=dat_filt*np.repeat([myfilt_ft],ndet,axis=0)
+    dat_filt=np.fft.irfft(dat_filt,axis=1,n=n)
     dat_filt_org=dat_filt.copy()
 
     print dat_filt.shape
     dat_filt[:,0:pad*width]=0
     dat_filt[:,-pad*width:]=0
-    det_thresh=thresh*numpy.median(numpy.abs(dat_filt),axis=1)
+    det_thresh=thresh*np.median(np.abs(dat_filt),axis=1)
     dat_dejump=dat.copy()
     jumps=[None]*ndet
     print 'have filtered data, now searching for jumps'
     for i in range(ndet):
-        while numpy.max(numpy.abs(dat_filt[i,:]))>det_thresh[i]:            
-            ind=numpy.argmax(numpy.abs(dat_filt[i,:]))+1 #+1 seems to be the right index to use
+        while np.max(np.abs(dat_filt[i,:]))>det_thresh[i]:            
+            ind=np.argmax(np.abs(dat_filt[i,:]))+1 #+1 seems to be the right index to use
             imin=ind-width
             if imin<0:
                 imin=0
@@ -184,14 +251,14 @@ def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
                 imax=n
             val=dat_filt[i,ind]
             if val>0:
-                val2=numpy.min(dat_filt[i,imin:imax])
+                val2=np.min(dat_filt[i,imin:imax])
             else:
-                val2=numpy.max(dat_filt[i,imin:imax])
+                val2=np.max(dat_filt[i,imin:imax])
             
             
             print 'found jump on detector ',i,' at sample ',ind
-            if numpy.abs(val2/val)>rat:
-                print 'I think this is a spike due to ratio ',numpy.abs(val2/val)
+            if np.abs(val2/val)>rat:
+                print 'I think this is a spike due to ratio ',np.abs(val2/val)
             else:
                 if jumps[i] is None:
                     jumps[i]=[ind]
@@ -201,7 +268,7 @@ def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
             dat_dejump[i,ind:]=dat_dejump[i,ind:]+dat_filt[i,ind]
             dat_filt[i,ind-pad*width:ind+pad*width]=0
         if not(jumps[i] is None):
-            jumps[i]=numpy.sort(jumps[i])
+            jumps[i]=np.sort(jumps[i])
     #return dat_dejump,jumps,dat_filt_org
     return jumps
 
@@ -209,31 +276,31 @@ def fit_jumps_from_cm(dat,jumps,cm,cm_order=1,poly_order=1):
     jump_vals=jumps[:]
     ndet=len(jumps)
     n=dat.shape[1]
-    x=numpy.linspace(-1,1,n)
-    m1=numpy.polynomial.legendre.legvander(x,poly_order)
-    m2=numpy.polynomial.legendre.legvander(x,cm_order-1)
+    x=np.linspace(-1,1,n)
+    m1=np.polynomial.legendre.legvander(x,poly_order)
+    m2=np.polynomial.legendre.legvander(x,cm_order-1)
     for i in range(cm_order):
         m2[:,i]=m2[:,i]*cm
-    mat=numpy.append(m1,m2,axis=1)
-    np=mat.shape[1]
+    mat=np.append(m1,m2,axis=1)
+    npp=mat.shape[1]
 
     dat_dejump=dat.copy()
     for i in range(ndet):
         if not(jumps[i] is None):
             njump=len(jumps[i])
-            segs=numpy.append(jumps[i],n)
+            segs=np.append(jumps[i],n)
             print 'working on detector ',i,' who has ', len(jumps[i]),' jumps with segments ',segs
-            mm=numpy.zeros([n,np+njump])
-            mm[:,:np]=mat
+            mm=np.zeros([n,npp+njump])
+            mm[:,:npp]=mat
             for j in range(njump):
-                mm[segs[j]:segs[j+1],j+np]=1.0
-            lhs=numpy.dot(mm.transpose(),mm)
+                mm[segs[j]:segs[j+1],j+npp]=1.0
+            lhs=np.dot(mm.transpose(),mm)
             #print lhs
-            rhs=numpy.dot(mm.transpose(),dat[i,:].transpose())
-            lhs_inv=numpy.linalg.inv(lhs)
-            fitp=numpy.dot(lhs_inv,rhs)
-            jump_vals[i]=fitp[np:]
-            jump_pred=numpy.dot(mm[:,np:],fitp[np:])
+            rhs=np.dot(mm.transpose(),dat[i,:].transpose())
+            lhs_inv=np.linalg.inv(lhs)
+            fitp=np.dot(lhs_inv,rhs)
+            jump_vals[i]=fitp[npp:]
+            jump_pred=np.dot(mm[:,npp:],fitp[npp:])
             dat_dejump[i,:]=dat_dejump[i,:]-jump_pred
 
 
@@ -245,53 +312,53 @@ def fit_jumps_from_cm(dat,jumps,cm,cm_order=1,poly_order=1):
 
 def get_type(nbyte):
     if nbyte==8:
-        return numpy.dtype('float64')
+        return np.dtype('float64')
     if nbyte==4:
-        return numpy.dtype('float32')
+        return np.dtype('float32')
     if nbyte==-4:
-        return numpy.dtype('int32')
+        return np.dtype('int32')
     if nbyte==-8:
-        return numpy.dtype('int64')
+        return np.dtype('int64')
     if nbyte==1:
-        return numpy.dtype('str')
+        return np.dtype('str')
     print 'Unsupported nbyte ' + repr(nbyte) + ' in get_type'
     return None
 
 def read_octave_struct(fname):
     f=open(fname)
-    nkey=numpy.fromfile(f,'int32',1)[0]
+    nkey=np.fromfile(f,'int32',1)[0]
     #print 'nkey is ' + repr(nkey)
     dat={}
     for i in range(nkey):
         key=f.readline().strip()
         #print 'key is ' + key
-        ndim=numpy.fromfile(f,'int32',1)[0]
-        dims=numpy.fromfile(f,'int32',ndim)
-        dims=numpy.flipud(dims)
+        ndim=np.fromfile(f,'int32',1)[0]
+        dims=np.fromfile(f,'int32',ndim)
+        dims=np.flipud(dims)
         #print 'Dimensions of ' + key + ' are ' + repr(dims)
-        nbyte=numpy.fromfile(f,'int32',1)[0]
+        nbyte=np.fromfile(f,'int32',1)[0]
         #print 'nbyte is ' + repr(nbyte)
         dtype=get_type(nbyte)
-        tmp=numpy.fromfile(f,dtype,dims.prod())
-        dat[key]=numpy.reshape(tmp,dims)
+        tmp=np.fromfile(f,dtype,dims.prod())
+        dat[key]=np.reshape(tmp,dims)
     f.close()
     return dat
 
 
 
-def nsphere_vol(np):
-    iseven=(np%2)==0
+def nsphere_vol(npp):
+    iseven=(npp%2)==0
     if iseven:
-        nn=np/2
-        vol=(numpy.pi**nn)/numpy.prod(numpy.arange(1,nn+1))
+        nn=npp/2
+        vol=(np.pi**nn)/np.prod(np.arange(1,nn+1))
     else:
-        nn=(np-1)/2
-        vol=2**(nn+1)*numpy.pi**nn/numpy.prod(numpy.arange(1,np+1,2))
+        nn=(npp-1)/2
+        vol=2**(nn+1)*np.pi**nn/np.prod(np.arange(1,npp+1,2))
     return vol
 
 
 def _prime_loop(ln,lp,icur,lcur,vals):
-    facs=numpy.arange(lcur,ln+1e-3,lp[0])
+    facs=np.arange(lcur,ln+1e-3,lp[0])
     if len(lp)==1:
         nfac=len(facs)
         if (nfac>0):
@@ -303,7 +370,7 @@ def _prime_loop(ln,lp,icur,lcur,vals):
         #print icur
         return icur
     else:
-        facs=numpy.arange(lcur,ln,lp[0])
+        facs=np.arange(lcur,ln,lp[0])
         for fac in facs:
             icur=_prime_loop(ln,lp[1:],icur,fac,vals)
         return icur
@@ -313,23 +380,23 @@ def _prime_loop(ln,lp,icur,lcur,vals):
         
 
 def find_good_fft_lens(n,primes=[2,3,5,7]):
-    lmax=numpy.log(n+0.5)
-    np=len(primes)
-    vol=nsphere_vol(np)
+    lmax=np.log(n+0.5)
+    npr=len(primes)
+    vol=nsphere_vol(npr)
 
-    r=numpy.log2(n+0.5)
-    lp=numpy.log2(primes)
-    npoint_max=(vol/2**np)*numpy.prod(r/lp)+30 #add a bit just to make sure we don't act up for small n
+    r=np.log2(n+0.5)
+    lp=np.log2(primes)
+    npoint_max=(vol/2**npr)*np.prod(r/lp)+30 #add a bit just to make sure we don't act up for small n
     #print 'npoint max is ',npoint max
-    npoint_max=numpy.int(npoint_max)
+    npoint_max=np.int(npoint_max)
 
-    #vals=numpy.zeros(npoint_max,dtype='int')
-    vals=numpy.zeros(npoint_max)
+    #vals=np.zeros(npoint_max,dtype='int')
+    vals=np.zeros(npoint_max)
     icur=0
     icur=_prime_loop(r,lp,icur,0.0,vals)
     assert(icur<=npoint_max)
-    myvals=numpy.asarray(numpy.round(2**vals[:icur]),dtype='int')
-    myvals=numpy.sort(myvals)
+    myvals=np.asarray(np.round(2**vals[:icur]),dtype='int')
+    myvals=np.sort(myvals)
     return myvals
     
     
@@ -337,15 +404,43 @@ def find_good_fft_lens(n,primes=[2,3,5,7]):
 def _linfit_2mat(dat,mat1,mat2):
     np1=mat1.shape[1]
     np2=mat2.shape[1]
-    mm=numpy.append(mat1,mat2,axis=1)
-    lhs=numpy.dot(mm.transpose(),mm)
-    rhs=numpy.dot(mm.transpose(),dat)
-    lhs_inv=numpy.linalg.inv(lhs)
-    fitp=numpy.dot(lhs_inv,rhs)
+    mm=np.append(mat1,mat2,axis=1)
+    lhs=np.dot(mm.transpose(),mm)
+    rhs=np.dot(mm.transpose(),dat)
+    lhs_inv=np.linalg.inv(lhs)
+    fitp=np.dot(lhs_inv,rhs)
     fitp1=fitp[0:np1].copy()
     fitp2=fitp[np1:].copy()
     assert(len(fitp2)==np2)
     return fitp1,fitp2
+
+def fit_mat_vecs_poly_nonoise(dat,mat,order,cm_order=None):
+    if cm_order is None:
+        cm_order=order
+    n=dat.shape[1]
+    x=np.linspace(-1,1,n)
+    polys=np.polynomial.legendre.legvander(x,order).transpose()
+    cm_polys=np.polynomial.legendre.legvander(x,cm_order).transpose()
+    v1=np.sum(dat,axis=0)
+    v2=np.sum(dat*mat,axis=0)
+    rhs1=np.dot(cm_polys,v1)
+    rhs2=np.dot(polys,v2)
+    ndet=dat.shape[0]
+    A1=cm_polys*ndet
+    vv=np.sum(mat,axis=0)
+    A2=polys*np.repeat([vv],order+1,axis=0)
+    A=np.append(A1,A2,axis=0)
+    rhs=np.append(rhs1,rhs2)
+    lhs=np.dot(A,A.transpose())
+    fitp=np.dot(np.linalg.inv(lhs),rhs)
+    cm_fitp=fitp[:cm_order+1]
+    mat_fitp=fitp[cm_order+1:]
+    assert(len(mat_fitp)==(order+1))
+    cm_pred=np.dot(cm_fitp,cm_polys)
+    tmp=np.dot(mat_fitp,polys)
+    mat_pred=np.repeat([tmp],ndet,axis=0)*mat
+    pred=cm_pred+mat_pred
+    return pred,cm_fitp,mat_fitp,polys
 
 
 
@@ -353,9 +448,9 @@ def smooth_spectra(spec,fwhm):
     nspec=spec.shape[0]
     n=spec.shape[1]
 
-    x=numpy.arange(n)
-    sig=fwhm/numpy.sqrt(8*numpy.log(2))
-    to_conv=numpy.exp(-0.5*(x/sig)**2)
+    x=np.arange(n)
+    sig=fwhm/np.sqrt(8*np.log(2))
+    to_conv=np.exp(-0.5*(x/sig)**2)
     tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
     to_conv=to_conv/tot
     to_conv_ft=pyfftw.fft_r2r(to_conv)
@@ -367,9 +462,9 @@ def smooth_spectra(spec,fwhm):
 def smooth_many_vecs(vecs,fwhm=20):
     n=vecs.shape[1]
     nvec=vecs.shape[0]
-    x=numpy.arange(n)
-    sig=fwhm/numpy.sqrt(8*numpy.log(2))
-    to_conv=numpy.exp(-0.5*(x/sig)**2)
+    x=np.arange(n)
+    sig=fwhm/np.sqrt(8*np.log(2))
+    to_conv=np.exp(-0.5*(x/sig)**2)
     tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
     to_conv=to_conv/tot
     to_conv_ft=pyfftw.fft_r2r(to_conv)
@@ -380,9 +475,9 @@ def smooth_many_vecs(vecs,fwhm=20):
     return back/(2*(n-1))
 def smooth_vec(vec,fwhm=20):
     n=vec.size
-    x=numpy.arange(n)
-    sig=fwhm/numpy.sqrt(8*numpy.log(2))
-    to_conv=numpy.exp(-0.5*(x/sig)**2)
+    x=np.arange(n)
+    sig=fwhm/np.sqrt(8*np.log(2))
+    to_conv=np.exp(-0.5*(x/sig)**2)
     tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
     to_conv=to_conv/tot
     to_conv_ft=pyfftw.fft_r2r(to_conv)
@@ -395,30 +490,30 @@ def fit_cm_plus_poly(dat,ord=2,cm_ord=1,niter=2,medsub=False,full_out=False):
     n=dat.shape[1]
     ndet=dat.shape[0]
     if medsub:
-        med=numpy.median(dat,axis=1)        
-        dat=dat-numpy.repeat([med],n,axis=0).transpose()
+        med=np.median(dat,axis=1)        
+        dat=dat-np.repeat([med],n,axis=0).transpose()
         
         
 
-    xx=numpy.arange(n)+0.0
+    xx=np.arange(n)+0.0
     xx=xx-xx.mean()
     xx=xx/xx.max()
 
-    pmat=numpy.polynomial.legendre.legvander(xx,ord)
-    cm_pmat=numpy.polynomial.legendre.legvander(xx,cm_ord-1)
-    calfacs=numpy.ones(ndet)*1.0
+    pmat=np.polynomial.legendre.legvander(xx,ord)
+    cm_pmat=np.polynomial.legendre.legvander(xx,cm_ord-1)
+    calfacs=np.ones(ndet)*1.0
     dd=dat.copy()
     for i in range(1,niter):
         for j in range(ndet):
             dd[j,:]/=calfacs[j]
             
-        cm=numpy.median(dd,axis=0)
-        cm_mat=numpy.zeros(cm_pmat.shape)
+        cm=np.median(dd,axis=0)
+        cm_mat=np.zeros(cm_pmat.shape)
         for i in range(cm_mat.shape[1]):
             cm_mat[:,i]=cm_pmat[:,i]*cm
         fitp_p,fitp_cm=_linfit_2mat(dat.transpose(),pmat,cm_mat)
-        pred1=numpy.dot(pmat,fitp_p).transpose()
-        pred2=numpy.dot(cm_mat,fitp_cm).transpose()
+        pred1=np.dot(pmat,fitp_p).transpose()
+        pred2=np.dot(cm_mat,fitp_cm).transpose()
         pred=pred1+pred2
         dd=dat-pred1
         
@@ -478,7 +573,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
     for iter in range(maxiter):
         if myrank==0:
             if iter>0:
-                print iter,zr,t2-t1,t3-t2,t3-t1
+                print iter,zr,alpha,t2-t1,t3-t2,t3-t1
             else:
                 print iter,zr,t2-t1
         t1=time.time()
@@ -517,15 +612,83 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
         t3=time.time()
     return x
 
+def run_pcg_wprior(b,x0,tods,prior,precon=None,maxiter=25):
+    t1=time.time()
+    Ax=tods.dot(x0)
+    #prior.apply_prior(Ax,x0)
+    flub=prior.apply_prior(x0.maps[0].map)
+    print 'means of flub and Ax are ',np.mean(np.abs(Ax.maps[0].map)),np.mean(np.abs(flub))
+    Ax.maps[0].map=Ax.maps[0].map+prior.apply_prior(x0.maps[0].map)
+    try:
+        r=b.copy()
+        r.axpy(Ax,-1)
+    except:
+        r=b-Ax
+    if not(precon is None):
+        z=precon*r
+    else:
+        z=r.copy()
+    p=z.copy()
+    k=0.0
+
+    zr=r.dot(z)
+    x=x0.copy()
+    t2=time.time()
+    for iter in range(maxiter):
+        if myrank==0:
+            if iter>0:
+                print iter,zr,alpha,t2-t1,t3-t2,t3-t1
+            else:
+                print iter,zr,t2-t1
+        t1=time.time()
+        Ap=tods.dot(p)
+        fwee=prior.apply_prior(p.maps[0].map)
+        #print 'means are ',np.mean(np.abs(Ap.maps[0].map)),np.mean(np.abs(fwee))
+        Ap.maps[0].map=Ap.maps[0].map+fwee
+        #prior.apply_prior(Ap,p)
+        t2=time.time()
+        pAp=p.dot(Ap)
+        alpha=zr/pAp
+        try:
+            x_new=x.copy()
+            x_new.axpy(p,alpha)
+        except:
+            x_new=x+p*alpha
+
+        try:
+            r_new=r.copy()
+            r_new.axpy(Ap,-alpha)
+        except:
+            r_new=r-Ap*alpha
+        if not(precon is None):
+            z_new=precon*r_new
+        else:
+            z_new=r_new.copy()
+        zr_new=r_new.dot(z_new)
+        beta=zr_new/zr
+        try:
+            p_new=z_new.copy()
+            p_new.axpy(p,beta)
+        except:
+            p_new=z_new+p*beta
+        
+        p=p_new
+        z=z_new
+        r=r_new
+        zr=zr_new
+        x=x_new
+        t3=time.time()
+    return x
+
 def apply_noise(tod,dat=None):
     if dat is None:
         dat=tod['dat_calib']
-    dat_rot=numpy.dot(tod['v'],dat)
+    dat_rot=np.dot(tod['v'],dat)
     datft=pyfftw.fft_r2r(dat_rot)
     nn=datft.shape[1]
     datft=datft*tod['mywt'][:,0:nn]
     dat_rot=pyfftw.fft_r2r(datft)
-    dat=numpy.dot(tod['v'].transpose(),dat_rot)
+    dat=np.dot(tod['v'].transpose(),dat_rot)
     return dat
 
 
@@ -600,20 +763,28 @@ class CutsVec:
             self.cuts[tod.info['tag']]=Cuts(tod)
             
 class SkyMap:
-    def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None):
-        self.wcs=get_wcs(lims,pixsize,proj)
-        corners=numpy.zeros([4,2])
+    def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):
+        if mywcs is None:
+            self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)
+        else:
+            self.wcs=mywcs
+        corners=np.zeros([4,2])
         corners[0,:]=[lims[0],lims[2]]
         corners[1,:]=[lims[0],lims[3]]
         corners[2,:]=[lims[1],lims[2]]
         corners[3,:]=[lims[1],lims[3]]
-        pix_corners=self.wcs.wcs_world2pix(corners*180/numpy.pi,1)
+        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)        
+        pix_corners=np.round(pix_corners)
         #print pix_corners
-        if pix_corners.min()<0.5:
+        #print type(pix_corners)
+        #if pix_corners.min()<0.5:
+        if pix_corners.min()<-0.5:
             print 'corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.'
         if True: #try a patch to fix the wcs xxx
-            nx=(pix_corners[:,0].max()+pad)
-            ny=(pix_corners[:,1].max()+pad)
+            if nx is None:
+                nx=(pix_corners[:,0].max()+pad)
+            if ny is None:
+                ny=(pix_corners[:,1].max()+pad)
         else:
             nx=(pix_corners[:,0].max()+pad)
             ny=(pix_corners[:,1].max()+pad)
@@ -633,19 +804,20 @@ class SkyMap:
         self.ny=ny
         self.lims=lims
         self.pixsize=pixsize
-        self.map=numpy.zeros([nx,ny])
+        self.map=np.zeros([nx,ny])
         self.proj=proj
         self.pad=pad
         self.caches=None
+        self.cosdec=cosdec
     def get_caches(self):
         npix=self.nx*self.ny
         nthread=get_nthread()
-        self.caches=numpy.zeros([nthread,npix])
+        self.caches=np.zeros([nthread,npix])
     def clear_caches(self):
-        self.map[:]=numpy.reshape(numpy.sum(self.caches,axis=0),self.map.shape)
+        self.map[:]=np.reshape(np.sum(self.caches,axis=0),self.map.shape)
         self.caches=None
     def copy(self):
-        newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes)
+        newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs)
         newmap.map[:]=self.map[:]
         return newmap
     def clear(self):
@@ -660,17 +832,17 @@ class SkyMap:
         ndet=tod.info['dx'].shape[0]
         nsamp=tod.info['dx'].shape[1]
         nn=ndet*nsamp
-        coords=numpy.zeros([nn,2])
-        coords[:,0]=numpy.reshape(tod.info['dx']*180/numpy.pi,nn)
-        coords[:,1]=numpy.reshape(tod.info['dy']*180/numpy.pi,nn)
+        coords=np.zeros([nn,2])
+        coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
+        coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
         #print coords.shape
         pix=self.wcs.wcs_world2pix(coords,1)
         #print pix.shape
-        xpix=numpy.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
-        ypix=numpy.reshape(pix[:,1],[ndet,nsamp])-1  
-        xpix=numpy.round(xpix)
-        ypix=numpy.round(ypix)
-        ipix=numpy.asarray(xpix*self.ny+ypix,dtype='int32')
+        xpix=np.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+        ypix=np.reshape(pix[:,1],[ndet,nsamp])-1  
+        xpix=np.round(xpix)
+        ypix=np.round(ypix)
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
         return ipix
     def map2tod(self,tod,dat,do_add=True,do_omp=True):
         map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
@@ -687,16 +859,16 @@ class SkyMap:
                 tod2map_simple(self.map,dat,tod.info['ipix'])
 
     def r_th_maps(self):
-        xvec=numpy.arange(self.nx)
+        xvec=np.arange(self.nx)
         xvec=xvec-xvec.mean()        
-        yvec=numpy.arange(self.ny)
+        yvec=np.arange(self.ny)
         yvec=yvec-yvec.mean()
-        ymat,xmat=numpy.meshgrid(yvec,xvec)
-        rmat=numpy.sqrt(xmat**2+ymat**2)
-        th=numpy.arctan2(xmat,ymat)
+        ymat,xmat=np.meshgrid(yvec,xvec)
+        rmat=np.sqrt(xmat**2+ymat**2)
+        th=np.arctan2(xmat,ymat)
         return rmat,th
     def dot(self,map):
-        tot=numpy.sum(self.map*map.map)
+        tot=np.sum(self.map*map.map)
         return tot
         
     def write(self,fname='map.fits'):
@@ -726,28 +898,28 @@ class Cuts:
             self.namps=tod.nsamp
             self.do_add=tod.do_add
             return
-        bad_inds=numpy.where(tod.info['bad_samples'])
+        bad_inds=np.where(tod.info['bad_samples'])
         dims=tod.info['dat_calib'].shape
-        bad_inds=numpy.ravel_multi_index(bad_inds,dims)
+        bad_inds=np.ravel_multi_index(bad_inds,dims)
         self.nsamp=len(bad_inds)
         self.inds=bad_inds
-        self.map=numpy.zeros(self.nsamp)
+        self.map=np.zeros(self.nsamp)
         self.do_add=do_add
     def clear(self):
         self.map[:]=0
     def axpy(self,cuts,a):
         self.map[:]=self.map[:]+a*cuts.map[:]
     def map2tod(self,tod,dat):
-        dd=numpy.ravel(dat)
+        dd=np.ravel(dat)
         if self.do_add:
             dd[self.inds]=self.map
         else:
             dd[self.inds]+=self.map
     def tod2map(self,tod,dat):
-        dd=numpy.ravel(dat)
+        dd=np.ravel(dat)
         self.map[:]=dd[self.inds]
     def dot(self,cuts):
-        tot=numpy.dot(self.map,cuts.map)
+        tot=np.dot(self.map,cuts.map)
         return tot
     def copy(self):
         return Cuts(self)
@@ -807,13 +979,13 @@ class SkyMapCar:
         except:
             self.lims=lims[:]
         self.pixsize=pixsize
-        self.cosdec=numpy.cos(0.5*(lims[2]+lims[3]))
-        nx=numpy.int(numpy.ceil((lims[1]-lims[0])/pixsize*self.cosdec))
-        ny=numpy.int(numpy.ceil((lims[3]-lims[2])/pixsize))
+        self.cosdec=np.cos(0.5*(lims[2]+lims[3]))
+        nx=np.int(np.ceil((lims[1]-lims[0])/pixsize*self.cosdec))
+        ny=np.int(np.ceil((lims[3]-lims[2])/pixsize))
         self.nx=nx
         self.ny=ny
         self.npix=nx*ny
-        self.map=numpy.zeros([nx,ny])
+        self.map=np.zeros([nx,ny])
     def copy(self):
         mycopy=SkyMapCar(self.lims,self.pixsize)
         mycopy.map[:]=self.map[:]
@@ -829,10 +1001,10 @@ class SkyMapCar:
         assert(arr.shape[1]==self.ny)
         self.map[:,:]=arr
     def get_pix(self,tod):
-        xpix=numpy.round((tod.info['dx']-self.lims[0])*self.cosdec/self.pixsize)
-        ypix=numpy.round((tod.info['dy']-self.lims[2])/self.pixsize)
-        #ipix=numpy.asarray(ypix*self.nx+xpix,dtype='int32')
-        ipix=numpy.asarray(xpix*self.ny+ypix,dtype='int32')
+        xpix=np.round((tod.info['dx']-self.lims[0])*self.cosdec/self.pixsize)
+        ypix=np.round((tod.info['dy']-self.lims[2])/self.pixsize)
+        #ipix=np.asarray(ypix*self.nx+xpix,dtype='int32')
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
         return ipix
     def map2tod(self,tod,dat,do_add=True,do_omp=True):
         map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
@@ -846,28 +1018,28 @@ class SkyMapCar:
             tod2map_simple(self.map,dat,tod.info['ipix'])
 
     def r_th_maps(self):
-        xvec=numpy.arange(self.nx)
+        xvec=np.arange(self.nx)
         xvec=xvec-xvec.mean()        
-        yvec=numpy.arange(self.ny)
+        yvec=np.arange(self.ny)
         yvec=yvec-yvec.mean()
-        ymat,xmat=numpy.meshgrid(yvec,xvec)
-        rmat=numpy.sqrt(xmat**2+ymat**2)
-        th=numpy.arctan2(xmat,ymat)
+        ymat,xmat=np.meshgrid(yvec,xvec)
+        rmat=np.sqrt(xmat**2+ymat**2)
+        th=np.arctan2(xmat,ymat)
         return rmat,th
     def dot(self,map):
-        tot=numpy.sum(self.map*map.map)
+        tot=np.sum(self.map*map.map)
         return tot
 def find_bad_skew_kurt(dat,skew_thresh=6.0,kurt_thresh=5.0):
     ndet=dat.shape[0]
-    isgood=numpy.ones(ndet,dtype='bool')
-    skew=numpy.mean(dat**3,axis=1)
-    mystd=numpy.std(dat,axis=1)
+    isgood=np.ones(ndet,dtype='bool')
+    skew=np.mean(dat**3,axis=1)
+    mystd=np.std(dat,axis=1)
     skew=skew/mystd**1.5
-    mykurt=numpy.mean(dat**4,axis=1)
+    mykurt=np.mean(dat**4,axis=1)
     kurt=mykurt/mystd**4-3
     
-    isgood[numpy.abs(skew)>skew_thresh*numpy.median(numpy.abs(skew))]=False
-    isgood[numpy.abs(kurt)>kurt_thresh*numpy.median(numpy.abs(kurt))]=False
+    isgood[np.abs(skew)>skew_thresh*np.median(np.abs(skew))]=False
+    isgood[np.abs(kurt)>kurt_thresh*np.median(np.abs(kurt))]=False
     
 
 
@@ -875,23 +1047,23 @@ def find_bad_skew_kurt(dat,skew_thresh=6.0,kurt_thresh=5.0):
 
 def timestreams_from_gauss(ra,dec,fwhm,tod,pred=None):
     if pred is None:
-        pred=numpy.zeros(tod.info['dat_calib'].shape)
+        pred=np.zeros(tod.info['dat_calib'].shape)
     n=tod.info['dat_calib'].size
     assert(pred.size==n)
     npar_src=4 #x,y,sig,amp
     dx=tod.info['dx']
     dy=tod.info['dy']
-    pp=numpy.zeros(npar_src)
+    pp=np.zeros(npar_src)
     pp[0]=ra
     pp[1]=dec
-    pp[2]=fwhm/numpy.sqrt(8*numpy.log(2))*numpy.pi/180/3600 
+    pp[2]=fwhm/np.sqrt(8*np.log(2))*np.pi/180/3600 
     pp[3]=1
     fill_gauss_src_c(pp.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)    
     return pred
 
 def timestreams_from_isobeta_c(params,tod,pred=None):
     if pred is None:
-        pred=numpy.zeros(tod.info['dat_calib'].shape)
+        pred=np.zeros(tod.info['dat_calib'].shape)
     n=tod.info['dat_calib'].size
     assert(pred.size==n)
     dx=tod.info['dx']
@@ -902,7 +1074,7 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
     npar_src=4 #x,y,sig,amp
     nsrc=(params.size-npar_beta)/npar_src
     for i in range(nsrc):
-        pp=numpy.zeros(npar_src)
+        pp=np.zeros(npar_src)
         ioff=i*npar_src+npar_beta
         pp[:]=params[ioff:(ioff+npar_src)]
         fill_gauss_src_c(pp.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)
@@ -913,10 +1085,10 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
 def derivs_from_isobeta_c(params,tod):
     npar=5;
     n=tod.info['dat_calib'].size
-    sz_deriv=numpy.append(npar,tod.info['dat_calib'].shape)
+    sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
     
-    pred=numpy.zeros(tod.info['dat_calib'].shape)
-    derivs=numpy.zeros(sz_deriv)
+    pred=np.zeros(tod.info['dat_calib'].shape)
+    derivs=np.zeros(sz_deriv)
 
     dx=tod.info['dx']
     dy=tod.info['dy']
@@ -927,10 +1099,10 @@ def derivs_from_isobeta_c(params,tod):
 def derivs_from_gauss_c(params,tod):
     npar=4
     n=tod.info['dat_calib'].size
-    sz_deriv=numpy.append(npar,tod.info['dat_calib'].shape)
+    sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
     
-    pred=numpy.zeros(tod.info['dat_calib'].shape)
-    derivs=numpy.zeros(sz_deriv)
+    pred=np.zeros(tod.info['dat_calib'].shape)
+    derivs=np.zeros(sz_deriv)
 
     dx=tod.info['dx']
     dy=tod.info['dy']
@@ -948,7 +1120,7 @@ def timestreams_from_isobeta(params,tod):
     theta=params[2]
     beta=params[3]
     amp=params[4]
-    cosdec=numpy.cos(y0)
+    cosdec=np.cos(y0)
 
 
     dx=(tod.info['dx']-x0)*cosdec
@@ -965,8 +1137,8 @@ def timestreams_from_isobeta(params,tod):
         
         dx=tod.info['dx']-src_x
         dy=tod.info['dy']-src_y
-        rsqr=( (dx*numpy.cos(src_y))**2+dy**2)
-        pred=pred+src_amp*numpy.exp(-0.5*rsqr/src_sig**2)
+        rsqr=( (dx*np.cos(src_y))**2+dy**2)
+        pred=pred+src_amp*np.exp(-0.5*rsqr/src_sig**2)
 
     return pred
 
@@ -988,7 +1160,7 @@ def isobeta_src_chisq(params,tods):
     theta=params[2]
     beta=params[3]
     amp=params[4]
-    cosdec=numpy.cos(y0)
+    cosdec=np.cos(y0)
     chisq=0.0
     for tod in tods.tods:
         dx=tod.info['dx']-x0
@@ -1003,8 +1175,8 @@ def isobeta_src_chisq(params,tods):
 
             dx=tod.info['dx']-src_x
             dy=tod.info['dy']-src_y
-            rsqr=( (dx*numpy.cos(src_y))**2+dy**2)
-            pred=pred+src_amp*numpy.exp(-0.5*rsqr/src_sig**2)
+            rsqr=( (dx*np.cos(src_y))**2+dy**2)
+            pred=pred+src_amp*np.exp(-0.5*rsqr/src_sig**2)
         chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
     return chisq
 
@@ -1037,14 +1209,14 @@ class Tod:
             
         return tod
     def set_noise_cm_white(self):
-        u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+        u,s,v=np.linalg.svd(self.info['dat_calib'],0)
         ndet=len(s)
-        ind=numpy.argmax(s)
-        mode=numpy.zeros(ndet)
+        ind=np.argmax(s)
+        mode=np.zeros(ndet)
         mode[:]=u[:,0]
-        pred=numpy.outer(mode,v[0,:])        
+        pred=np.outer(mode,v[0,:])        
         dat_clean=self.info['dat_calib']-pred
-        myvar=numpy.std(dat_clean,1)**2
+        myvar=np.std(dat_clean,1)**2
         self.info['v']=mode
         self.info['mywt']=1.0/myvar
         self.info['noise']='cm_white'
@@ -1053,16 +1225,16 @@ class Tod:
         if dat is None:
             dat=self.info['dat_calib']
 
-        mat=numpy.dot(self.info['v'],numpy.diag(self.info['mywt']))
-        lhs=numpy.dot(self.info['v'],mat.transpose())
-        rhs=numpy.dot(mat,dat)
+        mat=np.dot(self.info['v'],np.diag(self.info['mywt']))
+        lhs=np.dot(self.info['v'],mat.transpose())
+        rhs=np.dot(mat,dat)
         #if len(lhs)>1:
-        if isinstance(lhs,numpy.ndarray):
-            cm=numpy.dot(numpy.linalg.inv(lhs),rhs)
+        if isinstance(lhs,np.ndarray):
+            cm=np.dot(np.linalg.inv(lhs),rhs)
         else:
             cm=rhs/lhs
-        dd=dat-numpy.outer(self.info['v'],cm)
-        tmp=numpy.repeat([self.info['mywt']],len(cm),axis=0).transpose()
+        dd=dat-np.outer(self.info['v'],cm)
+        tmp=np.repeat([self.info['mywt']],len(cm),axis=0).transpose()
         dd=dd*tmp
         return dd
         
@@ -1070,16 +1242,16 @@ class Tod:
         '''If func comes in as not empy, assume we can call func(pars,tod) to get a predicted model for the tod that
         we subtract off before estimating the noise.'''
         if func is None:
-            u,s,v=numpy.linalg.svd(self.info['dat_calib'],0)
+            u,s,v=np.linalg.svd(self.info['dat_calib'],0)
         else:
             tmp=func(pars,self)
-            u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
+            u,s,v=np.linalg.svd(self.info['dat_calib']-tmp,0)
         print 'got svd'
         ndet=s.size
         n=self.info['dat_calib'].shape[1]
-        self.info['v']=numpy.zeros([ndet,ndet])
+        self.info['v']=np.zeros([ndet,ndet])
         self.info['v'][:]=u.transpose()
-        dat_rot=numpy.dot(self.info['v'],self.info['dat_calib'])
+        dat_rot=np.dot(self.info['v'],self.info['dat_calib'])
         dat_trans=pyfftw.fft_r2r(dat_rot)
         spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
         self.info['mywt']=1.0/spec_smooth
@@ -1091,12 +1263,12 @@ class Tod:
             dat=self.info['dat_calib']
         if self.info['noise']=='cm_white':
             return self.apply_noise_cm_white(dat)
-        dat_rot=numpy.dot(self.info['v'],dat)
+        dat_rot=np.dot(self.info['v'],dat)
         datft=pyfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
         datft=datft*self.info['mywt'][:,0:nn]
         dat_rot=pyfftw.fft_r2r(datft)
-        dat=numpy.dot(self.info['v'].transpose(),dat_rot)
+        dat=np.dot(self.info['v'].transpose(),dat_rot)
         return dat
     def dot(self,mapset,mapset_out):
         tmp=0.0*self.info['dat_calib']
@@ -1109,14 +1281,14 @@ class Tod:
         self.jumps=jumps
     def cut_detectors(self,isgood):
         #cut all detectors not in boolean array isgood
-        isbad=numpy.asarray(1-isgood,dtype='bool')
-        bad_inds=numpy.where(isbad)
-        bad_inds=numpy.fliplr(bad_inds)
+        isbad=np.asarray(1-isgood,dtype='bool')
+        bad_inds=np.where(isbad)
+        bad_inds=np.fliplr(bad_inds)
         bad_inds=bad_inds[0]
         print bad_inds
-        nkeep=numpy.sum(isgood)
+        nkeep=np.sum(isgood)
         for key in self.info.keys():
-            if isinstance(self.info[key],numpy.ndarray):
+            if isinstance(self.info[key],np.ndarray):
                 self.info[key]=slice_with_copy(self.info[key],isgood)
         if not(self.jumps is None):
             for i in bad_inds:
@@ -1130,22 +1302,22 @@ class Tod:
         if dat is None:
             dat=self.info['dat_calib']
         dat_filt=self.apply_noise(dat)
-        chisq=numpy.sum(dat_filt*dat)
+        chisq=np.sum(dat_filt*dat)
         return chisq
 
 def slice_with_copy(arr,ind):
-    if isinstance(arr,numpy.ndarray):
+    if isinstance(arr,np.ndarray):
         myshape=arr.shape
 
         if len(myshape)==1:
-            ans=numpy.zeros(ind.sum(),dtype=arr.dtype)
+            ans=np.zeros(ind.sum(),dtype=arr.dtype)
             print ans.shape
             print ind.sum()
             ans[:]=arr[ind]
         else:   
-            mydims=numpy.append(numpy.sum(ind),myshape[1:])
+            mydims=np.append(np.sum(ind),myshape[1:])
             print mydims,mydims.dtype
-            ans=numpy.zeros(mydims,dtype=arr.dtype)
+            ans=np.zeros(mydims,dtype=arr.dtype)
             ans[:,:]=arr[ind,:].copy()
         return ans
     return None #should not get here
@@ -1202,7 +1374,7 @@ class TodVec:
             return mapset2
             
 
-        times=numpy.zeros(self.ntod)
+        times=np.zeros(self.ntod)
         #for tod in self.tods:
         for i in range(self.ntod):
             tod=self.tods[i]
@@ -1230,11 +1402,11 @@ def read_tod_from_fits(fname,hdu=1,branch=None):
     f=pyfits.open(fname)
     raw=f[hdu].data
     pixid=raw['PIXID']
-    dets=numpy.unique(pixid)
+    dets=np.unique(pixid)
     ndet=len(dets)
     nsamp=len(pixid)/len(dets)
     if True:
-        ff=180/numpy.pi
+        ff=180/np.pi
         xmin=raw['DX'].min()*ff
         xmax=raw['DX'].max()*ff
         ymin=raw['DY'].min()*ff
@@ -1249,27 +1421,31 @@ def read_tod_from_fits(fname,hdu=1,branch=None):
     #also, float32 is a bit on the edge for pointing, so cast to float64
     dx=raw['DX']
     if not(branch is None):
-        bb=branch*numpy.pi/180.0
-        dx[dx>bb]=dx[dx>bb]-2*numpy.pi
-    #dat['dx']=numpy.zeros([ndet,nsamp],dtype=type(dx[0]))
-    dat['dx']=numpy.zeros([ndet,nsamp],dtype='float64')
-    dat['dx'][:]=numpy.reshape(dx,[ndet,nsamp])[:]
+        bb=branch*np.pi/180.0
+        dx[dx>bb]=dx[dx>bb]-2*np.pi
+    #dat['dx']=np.zeros([ndet,nsamp],dtype=type(dx[0]))
+    dat['dx']=np.zeros([ndet,nsamp],dtype='float64')
+    dat['dx'][:]=np.reshape(dx,[ndet,nsamp])[:]
     dy=raw['DY']
-    #dat['dy']=numpy.zeros([ndet,nsamp],dtype=type(dy[0]))
-    dat['dy']=numpy.zeros([ndet,nsamp],dtype='float64')
-    dat['dy'][:]=numpy.reshape(dy,[ndet,nsamp])[:]
+    #dat['dy']=np.zeros([ndet,nsamp],dtype=type(dy[0]))
+    dat['dy']=np.zeros([ndet,nsamp],dtype='float64')
+    dat['dy'][:]=np.reshape(dy,[ndet,nsamp])[:]
+    if 'ELEV' in raw.names:
+        elev=raw['ELEV']*np.pi/180
+        dat['elev']=np.zeros([ndet,nsamp],dtype='float64')
+        dat['elev'][:]=np.reshape(elev,[ndet,nsamp])[:]
 
-    tt=numpy.reshape(raw['TIME'],[ndet,nsamp])
+    tt=np.reshape(raw['TIME'],[ndet,nsamp])
     tt=tt[0,:]
-    dt=numpy.median(numpy.diff(tt))
+    dt=np.median(np.diff(tt))
     dat['dt']=dt
-    pixid=numpy.reshape(pixid,[ndet,nsamp])
+    pixid=np.reshape(pixid,[ndet,nsamp])
     pixid=pixid[:,0]
     dat['pixid']=pixid
     dat_calib=raw['FNU']
-    #dat['dat_calib']=numpy.zeros([ndet,nsamp],dtype=type(dat_calib[0]))
-    dat['dat_calib']=numpy.zeros([ndet,nsamp],dtype='float64') #go to double because why not
-    dat_calib=numpy.reshape(dat_calib,[ndet,nsamp])
+    #dat['dat_calib']=np.zeros([ndet,nsamp],dtype=type(dat_calib[0]))
+    dat['dat_calib']=np.zeros([ndet,nsamp],dtype='float64') #go to double because why not
+    dat_calib=np.reshape(dat_calib,[ndet,nsamp])
     dat['dat_calib'][:]=dat_calib[:]
     dat['fname']=fname
     f.close()
@@ -1299,7 +1475,6 @@ def downsample_tod(dat,fac=10):
     
 
 def truncate_tod(dat,primes=[2,3,5,7,11]):
-    
     n=dat['dat_calib'].shape[1]
     lens=find_good_fft_lens(n-1,primes)
     n_new=lens.max()+1
@@ -1326,7 +1501,7 @@ def make_hits(todvec,map):
     hits=map.copy()
     hits.clear()
     for tod in todvec.tods:
-        tmp=numpy.ones(tod.info['dat_calib'].shape)
+        tmp=np.ones(tod.info['dat_calib'].shape)
         hits.tod2map(tod,tmp)
     if have_mpi:
         hits.mpi_reduce()
@@ -1342,16 +1517,22 @@ def decimate(vec,nrep=1):
 def plot_ps(vec,downsamp=0):
     vecft=pyfftw.fft_r2r(vec)
     
-def get_wcs(lims,pixsize,proj='CAR'):
+def get_wcs(lims,pixsize,proj='CAR',cosdec=None,ref_equ=False):
     w=wcs.WCS(naxis=2)    
     dec=0.5*(lims[2]+lims[3])
-    cosdec=numpy.cos(dec)
+    if cosdec is None:
+        cosdec=np.cos(dec)
     if proj=='CAR':
         #CAR in FITS seems to already correct for cosin(dec), which has me confused, but whatever...
         cosdec=1.0
-        w.wcs.crpix=[1.0,1.0]
-        w.wcs.crval=[lims[1]*180/numpy.pi,lims[2]*180/numpy.pi]
-        w.wcs.cdelt=[-pixsize/cosdec*180/numpy.pi,pixsize*180/numpy.pi]
+        if ref_equ:
+            w.wcs.crval=[0.0,0.0]
+            w.wcs.crpix=[lims[1]/pixsize,-lims[2]/pixsize]
+            #print 'crpix is ',w.wcs.crpix
+        else:
+            w.wcs.crpix=[1.0,1.0]
+            w.wcs.crval=[lims[1]*180/np.pi,lims[2]*180/np.pi]
+        w.wcs.cdelt=[-pixsize/cosdec*180/np.pi,pixsize*180/np.pi]
         w.wcs.ctype=['RA---CAR','DEC--CAR']
         return w
     print 'unknown projection type ',proj,' in get_wcs.'
@@ -1362,65 +1543,65 @@ def get_wcs(lims,pixsize,proj='CAR'):
 
 def fit_linear_ps_uncorr(dat,vecs,tol=1e-3,guess=None,max_iter=15):
     if guess is None:
-        lhs=numpy.dot(vecs,vecs.transpose())
-        rhs=numpy.dot(vecs,dat**2)
-        guess=numpy.dot(numpy.linalg.inv(lhs),rhs) 
+        lhs=np.dot(vecs,vecs.transpose())
+        rhs=np.dot(vecs,dat**2)
+        guess=np.dot(np.linalg.inv(lhs),rhs) 
         guess=0.5*guess #scale down since we're less likely to run into convergence issues if we start low
         #print guess
     fitp=guess.copy()
     converged=False
-    np=len(fitp)
+    npp=len(fitp)
     iter=0
     
-    grad_tr=numpy.zeros(np)
-    grad_chi=numpy.zeros(np)
-    curve=numpy.zeros([np,np])
+    grad_tr=np.zeros(npp)
+    grad_chi=np.zeros(npp)
+    curve=np.zeros([npp,npp])
     datsqr=dat*dat
     while (converged==False):
         iter=iter+1
-        C=numpy.dot(fitp,vecs)
+        C=np.dot(fitp,vecs)
         Cinv=1.0/C
-        for i in range(np):
-            grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
-            grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
-            for j in range(i,np):
-                #curve[i,j]=-0.5*numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #data-only curvature
-                #curve[i,j]=-0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:]) #Fisher curvature
-                curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #exact
+        for i in range(npp):
+            grad_chi[i]=0.5*np.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+            grad_tr[i]=-0.5*np.sum(vecs[i,:]*Cinv)
+            for j in range(i,npp):
+                #curve[i,j]=-0.5*np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #data-only curvature
+                #curve[i,j]=-0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:]) #Fisher curvature
+                curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #exact
                 curve[j,i]=curve[i,j]
         grad=grad_chi+grad_tr
-        curve_inv=numpy.linalg.inv(curve)
-        errs=numpy.diag(curve_inv)
-        dp=numpy.dot(grad,curve_inv)
+        curve_inv=np.linalg.inv(curve)
+        errs=np.diag(curve_inv)
+        dp=np.dot(grad,curve_inv)
         fitp=fitp-dp
         frac_shift=dp/errs
         #print dp,errs,frac_shift
-        if numpy.max(numpy.abs(frac_shift))<tol:
-            print 'successful convergence after ',iter,' iterations with error estimate ',numpy.max(numpy.abs(frac_shift))
+        if np.max(np.abs(frac_shift))<tol:
+            print 'successful convergence after ',iter,' iterations with error estimate ',np.max(np.abs(frac_shift))
             converged=True
         if iter==max_iter:
-            print 'not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',numpy.max(numpy.abs(frac_shift))
+            print 'not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',np.max(np.abs(frac_shift))
             converged=True
 
     return fitp
-def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
+def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=np.inf):
     datft=pyfftw.fft_r2r(dat)
     n=len(datft)
 
     dnu=0.5/(len(dat)*dt) #coefficient should reflect the type of fft you did...
-    nu=dnu*numpy.arange(n)
+    nu=dnu*np.arange(n)
     isgood=(nu>nu_min)&(nu<nu_max)
     datft=datft[isgood]
     nu=nu[isgood]
     n=len(nu)
-    vecs=numpy.zeros([2,n])
+    vecs=np.zeros([2,n])
     vecs[0,:]=1.0 #white noise
     vecs[1,:]=nu**ind
     guess=fit_linear_ps_uncorr(datft,vecs)
 
     rat=vecs[1,:]*guess[1]/(vecs[0,:]*guess[0])
-    my_ind=numpy.max(numpy.where(rat>1)[0])
-    nu_ref=numpy.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
+    my_ind=np.max(np.where(rat>1)[0])
+    nu_ref=np.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
     #nu_ref=0.2*nu[my_ind] #WAG as to a sensible frequency pivot point
     print 'knee is roughly at ',nu[my_ind],nu_ref
 
@@ -1436,17 +1617,17 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
     C_scale=guess_scale[0]+guess_scale[1]*(nu_scale**ind)
     
 
-    fitp=numpy.zeros(3)
+    fitp=np.zeros(3)
     fitp[0:2]=guess_scale
     fitp[2]=ind
 
-    np=3
-    vecs=numpy.zeros([np,n])
+    npp=3
+    vecs=np.zeros([npp,n])
     vecs[0,:]=1.0
-    lognu=numpy.log(nu_scale)
-    curve=numpy.zeros([np,np])
-    grad_chi=numpy.zeros(np)
-    grad_tr=numpy.zeros(np)
+    lognu=np.log(nu_scale)
+    curve=np.zeros([npp,npp])
+    grad_chi=np.zeros(npp)
+    grad_tr=np.zeros(npp)
     datsqr=datft**2
     for iter in range(20):
         vec=nu_scale**fitp[2]
@@ -1454,23 +1635,23 @@ def fit_ts_ps(dat,dt=1.0,ind=-2.0,nu_min=0.0,nu_max=numpy.inf):
         Cinv=1.0/C
         vecs[1,:]=vec
         vecs[2,:]=fitp[1]*lognu*vec
-        for i in range(np):
-            grad_chi[i]=0.5*numpy.sum(datsqr*vecs[i,:]*Cinv*Cinv)
-            grad_tr[i]=-0.5*numpy.sum(vecs[i,:]*Cinv)
-            for j in range(i,np):
-                curve[i,j]=0.5*numpy.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-numpy.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+        for i in range(npp):
+            grad_chi[i]=0.5*np.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+            grad_tr[i]=-0.5*np.sum(vecs[i,:]*Cinv)
+            for j in range(i,npp):
+                curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
                 curve[j,i]=curve[i,j]
         grad=grad_chi+grad_tr
-        curve_inv=numpy.linalg.inv(curve)
-        errs=numpy.diag(curve_inv)
-        dp=numpy.dot(grad,curve_inv)
+        curve_inv=np.linalg.inv(curve)
+        errs=np.diag(curve_inv)
+        dp=np.dot(grad,curve_inv)
         fitp=fitp-dp
         frac_shift=dp/errs
         print fitp,errs,frac_shift
 
 
-    #C=numpy.dot(guess,vecs)
-    print 'mean diff is ',numpy.mean(numpy.abs(C_scale-C))
+    #C=np.dot(guess,vecs)
+    print 'mean diff is ',np.mean(np.abs(C_scale-C))
     #return datft,vecs,nu,C
     return fitp,nu_ref,C
     
@@ -1478,38 +1659,69 @@ def get_derivs_tod_isosrc(pars,tod,niso=None):
     np_src=4
     np_iso=5
     #nsrc=(len(pars)-np_iso)/np_src
-    np=len(pars)
+    npp=len(pars)
     if niso is None:
-        niso=(np%np_src)/(np_iso-np_src)
-    nsrc=(np-niso*np_iso)/np_src
+        niso=(npp%np_src)/(np_iso-np_src)
+    nsrc=(npp-niso*np_iso)/np_src
     #print nsrc,niso
     
 
-    fitp_iso=numpy.zeros(np_iso)
+    fitp_iso=np.zeros(np_iso)
     fitp_iso[:]=pars[:np_iso]
     #print 'fitp_iso is ',fitp_iso
     derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
 
     nn=tod.info['dat_calib'].size
-    derivs=numpy.reshape(derivs_iso,[np_iso,nn])
+    derivs=np.reshape(derivs_iso,[np_iso,nn])
     pred=f_iso
 
     for ii in range(nsrc):
-        fitp_src=numpy.zeros(np_src)
+        fitp_src=np.zeros(np_src)
         istart=np_iso+ii*np_src
         fitp_src[:]=pars[istart:istart+np_src]
         derivs_src,f_src=derivs_from_gauss_c(fitp_src,tod)
         pred=pred+f_src
-        derivs_src_tmp=numpy.reshape(derivs_src,[np_src,nn])
-        derivs=numpy.append(derivs,derivs_src_tmp,axis=0)
+        derivs_src_tmp=np.reshape(derivs_src,[np_src,nn])
+        derivs=np.append(derivs,derivs_src_tmp,axis=0)
     return pred,derivs
 
+def get_curve_deriv_tod_manygauss(pars,tod,return_vecs=False):
+    npp=4
+    nsrc=len(pars)/npp
+    fitp_gauss=np.zeros(npp)
+    dat=tod.info['dat_calib']
+    big_derivs=np.zeros([np*nsrc,dat.shape[0],dat.shape[1]])
+    pred=0
+    curve=np.zeros([npp*nsrc,npp*nsrc])
+    deriv=np.zeros([npp*nsrc])
+    for i in range(nsrc):
+        fitp_gauss[:]=pars[i*npp:(i+1)*npp]
+        derivs,src_pred=derivs_from_gauss_c(fitp_gauss,tod)
+        pred=pred+src_pred
+        big_derivs[i*npp:(i+1)*npp,:,:]=derivs
+    delt=dat-pred
+    delt_filt=tod.apply_noise(delt)
+    chisq=0.5*np.sum(delt[:,0]*delt_filt[:,0])
+    chisq=chisq+0.5*np.sum(delt[:,-1]*delt_filt[:,-1])
+    chisq=chisq+np.sum(delt[:,1:-1]*delt_filt[:,1:-1])
+    for i in range(npp*nsrc):
+        deriv_filt=tod.apply_noise(big_derivs[i,:,:])
+        for j in range(i,npp*nsrc):
+            curve[i,j]=curve[i,j]+0.5*np.sum(deriv_filt[:,0]*big_derivs[j,:,0])
+            curve[i,j]=curve[i,j]+0.5*np.sum(deriv_filt[:,-1]*big_derivs[j,:,-1])
+            curve[i,j]=curve[i,j]+np.sum(deriv_filt[:,1:-1]*big_derivs[j,:,1:-1])
+            curve[j,i]=curve[i,j]
+            #print i,j,curve[i,j]
+        deriv[i]=deriv[i]+0.5*np.sum(deriv_filt[:,0]*delt[:,0])
+        deriv[i]=deriv[i]+0.5*np.sum(deriv_filt[:,-1]*delt[:,-1])
+        deriv[i]=deriv[i]+np.sum(deriv_filt[:,1:-1]*delt[:,1:-1])
+    return curve,deriv,chisq
 def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
     np_src=4
     np_iso=5
     nsrc=(len(pars)-np_iso)/np_src
-
-    fitp_iso=numpy.zeros(np_iso)
+    #print 'nsrc is ',nsrc
+    fitp_iso=np.zeros(np_iso)
     fitp_iso[:]=pars[:np_iso]
     #print 'fitp_iso is ',fitp_iso
     derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
@@ -1519,12 +1731,12 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
     for i in range(np_iso):
         tmp[:,:]=derivs_iso[i,:,:]
         derivs_iso_filt[i,:,:]=tod.apply_noise(tmp)
-    derivs=numpy.reshape(derivs_iso,[np_iso,nn])
-    derivs_filt=numpy.reshape(derivs_iso_filt,[np_iso,nn])
+    derivs=np.reshape(derivs_iso,[np_iso,nn])
+    derivs_filt=np.reshape(derivs_iso_filt,[np_iso,nn])
     pred=f_iso
 
     for ii in range(nsrc):
-        fitp_src=numpy.zeros(np_src)
+        fitp_src=np.zeros(np_src)
         istart=np_iso+ii*np_src
         fitp_src[:]=pars[istart:istart+np_src]
         #print 'fitp_src is ',fitp_src
@@ -1534,24 +1746,24 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
         for i in range(np_src):
             tmp[:,:]=derivs_src[i,:,:]
             derivs_src_filt[i,:,:]=tod.apply_noise(tmp)
-        derivs_src_tmp=numpy.reshape(derivs_src,[np_src,nn])
-        derivs=numpy.append(derivs,derivs_src_tmp,axis=0)
-        derivs_src_tmp=numpy.reshape(derivs_src_filt,[np_src,nn])
-        derivs_filt=numpy.append(derivs_filt,derivs_src_tmp,axis=0)
+        derivs_src_tmp=np.reshape(derivs_src,[np_src,nn])
+        derivs=np.append(derivs,derivs_src_tmp,axis=0)
+        derivs_src_tmp=np.reshape(derivs_src_filt,[np_src,nn])
+        derivs_filt=np.append(derivs_filt,derivs_src_tmp,axis=0)
 
     delt_filt=tod.apply_noise(tod.info['dat_calib']-pred)
-    delt_filt=numpy.reshape(delt_filt,nn)
+    delt_filt=np.reshape(delt_filt,nn)
 
-    dvec=numpy.reshape(tod.info['dat_calib'],nn)
-    predvec=numpy.reshape(pred,nn)
+    dvec=np.reshape(tod.info['dat_calib'],nn)
+    predvec=np.reshape(pred,nn)
     delt=dvec-predvec
     
 
 
 
-    grad=numpy.dot(derivs_filt,delt)
-    grad2=numpy.dot(derivs,delt_filt)
-    curve=numpy.dot(derivs_filt,derivs.transpose())
+    grad=np.dot(derivs_filt,delt)
+    grad2=np.dot(derivs,delt_filt)
+    curve=np.dot(derivs_filt,derivs.transpose())
     #return pred
     if return_vecs:
         return grad,grad2,curve,derivs,derivs_filt,delt,delt_filt
@@ -1568,7 +1780,7 @@ def get_timestream_chisq_from_func(func,pars,tods):
         delt_filt=tod.apply_noise(delt)
         delt_filt[:,0]=delt_filt[:,0]*0.5
         delt_filt[:,-1]=delt_filt[:,-1]*0.5
-        chisq=chisq+numpy.sum(delt*delt_filt)
+        chisq=chisq+np.sum(delt*delt_filt)
     return chisq
 
 def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
@@ -1580,32 +1792,32 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
         #print 'type of tod is ',type(tod)
         pred,derivs=func(pars,tod)
         if not(rotmat is None):
-            derivs=numpy.dot(rotmat.transpose(),derivs)
+            derivs=np.dot(rotmat.transpose(),derivs)
         derivs_filt=0*derivs
         sz=tod.info['dat_calib'].shape
-        tmp=numpy.zeros(sz)
-        np=derivs.shape[0]
+        tmp=np.zeros(sz)
+        npp=derivs.shape[0]
         nn=derivs.shape[1]
         delt=tod.info['dat_calib']-pred
         delt_filt=tod.apply_noise(delt)
         #delt_filt[:,1:-1]=delt_filt[:,1:-1]*2
         delt_filt[:,0]=delt_filt[:,0]*0.5
         delt_filt[:,-1]=delt_filt[:,-1]*0.5
-        for i in range(np):
-            tmp[:,:]=numpy.reshape(derivs[i,:],sz)
+        for i in range(npp):
+            tmp[:,:]=np.reshape(derivs[i,:],sz)
             tmp_filt=tod.apply_noise(tmp)
             #tmp_filt[:,1:-1]=tmp_filt[:,1:-1]*2
             tmp_filt[:,0]=tmp_filt[:,0]*0.5
             tmp_filt[:,-1]=tmp_filt[:,-1]*0.5
-            derivs_filt[i,:]=numpy.reshape(tmp_filt,nn)
-        delt=numpy.reshape(delt,nn)
-        delt_filt=numpy.reshape(delt_filt,nn)
-        grad1=numpy.dot(derivs,delt_filt)
-        grad2=numpy.dot(derivs_filt,delt)
-        #print 'grad error is ',numpy.mean(numpy.abs((grad1-grad2)/(0.5*(numpy.abs(grad1)+numpy.abs(grad2)))))
+            derivs_filt[i,:]=np.reshape(tmp_filt,nn)
+        delt=np.reshape(delt,nn)
+        delt_filt=np.reshape(delt_filt,nn)
+        grad1=np.dot(derivs,delt_filt)
+        grad2=np.dot(derivs_filt,delt)
+        #print 'grad error is ',np.mean(np.abs((grad1-grad2)/(0.5*(np.abs(grad1)+np.abs(grad2)))))
         grad=grad+0.5*(grad1+grad2)
-        curve=curve+numpy.dot(derivs,derivs_filt.transpose())
-        chisq=chisq+numpy.dot(delt,delt_filt)
+        curve=curve+np.dot(derivs,derivs_filt.transpose())
+        chisq=chisq+np.dot(delt,delt_filt)
     curve=0.5*(curve+curve.transpose())
     return chisq,grad,curve
 
@@ -1614,7 +1826,7 @@ def update_lamda(lamda,success):
         if lamda<0.2:
             return 0
         else:
-            return lamda/numpy.sqrt(2)
+            return lamda/np.sqrt(2)
     else:
         if lamda==0.0:
             return 1.0
@@ -1622,23 +1834,23 @@ def update_lamda(lamda,success):
             return 2.0*lamda
         
 def invscale(mat):
-    vec=1/numpy.sqrt(numpy.diag(mat))
-    mm=numpy.outer(vec,vec)
+    vec=1/np.sqrt(np.diag(mat))
+    mm=np.outer(vec,vec)
     mat=mm*mat
-    #ee,vv=numpy.linalg.eig(mat)
-    #print 'rcond is ',ee.max()/ee.min(),vv[:,numpy.argmin(ee)]
-    return mm*numpy.linalg.inv(mat)
+    #ee,vv=np.linalg.eig(mat)
+    #print 'rcond is ',ee.max()/ee.min(),vv[:,np.argmin(ee)]
+    return mm*np.linalg.inv(mat)
 def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
     if not(to_fit is None):
         #print 'working on creating rotmat'
-        to_fit=numpy.asarray(to_fit,dtype='int64')
-        inds=numpy.unique(to_fit)
-        nfloat=numpy.sum(to_fit==1)
-        ncovary=numpy.sum(inds>1)
+        to_fit=np.asarray(to_fit,dtype='int64')
+        inds=np.unique(to_fit)
+        nfloat=np.sum(to_fit==1)
+        ncovary=np.sum(inds>1)
         nfit=nfloat+ncovary
-        rotmat=numpy.zeros([len(pars),nfit])
+        rotmat=np.zeros([len(pars),nfit])
         
-        solo_inds=numpy.where(to_fit==1)[0]
+        solo_inds=np.where(to_fit==1)[0]
         icur=0
         for ind in solo_inds:
             rotmat[ind,icur]=1.0
@@ -1646,7 +1858,7 @@ def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,to
         if ncovary>0:
             group_inds=inds[inds>1]
             for ind in group_inds:
-                ii=numpy.where(to_fit==ind)[0]
+                ii=np.where(to_fit==ind)[0]
                 rotmat[ii,icur]=1.0
                 icur=icur+1
     else:
@@ -1661,12 +1873,12 @@ def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,to
     iter=0
     while (converged==False) and (iter<maxiter):
         iter=iter+1
-        curve_tmp=curve+lamda*numpy.diag(numpy.diag(curve))
-        #curve_inv=numpy.linalg.inv(curve_tmp)
+        curve_tmp=curve+lamda*np.diag(np.diag(curve))
+        #curve_inv=np.linalg.inv(curve_tmp)
         curve_inv=invscale(curve_tmp)
-        shifts=numpy.dot(curve_inv,grad)
+        shifts=np.dot(curve_inv,grad)
         if not(rotmat is None):
-            shifts_use=numpy.dot(rotmat,shifts)
+            shifts_use=np.dot(rotmat,shifts)
         else:
             shifts_use=shifts
         pp_tmp=pp+shifts_use
@@ -1681,14 +1893,14 @@ def fit_timestreams_with_derivs_test(func,pars,tods,to_fit=None,to_scale=None,to
             chi_tmp,grad,curve=get_timestream_chisq_curve_deriv_from_func(func,pp,tods,rotmat)
         lamda=update_lamda(lamda,success)
         if (lamda==0)&success:
-            errs=numpy.sqrt(numpy.diag(curve_inv))
-            conv_fac=numpy.max(numpy.abs(shifts/errs))
+            errs=np.sqrt(np.diag(curve_inv))
+            conv_fac=np.max(np.abs(shifts/errs))
             if (conv_fac<tol):
                 print 'we have converged'
                 converged=True
         else:
             conv_fac=None
-        to_print=numpy.asarray([3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi,1.0,1.0,3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi*numpy.sqrt(8*numpy.log(2)),1.0])*(pp-pars)
+        to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
         print 'iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new
     return pp,chi_cur
 def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
@@ -1701,14 +1913,14 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
 
     if not(to_fit is None):
         #print 'working on creating rotmat'
-        to_fit=numpy.asarray(to_fit,dtype='int64')
-        inds=numpy.unique(to_fit)
-        nfloat=numpy.sum(to_fit==1)
-        ncovary=numpy.sum(inds>1)
+        to_fit=np.asarray(to_fit,dtype='int64')
+        inds=np.unique(to_fit)
+        nfloat=np.sum(to_fit==1)
+        ncovary=np.sum(inds>1)
         nfit=nfloat+ncovary
-        rotmat=numpy.zeros([len(pars),nfit])
+        rotmat=np.zeros([len(pars),nfit])
 
-        solo_inds=numpy.where(to_fit==1)[0]
+        solo_inds=np.where(to_fit==1)[0]
         icur=0
         for ind in solo_inds:
             rotmat[ind,icur]=1.0
@@ -1716,7 +1928,7 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
         if ncovary>0:
             group_inds=inds[inds>1]
             for ind in group_inds:
-                ii=numpy.where(to_fit==ind)[0]
+                ii=np.where(to_fit==ind)[0]
                 rotmat[ii,icur]=1.0
                 icur=icur+1
 
@@ -1733,43 +1945,43 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
             sz=tod.info['dat_calib'].shape
             pred,derivs=func(pp,tod)
             if not (to_fit is None):
-                derivs=numpy.dot(rotmat.transpose(),derivs)
+                derivs=np.dot(rotmat.transpose(),derivs)
             derivs_filt=0*derivs
-            tmp=numpy.zeros(sz)
-            np=derivs.shape[0]
+            tmp=np.zeros(sz)
+            npp=derivs.shape[0]
             nn=derivs.shape[1]
             delt=tod.info['dat_calib']-pred
             delt_filt=tod.apply_noise(delt)
-            for i in range(np):
-                tmp[:,:]=numpy.reshape(derivs[i,:],sz)
+            for i in range(npp):
+                tmp[:,:]=np.reshape(derivs[i,:],sz)
                 tmp_filt=tod.apply_noise(tmp)
-                derivs_filt[i,:]=numpy.reshape(tmp_filt,nn)
-            delt=numpy.reshape(delt,nn)
-            delt_filt=numpy.reshape(delt_filt,nn)
-            grad1=numpy.dot(derivs,delt_filt)
-            grad2=numpy.dot(derivs_filt,delt)
+                derivs_filt[i,:]=np.reshape(tmp_filt,nn)
+            delt=np.reshape(delt,nn)
+            delt_filt=np.reshape(delt_filt,nn)
+            grad1=np.dot(derivs,delt_filt)
+            grad2=np.dot(derivs_filt,delt)
             grad=grad+0.5*(grad1+grad2)
-            curve=curve+numpy.dot(derivs,derivs_filt.transpose())
-            chisq=chisq+numpy.dot(delt,delt_filt)
+            curve=curve+np.dot(derivs,derivs_filt.transpose())
+            chisq=chisq+np.dot(delt,delt_filt)
         if iter==0:
             chi_ref=chisq
         curve=0.5*(curve+curve.transpose())
-        curve=curve+2.0*numpy.diag(numpy.diag(curve)) #double the diagonal for testing purposes
-        curve_inv=numpy.linalg.inv(curve)
-        errs=numpy.sqrt(numpy.diag(curve_inv))
-        shifts=numpy.dot(curve_inv,grad)
+        curve=curve+2.0*np.diag(np.diag(curve)) #double the diagonal for testing purposes
+        curve_inv=np.linalg.inv(curve)
+        errs=np.sqrt(np.diag(curve_inv))
+        shifts=np.dot(curve_inv,grad)
         #print errs,shifts
-        conv_fac=numpy.max(numpy.abs(shifts/errs))
+        conv_fac=np.max(np.abs(shifts/errs))
         if conv_fac<tol:
             print 'We have converged.'
             converged=True
         if not (to_fit is None):
-            shifts=numpy.dot(rotmat,shifts)
+            shifts=np.dot(rotmat,shifts)
         if not(scale_facs is None):
             if iter<len(scale_facs):
                 print 'rescaling shift by ',scale_facs[iter]
                 shifts=shifts*scale_facs[iter]
-        to_print=numpy.asarray([3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi,1.0,1.0,3600*180.0/numpy.pi,3600*180.0/numpy.pi,3600*180.0/numpy.pi*numpy.sqrt(8*numpy.log(2)),1.0])*(pp-pars)
+        to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
         print 'iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,to_print #converged,pp,shifts
         pp=pp+shifts
 
