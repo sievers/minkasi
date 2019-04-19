@@ -707,6 +707,118 @@ class null_precon:
     def __mul__(self,val):
         return val
 
+class tsCommon:
+    def __init__(self,tod=None,*args,**kwargs):
+        if tod is None:
+            self.sz=np.asarray([0,0],dtype='int')
+            self.params=np.zeros(1)
+            self.fname=''
+        else:
+            self.sz=tod.info['dat_calib'].shape
+            self.params=np.zeros(self.sz[1])
+            self.fname=tod.info['fname']
+    def copy(self):
+        cp=tsCommon()
+        try:
+            cp.sz=self.sz.copy() 
+        except:#if the size doesn't have a copy function, then it's probably a number you can just assign
+            cp.sz=self.sz
+            cp.fname=self.fname
+            cp.params=self.params.copy()
+            return cp
+    def clear(self):
+        self.params[:]=0.0
+    def dot(self,common=None):
+        if common is None:
+            return np.dot(self.params,self.params)
+        else:
+            return np.dot(self.params,common.params)
+    def axpy(self,common,a):
+        self.params=self.params+a*common.params
+        
+    def tod2map(self,tod,dat,do_add=True,do_omp=False):
+        #assert(self.fname==tod.info['fname']
+        nm=tod.info['fname']
+        if do_add==False:
+            self.clear()
+        self.params[:]=self.params[:]+np.sum(dat,axis=0)
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        nm=tod.info['fname']
+        dat[:]=dat[:]+np.repeat([self.params],dat.shape[0],axis=0)
+    def write(self,fname=None):
+        pass
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.params=self.params*to_mul.params
+        return tt
+class tsModel:
+    def __init__(self,todvec=None,modelclass=None,*args,**kwargs):
+        self.data={}
+        if todvec is None:
+            return
+        for tod in todvec.tods:
+            nm=tod.info['fname']
+            self.data[nm]=modelclass(tod,*args,**kwargs)
+    def copy(self):
+        new_tsModel=tsModel()
+        for nm in self.data.keys():
+            new_tsModel.data[nm]=self.data[nm].copy()
+        return new_tsModel
+
+    def tod2map(self,tod,dat,do_add=True,do_omp=False):
+        nm=tod.info['fname']
+        if do_add==False:
+            self.clear()
+        self.data[nm].tod2map(tod,dat,do_add,do_omp)
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        nm=tod.info['fname']
+        if do_add==False:
+            dat[:]=0.0
+        self.data[nm].map2tod(tod,dat,do_add,do_omp)
+
+    def dot(self,tsmodels=None):
+        tot=0.0
+        for nm in self.data.keys():
+            if tsmodels is None:
+                tot=tot+self.data[nm].dot(self.data[nm])
+            else:
+                if tsmodels.data.has_key(nm):
+                    tot=tot+self.data[nm].dot(tsmodels.data[nm])
+                else:
+                    print 'error in tsModel.dot - missing key ',nm
+                    assert(1==0)  #pretty sure we want to crash if missing names
+        if have_mpi:
+            tot=comm.allreduce(tot)
+        return tot
+    def clear(self):
+        for nm in self.data.keys():
+            self.data[nm].clear()
+    def axpy(self,tsmodel,a):
+        for nm in self.data.keys():
+            self.data[nm].axpy(tsmodel.data[nm],a)
+    def __mul__(self,tsmodel): #this is used in preconditioning - need to fix if ts-based preconditioning is desired        
+        tt=self.copy()
+        for nm in self.data.keys():
+            tt.data[nm]=self.data[nm]*tsmodel.data[nm]
+        return tt
+        #for nm in tt.data.keys():
+        #    tt.params[nm]=tt.params[nm]*tsmodel.params[nm]
+    def mpi_reduce(self):
+        pass
+    def get_caches(self):
+        for nm in self.data.keys():
+            try:
+                self.data[nm].get_caches()
+            except:
+                pass
+    def clear_caches(self):
+        for nm in self.data.keys():
+            try:
+                self.data[nm].clear_caches()
+            except:
+                pass
+    def mpi_reduce(self):
+        pass
 class Mapset:
     def __init__(self):
         self.nmap=0
