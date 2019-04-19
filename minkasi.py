@@ -6,6 +6,7 @@ import pyfits
 import astropy
 from astropy import wcs
 from astropy.io import fits
+import scipy
 
 try:
     from mpi4py import MPI
@@ -707,6 +708,78 @@ class null_precon:
     def __mul__(self,val):
         return val
 
+def scaled_airmass_from_el(mat):
+    airmass=1/np.cos(mat)
+    airmass=airmass-airmass.mean()
+    #airmass=airmass/np.std(airmass)
+    return airmass
+class tsAirmass:
+    def __init__(self,tod=None,order=5):
+        if tod is None:
+            self.sz=np.asarray([0,0],dtype='int')
+            self.params=np.zeros(1)
+            self.fname=''
+            self.order=0
+            self.airmass=None
+        else:
+            self.sz=tod.info['dat_calib'].shape
+            self.fname=tod.info['fname']
+            self.order=order
+            self.params=np.zeros(order+1)
+            self.airmass=scaled_airmass_from_el(tod.info['elev'])
+    def copy(self,copyMat=False):
+        cp=tsAirmass()
+        cp.sz=self.sz
+        cp.params=self.params.copy()
+        cp.fname=self.fname
+        cp.order=self.order
+        if copyMat:
+            cp.airmass=self.airmass.copy()
+        else:
+            cp.airmass=self.airmass  #since this shouldn't change, use a pointer to not blow up RAM
+        return cp
+    def clear(self):
+        self.params[:]=0.0
+    def dot(self,ts):
+        return np.sum(self.params*ts.params)
+    def axpy(self,ts,a):
+        self.params=self.params+a*ts.params
+    def _get_current_legmat(self):
+        x=np.linspace(-1,1,self.sz[1])
+        m1=np.polynomial.legendre.legvander(x,self.order)
+        return m1
+    def _get_current_model(self):
+        x=np.linspace(-1,1,self.sz[1])
+        m1=self._get_current_legmat()
+        poly=np.dot(m1,self.params)
+        mat=np.repeat([poly],self.sz[0],axis=0)
+        mat=mat*self.airmass
+        return mat
+
+    def tod2map(self,tod,dat,do_add=True,do_omp=False):
+        poly=self._get_current_legmat()
+        vec=np.sum(dat*self.airmass,axis=0)
+        atd=np.dot(vec,poly)
+        if do_add:
+            self.params[:]=self.params[:]+atd
+        else:
+            self.params[:]=atd
+
+    def map2tod(self,tod,dat,do_add=True,do_omp=False):
+        mat=self._get_current_model()
+        if do_add:
+            dat[:]=dat[:]+mat
+        else:
+            dat[:]=mat
+        def __mul__(self,to_mul):
+            tt=self.copy()
+            tt.params=self.params*to_mul.params
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.params=self.params*to_mul.params
+        return tt
+    def write(self,fname=None):
+        pass
 class tsCommon:
     def __init__(self,tod=None,*args,**kwargs):
         if tod is None:
@@ -1376,7 +1449,7 @@ class Tod:
         if prewhiten:
             noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
             dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
-        u,s,v=np.linalg.svd(dat_use)
+        u,s,v=np.linalg.svd(dat_use,0)
         print 'got svd'
         ndet=s.size
         n=self.info['dat_calib'].shape[1]
