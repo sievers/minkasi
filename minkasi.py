@@ -824,6 +824,97 @@ class tsCommon:
         tt=self.copy()
         tt.params=self.params*to_mul.params
         return tt
+class detOffset:
+    def __init__(self,tod=None):
+        if tod is None:
+            self.sz=1
+            self.params=np.zeros(1)
+            self.fname=''
+        else:
+            self.sz=tod.info['dat_calib'].shape[0]
+            self.params=np.zeros(self.sz)
+            self.fname=tod.info['fname']
+    def copy(self):
+        cp=detOffset()
+        cp.sz=self.sz
+        cp.params=self.params.copy()
+        cp.fname=self.fname
+        return cp
+    def clear(self):
+        self.params[:]=0
+    def dot(self,other=None):
+        if other is None:
+            return np.dot(self.params,self.params)
+        else:
+            return np.dot(self.params,other.params)
+    def axpy(self,common,a):
+        self.params=self.params+a*common.params
+    def tod2map(self,tod,dat,do_add=True,do_omp=False):
+        if do_add==False:
+            self.clear()
+        self.params[:]=self.params[:]+np.sum(dat,axis=1)
+    def map2tod(self,tod,dat,do_add=True,do_omp=False):
+        if do_add==False:
+            dat[:]=0
+        dat[:]=dat[:]+np.repeat([self.params],dat.shape[1],axis=0).transpose()
+    def write(self,fname=None):
+        pass
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.params=self.params*to_mul.params
+        return tt
+
+class tsCalib:
+    def __init__(self,tod=None,model=None):
+        if tod is None:
+            self.sz=1
+            self.params=np.zeros(1)
+            self.fname=''
+            self.pred=None
+        else:
+            self.sz=tod.info['dat_calib'].shape[0]
+            self.params=np.zeros(self.sz)
+            self.pred=model[tod.info['fname']].copy()
+            self.fname=tod.info['fname']
+    def copy(self):
+        cp=tsCalib()
+        cp.sz=self.sz
+        cp.params=self.params.copy()
+        cp.fname=self.fname
+        cp.pred=self.pred
+        return cp
+    def clear(self):
+        self.params[:]=0
+    def dot(self,other=None):
+        if other is None:
+            return np.dot(self.params,self.params)
+        else:
+            return np.dot(self.params,other.params)
+    def axpy(self,common,a):
+        self.params=self.params+a*common.params
+    def tod2map(self,tod,dat,do_add=True,do_omp=False):
+        if do_add==False:
+            self.clear()
+        if self.pred.ndim==1:
+            self.params[:]=self.params[:]+np.dot(dat,self.pred)
+        else:
+            self.params[:]=self.params[:]+np.sum(dat*self.pred,axis=1)
+    def map2tod(self,tod,dat,do_add=True,do_omp=False):
+        if do_add==False:
+            dat[:]=0
+        if self.pred.ndim==1:
+            dat[:]=dat[:]+np.outer(self.params,self.pred)
+        else:
+            dat[:]=dat[:]+(self.pred.transpose()*self.params).transpose()
+    def write(self,fname=None):
+        pass
+        def __mul__(self,to_mul):
+            tt=self.copy()
+            tt.params=self.params*to_mul.params
+            return tt
+    
+    
+    
 class tsModel:
     def __init__(self,todvec=None,modelclass=None,*args,**kwargs):
         self.data={}
@@ -1408,6 +1499,14 @@ class Tod:
             tod.cuts=self.cuts[:]
             
         return tod
+    def set_noise_white_masked(self):
+        self.info['noise']='white_masked'
+        self.info['mywt']=np.ones(self.info['dat_calib'].shape[0])
+    def apply_noise_white_masked(self,dat=None):
+        if dat is None:
+            dat=self.info['dat_calib']
+        dd=self.info['mask']*dat*np.repeat([self.info['mywt']],self.info['dat_calib'].shape[1],axis=0).transpose()
+        return dd
     def set_noise_cm_white(self):
         u,s,v=np.linalg.svd(self.info['dat_calib'],0)
         ndet=len(s)
@@ -1478,6 +1577,8 @@ class Tod:
         if self.info['noise']=='cm_white':
             #print 'calling cm_white'
             return self.apply_noise_cm_white(dat)
+        if self.info['noise']=='white_masked':
+            return self.apply_noise_white_masked(dat)
         if self.info.has_key('noisevec'):
             noisemat=np.repeat([self.info['noisevec']],dat.shape[1],axis=0).transpose()
             dat=dat/noisemat
@@ -1625,6 +1726,8 @@ class TodVec:
 def read_tod_from_fits(fname,hdu=1,branch=None):
     f=pyfits.open(fname)
     raw=f[hdu].data
+    #print 'sum of cut elements is ',np.sum(raw['UFNU']<9e5)
+
     pixid=raw['PIXID']
     dets=np.unique(pixid)
     ndet=len(dets)
@@ -1667,10 +1770,19 @@ def read_tod_from_fits(fname,hdu=1,branch=None):
     pixid=pixid[:,0]
     dat['pixid']=pixid
     dat_calib=raw['FNU']
+    #print 'shapes are ',raw['FNU'].shape,raw['UFNU'].shape,np.mean(raw['UFNU']>9e5)
+    #dat_calib[raw['UFNU']>9e5]=0.0
+
     #dat['dat_calib']=np.zeros([ndet,nsamp],dtype=type(dat_calib[0]))
     dat['dat_calib']=np.zeros([ndet,nsamp],dtype='float64') #go to double because why not
     dat_calib=np.reshape(dat_calib,[ndet,nsamp])
+
     dat['dat_calib'][:]=dat_calib[:]
+    if np.sum(raw['UFNU']>9e5)>0:
+        dat['mask']=np.reshape(raw['UFNU']<9e5,dat['dat_calib'].shape)
+        dat['mask_sum']=np.sum(dat['mask'],axis=0)
+    #print 'cut frac is now ',np.mean(dat_calib==0)
+    #print 'cut frac is now ',np.mean(dat['dat_calib']==0),dat['dat_calib'][0,0]
     dat['fname']=fname
     f.close()
     return dat
@@ -1726,6 +1838,8 @@ def make_hits(todvec,map):
     hits.clear()
     for tod in todvec.tods:
         tmp=np.ones(tod.info['dat_calib'].shape)
+        if tod.info.has_key('mask'):
+            tmp=tmp*tod.info['mask']
         hits.tod2map(tod,tmp)
     if have_mpi:
         hits.mpi_reduce()
