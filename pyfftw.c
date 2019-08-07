@@ -7,6 +7,8 @@
 #define PYFFTW_FLAG FFTW_ESTIMATE
 
 //gcc-4.9 -I/Users/sievers/local/include -fopenmp -std=c99 -O3 -shared -fPIC -o libpyfftw.so pyfftw.c -L/Users/sievers/local/lib -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
+//gcc-9
+
 
 //gcc -I{HIPPO_FFTW_DIR}/include -fopenmp -std=c99 -O3 -shared -fPIC -o libpyfftw.so pyfftw.c -L${HIPPO_FFTW_DIR}/lib    -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
 //gcc -fopenmp -std=c99 -O3 -shared -fPIC -o libpyfftw.so pyfftw.c -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3 -lgomp -lpthread

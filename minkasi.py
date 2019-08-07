@@ -62,9 +62,9 @@ fill_gauss_src_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctype
 
 def report_mpi():
     if have_mpi:
-        print 'myrank is ',myrank,' out of ',nproc
+        print('myrank is ',myrank,' out of ',nproc)
     else:
-        print 'mpi not found'
+        print('mpi not found')
 
 def invsafe(mat,thresh=1e-14):
     u,s,v=np.linalg.svd(mat,0)
@@ -121,7 +121,7 @@ def cut_blacklist(tod_names,blacklist):
             ncut=ncut+1
             del(mydict[tt])
     if ncut>0:
-        print 'deleted ',ncut,' bad files.'
+        print('deleted ',ncut,' bad files.')
         mynames=mydict.values()
         mynames.sort()
         return mynames
@@ -162,7 +162,7 @@ def find_spikes(dat,inner=1,outer=10,rad=0.25,thresh=8,pad=2):
     
     return mystd
 
-def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None):
+def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None,iswcs=True):
     xvec=np.arange(map.nx)
     yvec=np.arange(map.ny)
     xvec[map.nx/2:]=xvec[map.nx/2:]-map.nx
@@ -189,7 +189,11 @@ def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None):
         print 'beam_area is ',beam_area*1e9,' nsr'
     nring=len(edges)-1
     rings=np.zeros([nring,map.nx,map.ny])
-    mypix=map.wcs.wcs_world2pix(cent[0],cent[1],1)
+    if iswcs:
+        mypix=map.wcs.wcs_world2pix(cent[0],cent[1],1)
+    else:
+        mypix=cent
+
     print 'mypix is ',mypix
 
     xvec=np.arange(map.nx)
