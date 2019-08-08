@@ -117,7 +117,8 @@ def cut_blacklist(tod_names,blacklist):
     ncut=0
     for nm in blacklist:
         tt=nm.split('/')[-1]
-        if mydict.has_key(tt):
+        #if mydict.has_key(tt):
+        if tt in mydict:
             ncut=ncut+1
             del(mydict[tt])
     if ncut>0:
@@ -165,8 +166,12 @@ def find_spikes(dat,inner=1,outer=10,rad=0.25,thresh=8,pad=2):
 def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None,iswcs=True):
     xvec=np.arange(map.nx)
     yvec=np.arange(map.ny)
-    xvec[map.nx/2:]=xvec[map.nx/2:]-map.nx
-    yvec[map.ny/2:]=yvec[map.ny/2:]-map.ny
+    ix=np.int(map.nx/2)
+    iy=np.int(map.ny/2)
+    xvec[ix:]=xvec[ix:]-map.nx
+    yvec[iy:]=yvec[iy:]-map.ny
+    #xvec[map.nx/2:]=xvec[map.nx/2:]-map.nx
+    #yvec[map.ny/2:]=yvec[map.ny/2:]-map.ny
 
     xmat=np.repeat([xvec],map.ny,axis=0).transpose()
     ymat=np.repeat([yvec],map.nx,axis=0)
@@ -186,7 +191,7 @@ def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None,iswcs=True):
         src_map=src_map/src_map.sum()
         beam_area=pixsize**2/src_map.max()
         beam_area=beam_area/3600**2/(360**2/np.pi)
-        print 'beam_area is ',beam_area*1e9,' nsr'
+        print('beam_area is ',beam_area*1e9,' nsr')
     nring=len(edges)-1
     rings=np.zeros([nring,map.nx,map.ny])
     if iswcs:
@@ -194,7 +199,7 @@ def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None,iswcs=True):
     else:
         mypix=cent
 
-    print 'mypix is ',mypix
+    print('mypix is ',mypix)
 
     xvec=np.arange(map.nx)
     yvec=np.arange(map.ny)
@@ -238,13 +243,13 @@ def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
     dat_filt=np.fft.irfft(dat_filt,axis=1,n=n)
     dat_filt_org=dat_filt.copy()
 
-    print dat_filt.shape
+    print(dat_filt.shape)
     dat_filt[:,0:pad*width]=0
     dat_filt[:,-pad*width:]=0
     det_thresh=thresh*np.median(np.abs(dat_filt),axis=1)
     dat_dejump=dat.copy()
     jumps=[None]*ndet
-    print 'have filtered data, now searching for jumps'
+    print('have filtered data, now searching for jumps')
     for i in range(ndet):
         while np.max(np.abs(dat_filt[i,:]))>det_thresh[i]:            
             ind=np.argmax(np.abs(dat_filt[i,:]))+1 #+1 seems to be the right index to use
@@ -261,9 +266,9 @@ def find_jumps(dat,width=10,pad=2,thresh=10,rat=0.5):
                 val2=np.max(dat_filt[i,imin:imax])
             
             
-            print 'found jump on detector ',i,' at sample ',ind
+            print('found jump on detector ',i,' at sample ',ind)
             if np.abs(val2/val)>rat:
-                print 'I think this is a spike due to ratio ',np.abs(val2/val)
+                print('I think this is a spike due to ratio ',np.abs(val2/val))
             else:
                 if jumps[i] is None:
                     jumps[i]=[ind]
@@ -294,7 +299,7 @@ def fit_jumps_from_cm(dat,jumps,cm,cm_order=1,poly_order=1):
         if not(jumps[i] is None):
             njump=len(jumps[i])
             segs=np.append(jumps[i],n)
-            print 'working on detector ',i,' who has ', len(jumps[i]),' jumps with segments ',segs
+            print('working on detector ',i,' who has ', len(jumps[i]),' jumps with segments ',segs)
             mm=np.zeros([n,npp+njump])
             mm[:,:npp]=mat
             for j in range(njump):
@@ -326,7 +331,7 @@ def get_type(nbyte):
         return np.dtype('int64')
     if nbyte==1:
         return np.dtype('str')
-    print 'Unsupported nbyte ' + repr(nbyte) + ' in get_type'
+    print('Unsupported nbyte ' + repr(nbyte) + ' in get_type')
     return None
 
 def read_octave_struct(fname):
@@ -371,7 +376,7 @@ def _prime_loop(ln,lp,icur,lcur,vals):
             icur=icur+nfac
             #print 2**vals[:icur]
         else:
-            print 'bad facs came from ' + repr([2**lcur,2**ln,2**lp[0]])
+            print('bad facs came from ' + repr([2**lcur,2**ln,2**lp[0]]))
         #print icur
         return icur
     else:
@@ -379,7 +384,7 @@ def _prime_loop(ln,lp,icur,lcur,vals):
         for fac in facs:
             icur=_prime_loop(ln,lp[1:],icur,fac,vals)
         return icur
-    print 'I don''t think I should have gotten here.'
+    print('I don''t think I should have gotten here.')
     return icur
                              
         
@@ -537,7 +542,7 @@ def __run_pcg_old(b,x0,tods,mapset,precon):
     zr=r.dot(z)
     x=x0.copy()
     for iter in range(25):
-        print iter,zr
+        print(iter,zr)
         Ap=mapset.dot(p)
         pAp=p.dot(Ap)
         alpha=zr/pAp
@@ -578,9 +583,9 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
     for iter in range(maxiter):
         if myrank==0:
             if iter>0:
-                print iter,zr,alpha,t2-t1,t3-t2,t3-t1
+                print(iter,zr,alpha,t2-t1,t3-t2,t3-t1)
             else:
-                print iter,zr,t2-t1
+                print(iter,zr,t2-t1)
         t1=time.time()
         Ap=tods.dot(p)
         t2=time.time()
@@ -622,7 +627,7 @@ def run_pcg_wprior(b,x0,tods,prior,precon=None,maxiter=25):
     Ax=tods.dot(x0)
     #prior.apply_prior(Ax,x0)
     flub=prior.apply_prior(x0.maps[0].map)
-    print 'means of flub and Ax are ',np.mean(np.abs(Ax.maps[0].map)),np.mean(np.abs(flub))
+    print('means of flub and Ax are ',np.mean(np.abs(Ax.maps[0].map)),np.mean(np.abs(flub)))
     Ax.maps[0].map=Ax.maps[0].map+prior.apply_prior(x0.maps[0].map)
     try:
         r=b.copy()
@@ -642,9 +647,9 @@ def run_pcg_wprior(b,x0,tods,prior,precon=None,maxiter=25):
     for iter in range(maxiter):
         if myrank==0:
             if iter>0:
-                print iter,zr,alpha,t2-t1,t3-t2,t3-t1
+                print(iter,zr,alpha,t2-t1,t3-t2,t3-t1)
             else:
-                print iter,zr,t2-t1
+                print(iter,zr,t2-t1)
         t1=time.time()
         Ap=tods.dot(p)
         fwee=prior.apply_prior(p.maps[0].map)
@@ -950,10 +955,11 @@ class tsModel:
             if tsmodels is None:
                 tot=tot+self.data[nm].dot(self.data[nm])
             else:
-                if tsmodels.data.has_key(nm):
+                #if tsmodels.data.has_key(nm):
+                if nm in tsmodels.data:
                     tot=tot+self.data[nm].dot(tsmodels.data[nm])
                 else:
-                    print 'error in tsModel.dot - missing key ',nm
+                    print('error in tsModel.dot - missing key ',nm)
                     assert(1==0)  #pretty sure we want to crash if missing names
         if have_mpi:
             tot=comm.allreduce(tot)
@@ -1065,7 +1071,7 @@ class SkyMap:
         #print type(pix_corners)
         #if pix_corners.min()<0.5:
         if pix_corners.min()<-0.5:
-            print 'corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.'
+            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
         if True: #try a patch to fix the wcs xxx
             if nx is None:
                 nx=(pix_corners[:,0].max()+pad)
@@ -1221,14 +1227,14 @@ class CutsVecs:
             return
         #if class(todvec)!=TodVec:
         if not(isinstance(todvec,TodVec)):
-            print 'error in CutsVecs init, must pass in a todvec class.'
+            print('error in CutsVecs init, must pass in a todvec class.')
             return None
         self.cuts=[None]*todvec.ntod
         for i in range(todvec.ntod):
             tod=todvec.tods[i]
             if tod.info['tag']!=i:
-                print 'warning, tag mismatch in CutsVecs.__init__'
-                print 'continuing, but you should be careful...'
+                print('warning, tag mismatch in CutsVecs.__init__')
+                print('continuing, but you should be careful...')
             if iskey(tod.info['bad_samples']):
                 self.cuts[i]=Cuts(tod,do_add)
     def copy(self):
@@ -1553,7 +1559,7 @@ class Tod:
             noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
             dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
         u,s,v=np.linalg.svd(dat_use,0)
-        print 'got svd'
+        print('got svd')
         ndet=s.size
         n=self.info['dat_calib'].shape[1]
         self.info['v']=np.zeros([ndet,ndet])
@@ -1583,7 +1589,8 @@ class Tod:
             return self.apply_noise_cm_white(dat)
         if self.info['noise']=='white_masked':
             return self.apply_noise_white_masked(dat)
-        if self.info.has_key('noisevec'):
+        #if self.info.has_key('noisevec'):
+        if 'noisevec' in self.info:
             noisemat=np.repeat([self.info['noisevec']],dat.shape[1],axis=0).transpose()
             dat=dat/noisemat
         dat_rot=np.dot(self.info['v'],dat)
@@ -1593,7 +1600,8 @@ class Tod:
         datft=datft*self.info['mywt'][:,0:nn]
         dat_rot=pyfftw.fft_r2r(datft)
         dat=np.dot(self.info['v'].transpose(),dat_rot)
-        if self.info.has_key('noisevec'):
+        #if self.info.has_key('noisevec'):
+        if 'noisevec' in self.info:
             dat=dat/noisemat
         dat[:,0]=0.5*dat[:,0]
         dat[:,-1]=0.5*dat[:,-1]
@@ -1614,14 +1622,14 @@ class Tod:
         bad_inds=np.where(isbad)
         bad_inds=np.fliplr(bad_inds)
         bad_inds=bad_inds[0]
-        print bad_inds
+        print(bad_inds)
         nkeep=np.sum(isgood)
         for key in self.info.keys():
             if isinstance(self.info[key],np.ndarray):
                 self.info[key]=slice_with_copy(self.info[key],isgood)
         if not(self.jumps is None):
             for i in bad_inds:
-                print 'i in bad_inds is ',i
+                print('i in bad_inds is ',i)
                 del(self.jumps[i])
         if not(self.cuts is None):
             for i in bad_inds:
@@ -1640,12 +1648,12 @@ def slice_with_copy(arr,ind):
 
         if len(myshape)==1:
             ans=np.zeros(ind.sum(),dtype=arr.dtype)
-            print ans.shape
-            print ind.sum()
+            print(ans.shape)
+            print(ind.sum())
             ans[:]=arr[ind]
         else:   
             mydims=np.append(np.sum(ind),myshape[1:])
-            print mydims,mydims.dtype
+            print(mydims,mydims.dtype)
             ans=np.zeros(mydims,dtype=arr.dtype)
             ans[:,:]=arr[ind,:].copy()
         return ans
@@ -1670,12 +1678,12 @@ class TodVec:
             ymin=min(y1,ymin)
             ymax=max(y2,ymax)
         if have_mpi:
-            print 'before reduction lims are ',[xmin,xmax,ymin,ymax]
+            print('before reduction lims are ',[xmin,xmax,ymin,ymax])
             xmin=comm.allreduce(xmin,op=MPI.MIN)
             xmax=comm.allreduce(xmax,op=MPI.MAX)
             ymin=comm.allreduce(ymin,op=MPI.MIN)
             ymax=comm.allreduce(ymax,op=MPI.MAX)
-            print 'after reduction lims are ',[xmin,xmax,ymin,ymax]
+            print('after reduction lims are ',[xmin,xmax,ymin,ymax])
         return [xmin,xmax,ymin,ymax]
     def set_pix(self,map):
         for tod in self.tods:
@@ -1742,9 +1750,9 @@ def read_tod_from_fits(fname,hdu=1,branch=None):
         xmax=raw['DX'].max()*ff
         ymin=raw['DY'].min()*ff
         ymax=raw['DY'].max()*ff
-        print 'nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname, 'with lims ',xmin,xmax,ymin,ymax
+        print('nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname, 'with lims ',xmin,xmax,ymin,ymax)
     else:
-        print 'nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname
+        print('nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname)
     #print raw.names
     dat={}
     #this bit of odd gymnastics is because a straightforward reshape doesn't seem to leave the data in
@@ -1755,6 +1763,8 @@ def read_tod_from_fits(fname,hdu=1,branch=None):
         bb=branch*np.pi/180.0
         dx[dx>bb]=dx[dx>bb]-2*np.pi
     #dat['dx']=np.zeros([ndet,nsamp],dtype=type(dx[0]))
+    ndet=np.int(ndet)
+    nsamp=np.int(nsamp)
     dat['dx']=np.zeros([ndet,nsamp],dtype='float64')
     dat['dx'][:]=np.reshape(dx,[ndet,nsamp])[:]
     dy=raw['DY']
@@ -1819,7 +1829,7 @@ def truncate_tod(dat,primes=[2,3,5,7,11]):
     lens=find_good_fft_lens(n-1,primes)
     n_new=lens.max()+1
     if n_new<n:
-        print 'truncating from ',n,' to ',n_new
+        print('truncating from ',n,' to ',n_new)
         for key in dat.keys():
             try:
                 if dat[key].shape[1]==n:
@@ -1842,7 +1852,8 @@ def make_hits(todvec,map):
     hits.clear()
     for tod in todvec.tods:
         tmp=np.ones(tod.info['dat_calib'].shape)
-        if tod.info.has_key('mask'):
+        #if tod.info.has_key('mask'):
+        if 'mask' in tod.info:
             tmp=tmp*tod.info['mask']
         hits.tod2map(tod,tmp)
     if have_mpi:
@@ -1877,7 +1888,7 @@ def get_wcs(lims,pixsize,proj='CAR',cosdec=None,ref_equ=False):
         w.wcs.cdelt=[-pixsize/cosdec*180/np.pi,pixsize*180/np.pi]
         w.wcs.ctype=['RA---CAR','DEC--CAR']
         return w
-    print 'unknown projection type ',proj,' in get_wcs.'
+    print('unknown projection type ',proj,' in get_wcs.')
     return None
 
 
@@ -1919,11 +1930,11 @@ def fit_linear_ps_uncorr(dat,vecs,tol=1e-3,guess=None,max_iter=15):
         frac_shift=dp/errs
         #print dp,errs,frac_shift
         if np.max(np.abs(frac_shift))<tol:
-            print 'successful convergence after ',iter,' iterations with error estimate ',np.max(np.abs(frac_shift))
+            print('successful convergence after ',iter,' iterations with error estimate ',np.max(np.abs(frac_shift)))
             converged=True
-            print C[0],C[-1]
+            print(C[0],C[-1])
         if iter==max_iter:
-            print 'not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',np.max(np.abs(frac_shift))
+            print('not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',np.max(np.abs(frac_shift)))
             converged=True
             
     return fitp
@@ -2046,13 +2057,13 @@ def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=np.inf,scale_fac=1.0,tol=0.0
         #print fitp,errs,frac_shift,np.mean(np.abs(new_grad-grad))
         #print fitp,grad,frac,lamda
         if converged:
-            print 'converged after ',iter,' iterations'
+            print('converged after ',iter,' iterations')
             break
 
 
 
     #C=np.dot(guess,vecs)
-    print 'mean diff is ',np.mean(np.abs(C_scale-C))
+    print('mean diff is ',np.mean(np.abs(C_scale-C)))
     #return datft,vecs,nu,C
     return fitp,datsqr,C
     
@@ -2315,12 +2326,12 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
             errs=np.sqrt(np.diag(curve_inv))
             conv_fac=np.max(np.abs(shifts/errs))
             if (conv_fac<tol):
-                print 'we have converged'
+                print('we have converged')
                 converged=True
         else:
             conv_fac=None
         to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
-        print 'iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new
+        print('iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new)
     return pp,chi_cur
 def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
     '''Fit a model to timestreams.  func should return the model and the derivatives evaluated at 
@@ -2392,16 +2403,16 @@ def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,to
         #print errs,shifts
         conv_fac=np.max(np.abs(shifts/errs))
         if conv_fac<tol:
-            print 'We have converged.'
+            print('We have converged.')
             converged=True
         if not (to_fit is None):
             shifts=np.dot(rotmat,shifts)
         if not(scale_facs is None):
             if iter<len(scale_facs):
-                print 'rescaling shift by ',scale_facs[iter]
+                print('rescaling shift by ',scale_facs[iter])
                 shifts=shifts*scale_facs[iter]
         to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
-        print 'iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,to_print #converged,pp,shifts
+        print('iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,to_print) #converged,pp,shifts
         pp=pp+shifts
 
         iter=iter+1
