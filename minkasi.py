@@ -2,11 +2,17 @@ import numpy as np
 import ctypes
 import time
 import pyfftw
-import pyfits
+#import pyfits
+from astropy.io import fits as pyfits
 import astropy
 from astropy import wcs
 from astropy.io import fits
 import scipy
+try:
+    import healpy
+    have_healpy=True
+except:
+    have_healpy=False
 
 try:
     from mpi4py import MPI
@@ -1119,7 +1125,8 @@ class SkyMap:
     def assign(self,arr):
         assert(arr.shape[0]==self.nx)
         assert(arr.shape[1]==self.ny)
-        self.map[:,:]=arr
+        #self.map[:,:]=arr
+        self.map[:]=arr
     def get_pix(self,tod):
         ndet=tod.info['dx'].shape[0]
         nsamp=tod.info['dx'].shape[1]
@@ -1181,6 +1188,27 @@ class SkyMap:
     def mpi_reduce(self):
         if have_mpi:
             self.map=comm.allreduce(self.map)
+class HealMap(SkyMap):
+    def __init__(self,proj='RING',nside=512):
+        if not(have_healpy):
+            printf("Healpix map requested, but healpy not found.")
+            return
+        self.proj=proj
+        self.nside=nside
+        self.nx=healpy.nside2npix(self.nside)
+        self.ny=1
+        self.caches=None
+        self.map=np.zeros([self.nx,self.ny])
+    def copy(self):
+        newmap=HealMap(self.proj,self.nside)
+        newmap.map[:]=self.map[:]
+        return newmap
+    def get_pix(self,tod):
+        ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
+        return ipix
+    def write(self,fname='map.fits',overwrite=True):
+        if self.map.shape[1]<=1:
+            healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
 class Cuts:
     def __init__(self,tod,do_add=True):
         #if class(tod)==Cuts: #for use in copy
@@ -1364,7 +1392,7 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
 
     npar_beta=5 #x,y,theta,beta,amp
     npar_src=4 #x,y,sig,amp
-    nsrc=(params.size-npar_beta)/npar_src
+    nsrc=(params.size-npar_beta)//npar_src
     for i in range(nsrc):
         pp=np.zeros(npar_src)
         ioff=i*npar_src+npar_beta
@@ -1405,7 +1433,7 @@ def derivs_from_gauss_c(params,tod):
 def timestreams_from_isobeta(params,tod):
     npar_beta=5 #x,y,theta,beta,amp
     npar_src=4 #x,y,sig,amp
-    nsrc=(params.size-npar_beta)/npar_src
+    nsrc=(params.size-npar_beta)//npar_src
     assert(params.size==nsrc*npar_src+npar_beta)
     x0=params[0]
     y0=params[1]
@@ -1445,7 +1473,7 @@ def isobeta_src_chisq(params,tods):
     return chisq
     npar_beta=5 #x,y,theta,beta,amp
     npar_src=4 #x,y,sig,amp
-    nsrc=(params.size-npar_beta)/npar_src
+    nsrc=(params.size-npar_beta)//npar_src
     assert(params.size==nsrc*npar_src+npar_beta)
     x0=params[0]
     y0=params[1]
@@ -1735,6 +1763,32 @@ class TodVec:
         
         if have_mpi:
             mapset.mpi_reduce()
+
+def read_tod_from_fits_cbass(fname,dopol=False):
+    f=pyfits.open(fname)
+    raw=f[1].data
+    ra=raw['RA']
+    dec=raw['DEC']
+    flag=raw['FLAG']
+    I=0.5*(raw['I1']+raw['I2'])
+
+    mjd=raw['MJD']
+    tvec=(mjd-2455977.5)*86400+1329696000
+    dt=np.median(np.diff(tvec))
+
+    dat={}
+    dat['dx']=np.asarray(ra,dtype='float64')
+    dat['dy']=np.asarray(dec,dtype='float64')
+    dat['dt']=dt
+    dat['dat_calib']=np.zeros([1,len(I)])
+    dat['dat_calib'][:]=I
+    dat['pixid']=[0]
+    #dat['mask']=np.zeros([1,len(I)],dtype='int8')
+    #dat['mask'][:]=raw['FLAG']
+
+    f.close()
+    return dat
+
 def read_tod_from_fits(fname,hdu=1,branch=None):
     f=pyfits.open(fname)
     raw=f[hdu].data
