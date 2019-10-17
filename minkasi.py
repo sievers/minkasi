@@ -84,16 +84,22 @@ def invsafe(mat,thresh=1e-14):
 def tod2map_simple(map,dat,ipix):
     ndet=dat.shape[0]
     ndata=dat.shape[1]
+    if not(ipix.dtype=='int32'):
+        print("Warning - ipix is not int32 in tod2map_simple.  this is likely to produce garbage results.")
     tod2map_simple_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data)
 
 def tod2map_omp(map,dat,ipix):
     ndet=dat.shape[0]
     ndata=dat.shape[1]
+    if not(ipix.dtype=='int32'):
+        print("Warning - ipix is not int32 in tod2map_omp.  this is likely to produce garbage results.")
     tod2map_omp_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.size)
 
 def tod2map_cached(map,dat,ipix):
     ndet=dat.shape[0]
     ndata=dat.shape[1]
+    if not(ipix.dtype=='int32'):
+        print("Warning - ipix is not int32 in tod2map_cached.  this is likely to produce garbage results.")
     tod2map_cached_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.shape[1])
     
 
@@ -1185,9 +1191,25 @@ class SkyMap:
         new_map=self.copy()
         new_map.map[:]=self.map[:]*map.map[:]
         return new_map
-    def mpi_reduce(self):
+    def mpi_reduce(self,chunksize=1e6):
+        #chunksize is added since at least on my laptop mpi4py barfs if it
+        #tries to reduce an nside=512 healpix map, so need to break it into pieces.
         if have_mpi:
-            self.map=comm.allreduce(self.map)
+            #print("reducing map")
+            if chunksize>0:
+                nchunk=(1.0*self.nx*self.ny)/chunksize
+                nchunk=np.int(np.ceil(nchunk))
+            else:
+                nchunk=1
+            #print('nchunk is ',nchunk)
+            if nchunk==1:
+                self.map=comm.allreduce(self.map)
+            else:
+                inds=np.asarray(np.linspace(0,self.nx*self.ny,nchunk+1),dtype='int')
+                for i in range(len(inds)-1):
+                    self.map[inds[i]:inds[i+1]]=comm.allreduce(self.map[inds[i]:inds[i+1]])
+            
+            #print("reduced")
 class HealMap(SkyMap):
     def __init__(self,proj='RING',nside=512):
         if not(have_healpy):
@@ -1777,14 +1799,14 @@ def read_tod_from_fits_cbass(fname,dopol=False):
     dt=np.median(np.diff(tvec))
 
     dat={}
-    dat['dx']=np.asarray(ra,dtype='float64')
-    dat['dy']=np.asarray(dec,dtype='float64')
+    dat['dx']=np.reshape(np.asarray(ra,dtype='float64'),[1,len(ra)])
+    dat['dy']=np.reshape(np.asarray(dec,dtype='float64'),[1,len(dec)])
     dat['dt']=dt
     dat['dat_calib']=np.zeros([1,len(I)])
     dat['dat_calib'][:]=I
     dat['pixid']=[0]
-    #dat['mask']=np.zeros([1,len(I)],dtype='int8')
-    #dat['mask'][:]=raw['FLAG']
+    dat['mask']=np.zeros([1,len(I)],dtype='int8')
+    dat['mask'][:]=1-raw['FLAG']
 
     f.close()
     return dat
