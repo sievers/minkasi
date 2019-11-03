@@ -44,6 +44,11 @@ map2tod_simple_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c
 map2tod_omp_c=mylib.map2tod_omp
 map2tod_omp_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p,ctypes.c_int]
 
+tod2cuts_c=mylib.tod2cuts
+tod2cuts_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+
+cuts2tod_c=mylib.cuts2tod
+cuts2tod_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
 
 set_nthread_c=mylib.set_nthread
 set_nthread_c.argtypes=[ctypes.c_int]
@@ -120,6 +125,36 @@ def get_nthread():
     get_nthread_c(nthread.ctypes.data)
     return nthread[0,0]
 
+
+def segs_from_vec(vec,pad=True):
+    """ segs_from_vec(vec,pad=True)
+    return the starting/stopping points of regions marked False in vec.  For use in e.g. generating
+    cuts from a vector/array.  If pad is False, assume vector is already True-padded"""
+    #insert input vector into a True-padded vector do make reasoning about starting/stopping points
+    #of False regions easier.
+    if pad:
+        vv=np.ones(len(vec)+2,dtype='bool')
+        vv[1:-1]=vec
+    else:
+        if vec.dtype=='bool':
+            vv=vec
+        else:
+            vv=np.ones(len(vec),dtype='bool')
+            vv[:]=vec
+    if vv.min()==True:
+        nseg=0
+        istart=[]
+        istop=[]
+    else:
+        inds=np.where(np.diff(vv))[0]
+        assert(len(inds)%2==0)
+        nseg=len(inds)//2
+        istart=[]
+        istop=[]
+        for i in range(nseg):
+            istart.append(inds[2*i])
+            istop.append(inds[2*i+1])
+    return nseg,istart,istop
 
 def cut_blacklist(tod_names,blacklist):
     mydict={}
@@ -929,10 +964,10 @@ class tsCalib:
             dat[:]=dat[:]+(self.pred.transpose()*self.params).transpose()
     def write(self,fname=None):
         pass
-        def __mul__(self,to_mul):
-            tt=self.copy()
-            tt.params=self.params*to_mul.params
-            return tt
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.params=self.params*to_mul.params
+        return tt
     
     
     
@@ -1053,18 +1088,18 @@ class Mapset:
         if have_mpi:
             for map in self.maps:
                 map.mpi_reduce()
-class Cuts:
-    def __init__(self,tod):
-        self.tag=tod.info['tag']
-        self.ndet=tod.info['dat_calib'].shape[0]
-        self.cuts=[None]*self.ndet
-
-class CutsVec:
-    def __init__(self,todvec):
-        self.ntod=todvec.ntod
-        self.cuts=[None]*self.ntod
-        for tod in todvec.tods:
-            self.cuts[tod.info['tag']]=Cuts(tod)
+#class Cuts:
+#    def __init__(self,tod):
+#        self.tag=tod.info['tag']
+#        self.ndet=tod.info['dat_calib'].shape[0]
+#        self.cuts=[None]*self.ndet
+#
+#class CutsVec:
+#    def __init__(self,todvec):
+#        self.ntod=todvec.ntod
+#        self.cuts=[None]*self.ntod
+#        for tod in todvec.tods:
+#            self.cuts[tod.info['tag']]=Cuts(tod)
             
 class SkyMap:
     def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):
@@ -1265,52 +1300,166 @@ class Cuts:
         return tot
     def copy(self):
         return Cuts(self)
-    
-class CutsVecs:
-    def __init__(self,todvec,do_add=True):
-        #if class(todvec)==CutsVecs: #for use in copy
-        if isinstance(todvec,CutsVecs):
-            self.cuts=[None]*todvec.ntod
-            self.ntod=todvec.ntod
-            for i in range(todvec.ntod):
-                self.cuts[i]=todvec.cuts[i].copy()
+class CutsCompact:
+    def __init__(self,tod):
+        if isinstance(tod,CutsCompact):
+            self.ndet=tod.ndet
+            self.nseg=tod.nseg
+            self.istart=tod.istart
+            self.istop=tod.istop
+        else:
+            ndet=tod.info['dat_calib'].shape[0]
+            self.ndet=ndet
+            self.nseg=np.zeros(ndet,dtype='int')
+            self.istart=[None]*ndet
+            self.istop=[None]*ndet
+            self.imax=tod.info['dat_calib'].shape[1]
+
+        self.imap=None
+        self.map=None
+        
+    def copy(self,deep=True):
+        copy=CutsCompact(self)
+        if deep:
+            if not(self.imap is None):
+                copy.imap=self.imap.copy()
+            if not(self.map is None):
+                copy.map=self.map.copy()
+        else:
+            copy.imap=self.imap
+            copy.map=self.map
+        return copy
+    def add_cut(self,det,istart,istop):
+        if istart>=self.imax:
+            #this is asking to add a cut past the end of the data.
             return
-        #if class(todvec)!=TodVec:
-        if not(isinstance(todvec,TodVec)):
-            print('error in CutsVecs init, must pass in a todvec class.')
-            return None
-        self.cuts=[None]*todvec.ntod
-        for i in range(todvec.ntod):
-            tod=todvec.tods[i]
-            if tod.info['tag']!=i:
-                print('warning, tag mismatch in CutsVecs.__init__')
-                print('continuing, but you should be careful...')
-            if iskey(tod.info['bad_samples']):
-                self.cuts[i]=Cuts(tod,do_add)
-    def copy(self):
-        return CutsVecs(self)
+        if istop>self.imax: #don't have a cut run past the end of the timestream
+            istop=self.imax
+            
+        self.nseg[det]=self.nseg[det]+1
+        if self.istart[det] is None:
+            self.istart[det]=[istart]
+        else:
+            self.istart[det].append(istart)
+        if self.istop[det] is None:
+            self.istop[det]=[istop]
+        else:
+            self.istop[det].append(istop)
+    def get_imap(self):
+        ncut=0
+        for det in range(self.ndet):
+            for i in range(self.nseg[det]):
+                ncut=ncut+(self.istop[det][i]-self.istart[det][i])
+        self.imap=np.zeros(ncut,dtype='int64')
+        icur=0
+        for det in range(self.ndet):
+            for i in range(self.nseg[det]):
+                istart=det*self.imax+self.istart[det][i]
+                istop=det*self.imax+self.istop[det][i]
+                nn=istop-istart
+                self.imap[icur:icur+nn]=np.arange(istart,istop)
+                icur=icur+nn
+        self.map=np.zeros(len(self.imap))
+    def cuts_from_array(self,cutmat):
+        for det in range(cutmat.shape[0]):
+            nseg,istart,istop=segs_from_vec(cutmat[det,:])
+            self.nseg[det]=nseg
+            self.istart[det]=istart
+            self.istop[det]=istop
+    def merge_cuts(self):
+        tmp=np.ones(self.imax+2,dtype='bool')
+        for det in range(self.ndet):
+            if self.nseg[det]>1:  #if we only have one segment, don't have to worry about strange overlaps
+                tmp[:]=True
+                for i in range(self.nseg[det]):
+                    tmp[(self.istart[det][i]+1):(self.istop[det][i]+1)]=False
+                nseg,istart,istop=segs_from_vec(tmp,pad=False)
+                self.nseg[det]=nseg
+                self.istart[det]=istart
+                self.istop[det]=istop
+    
+    def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
+        if mat is None:
+            mat=tod.info['dat_calib']
+        tod2cuts_c(self.map.ctypes.data,mat.ctypes.data,self.imap.ctypes.data,len(self.imap))
+
+    def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
+        if mat is None:
+            mat=tod.info['dat_calib']
+        cuts2tod_c(mat.ctypes.data,self.map.ctypes.data,self.imap.ctypes.data,len(self.imap))
     def clear(self):
-        for cuts in self.cuts:
-            cuts.clear()
-    def axpy(self,cutsvec,a):
-        assert(self.ntod==cutsvec.ntod)
-        for i in range(ntod):
-            self.cuts[i].axpy(cutsvec.cuts[i],a)
-    def map2tod(self,todvec):
-        assert(self.ntod==todvec.ntod)
-        for i in range(self.ntod):
-            self.cuts[i].map2tod(todvec.tods[i])
-    def tod2map(self,todvec,dat):
-        assert(self.ntod==todvec.ntod)
-        assert(self.ntod==dat.ntod)
-        for i in range(self.ntod):
-            self.cuts[i].tod2map(todvec.tods[i],dat.tods[i])
-    def dot(self,cutsvec):
-        tot=0.0
-        assert(self.ntod==cutsvec.ntod)
-        for i in range(self.ntod):
-            tot+=self.cuts[i].dot(cutsvec.cuts[i])
-        return tot
+        if not(self.map is None):
+            self.map[:]=0
+    def dot(self,other=None):
+        if self.map is None:
+            return None
+        if other is None:
+            return np.dot(self.map,self.map)
+        else:
+            if other.map is None:
+                return None
+            return np.dot(self.map,other.map)
+    def axpy(self,common,a):
+        self.map=self.map+a*common.map
+    def write(self,fname=None):
+        pass
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.map=self.map*to_mul.map
+        return tt
+
+#this class is pointless, as you can get the same functionality with the tsModel class, which will be 
+#consistent with other timestream model classes.  
+#class CutsVecs:
+#    def __init__(self,todvec,do_add=True):
+#        #if class(todvec)==CutsVecs: #for use in copy
+#        if isinstance(todvec,CutsVecs):
+#            self.cuts=[None]*todvec.ntod
+#            self.ntod=todvec.ntod
+#            for i in range(todvec.ntod):
+#                self.cuts[i]=todvec.cuts[i].copy()
+#            return
+#        #if class(todvec)!=TodVec:
+#        if not(isinstance(todvec,TodVec)):
+#            print('error in CutsVecs init, must pass in a todvec class.')
+#            return None
+#        self.cuts=[None]*todvec.ntod
+#        self.ntod=todvec.ntod
+#        for i in range(todvec.ntod):
+#            tod=todvec.tods[i]
+#            if tod.info['tag']!=i:
+#                print('warning, tag mismatch in CutsVecs.__init__')
+#                print('continuing, but you should be careful...')            
+#            if 'bad_samples' in tod.info:
+#                self.cuts[i]=Cuts(tod,do_add)
+#            elif 'mask' in tod.info:
+#                self.cuts[i]=CutsCompact(tod)
+#                self.cuts[i].cuts_from_array(tod.info['mask'])
+#                self.cuts[i].get_imap()
+#    def copy(self):
+#        return CutsVecs(self)
+#    def clear(self):
+#        for cuts in self.cuts:
+#            cuts.clear()
+#    def axpy(self,cutsvec,a):
+#        assert(self.ntod==cutsvec.ntod)
+#        for i in range(ntod):
+#            self.cuts[i].axpy(cutsvec.cuts[i],a)
+#    def map2tod(self,todvec):
+#        assert(self.ntod==todvec.ntod)
+#        for i in range(self.ntod):
+#            self.cuts[i].map2tod(todvec.tods[i])
+#    def tod2map(self,todvec,dat):
+#        assert(self.ntod==todvec.ntod)
+#        assert(self.ntod==dat.ntod)
+#        for i in range(self.ntod):
+#            self.cuts[i].tod2map(todvec.tods[i],dat.tods[i])
+#    def dot(self,cutsvec):
+#        tot=0.0
+#        assert(self.ntod==cutsvec.ntod)
+#        for i in range(self.ntod):
+#            tot+=self.cuts[i].dot(cutsvec.cuts[i])
+#        return tot
         
                                  
             
@@ -1807,7 +1956,7 @@ def read_tod_from_fits_cbass(fname,dopol=False):
     dat['pixid']=[0]
     dat['mask']=np.zeros([1,len(I)],dtype='int8')
     dat['mask'][:]=1-raw['FLAG']
-
+    dat['fname']=fname
     f.close()
     return dat
 

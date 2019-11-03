@@ -78,6 +78,20 @@ void map2tod_omp(double *dat, double *map, int ndet, int ndata, int *pix, int do
 
 
 /*--------------------------------------------------------------------------------*/
+void tod2cuts(double *vec, double *dat, long *imap, int ncut)
+{
+  for (long i=0;i<ncut;i++)
+    vec[i]+=dat[imap[i]];
+}
+
+/*--------------------------------------------------------------------------------*/
+void cuts2tod(double *dat,double *vec, long *imap, int ncut)
+{
+  for (long i=0;i<ncut;i++)
+    dat[imap[i]]+=vec[i];
+}
+
+/*--------------------------------------------------------------------------------*/
 void set_nthread(int nthread)
 {
   omp_set_num_threads(nthread);
