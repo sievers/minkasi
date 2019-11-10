@@ -692,7 +692,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
         t2=time.time()
         pAp=p.dot(Ap)
         alpha=zr/pAp
-        print('alpha,pAp, and zr  are ' + repr(alpha) + '  ' + repr(pAp) + '  ' + repr(zr))
+        #print('alpha,pAp, and zr  are ' + repr(alpha) + '  ' + repr(pAp) + '  ' + repr(zr))
         try:
             x_new=x.copy()
             x_new.axpy(p,alpha)
@@ -1648,6 +1648,59 @@ class HealMap(SkyMap):
         if self.map.shape[1]<=1:
             healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)        
     
+
+class HealPolMap(PolMap):
+    def __init__(self,poltag='I',proj='RING',nside=512):
+        if not(have_healpy):
+            printf("Healpix map requested, but healpy not found.")
+            return
+        pols=poltag2pols(poltag)
+        if pols is None:
+            print('Unrecognized polarization state ' + poltag + ' in PolMap.__init__')
+            return
+        npol=len(pols)
+        self.proj=proj
+        self.nside=nside
+        self.nx=healpy.nside2npix(self.nside)
+        self.ny=1
+        self.npol=npol
+        self.poltag=poltag
+        self.pols=pols
+        self.caches=None
+        if self.npol>1:
+            self.map=np.zeros([self.nx,self.ny,self.npol])
+        else:
+            self.map=np.zeros([self.nx,self.ny])
+    def copy(self):
+        newmap=HealPolMap(self.poltag,self.proj,self.nside)
+        newmap.map[:]=self.map[:]
+        return newmap
+    def get_pix(self,tod):
+        ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
+        return ipix
+    def write(self,fname='map.fits',overwrite=True):
+        if self.map.shape[1]<=1:
+            if self.npol==1:
+                healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)        
+            else:
+                    ind=fname.rfind('.')
+                    if ind>0:
+                        if fname[ind+1:]=='fits':
+                            head=fname[:ind]
+                            tail=fname[ind:]
+                        else:
+                            head=fname
+                            tail='.fits'
+                    else:
+                        head=fname
+                        tail='.fits'
+                    tmp=np.zeros([self.ny,self.nx])
+                    for i in range(self.npol):
+                        tmp[:]=np.squeeze(self.map[:,:,i]).T
+                        fname=head+'_'+self.pols[i]+tail
+                        healpy.write_map(fname,tmp[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
+    
+
 class Cuts:
     def __init__(self,tod,do_add=True):
         #if class(tod)==Cuts: #for use in copy
