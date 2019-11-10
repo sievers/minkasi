@@ -4,8 +4,48 @@
 #include <stdlib.h>
 
 //gcc-4.9 -fopenmp -std=c99 -O3 -shared -fPIC -o libminkasi.so minkasi.c  -lm -lgomp     
+//gcc-9 -fopenmp -O3 -shared -fPIC -o libminkasi.so minkasi.c  -lm -lgomp
 
 
+/*void invsafe_2x2(double *mat, double thresh)
+{
+  if ((mat[0]==0)&&(mat[3]==0))
+    return;
+  if ((mat[0]==0)&&(mat[3]>0)) {
+    mat[3]=1.0/mat[3];
+    mat[1]=0;
+    mat[2]=0;
+    return;
+  }
+
+  if ((mat[0]>0)&&(mat[3]==0)) {
+    mat[0]=1.0/mat[0];
+    mat[1]=0;
+    mat[2]=0;
+    return;
+  }
+  double mydet=mat[0]*mat[3]-mat[1]*mat[2];
+  if (abs(mydet)<thresh*abs(mat[0]*mat[3])) {
+    //this is the case where the matrix looks singular
+    //in this case, pseudo-inverse is the original divided by the trace squared
+    double trace=mat[0]+mat[3];
+    double fac=(1.0/trace);
+    fac=fac*fac;
+    for (int i=0;i<4;i++)
+      mat[i]=mat[i]*fac;
+  } 
+  else {
+    double tmp=mat[0];
+    mat[0]=mat[3]/mydet;
+    mat[3]=tmp/mydet;
+    tmp=mat[1];
+    mat[1]=-mat[2]/mydet;
+    mat[2]=-tmp/mydet;
+  }
+  
+}
+*/
+/*--------------------------------------------------------------------------------*/
 
 void tod2map_simple(double *map, double *dat, int ndet, int ndata, int *pix)
 {
@@ -76,7 +116,119 @@ void map2tod_omp(double *dat, double *map, int ndet, int ndata, int *pix, int do
 
 }
 
+/*--------------------------------------------------------------------------------*/
+void map2tod_iqu_omp(double *dat, double *map, double *twogamma, int ndet, int ndata, int *ipix, int do_add)
+{
+  long nn=ndet*ndata;
+  if (do_add)
+#pragma omp parallel for
+    for (long i=0;i<nn;i++) {
+      dat[i]+=map[3*ipix[i]]+map[3*ipix[i]+1]*cos(twogamma[i])+map[3*ipix[i]+2]*sin(twogamma[i]);
+    }
+  else
+#pragma omp parallel for
+    for (long i=0;i<nn;i++) {
+      dat[i]=map[3*ipix[i]]+map[3*ipix[i]+1]*cos(twogamma[i])+map[3*ipix[i]+2]*sin(twogamma[i]);
+    }
+}
 
+/*--------------------------------------------------------------------------------*/
+void map2tod_qu_omp(double *dat, double *map, double *twogamma, int ndet, int ndata, int *pix, int do_add)
+{
+  long nn=ndet*ndata;
+  if (do_add)
+#pragma omp parallel for
+    for (long i=0;i<nn;i++) {
+      dat[i]+=map[2*pix[i]]*cos(twogamma[i])+map[2*pix[i]+i]*sin(twogamma[i]);
+    }
+  else
+#pragma omp parallel for
+    for (long i=0;i<nn;i++) {
+      dat[i]=map[2*pix[i]]*cos(twogamma[i])+map[2*pix[i]+1]*sin(twogamma[i]);
+    }
+}
+/*--------------------------------------------------------------------------------*/
+void tod2map_iqu_simple(double *map, double *dat, double *twogamma, int ndet, int ndata, int *pix)
+{
+  long nn=ndet*ndata;
+  for (long i=0;i<nn;i++) {
+    map[3*pix[i]]+=dat[i];
+    map[3*pix[i]+1]+=dat[i]*cos(twogamma[i]);
+    map[3*pix[i]+2]+=dat[i]*sin(twogamma[i]);
+  }
+  
+}
+/*--------------------------------------------------------------------------------*/
+void tod2map_qu_simple(double *map, double *dat, double *twogamma, int ndet, int ndata, int *pix)
+{
+  long nn=ndet*ndata;
+  for (long i=0;i<nn;i++) {
+    map[2*pix[i]]+=dat[i]*cos(twogamma[i]);
+    map[2*pix[i]+1]+=dat[i]*sin(twogamma[i]);
+  }  
+}
+/*--------------------------------------------------------------------------------*/
+void tod2map_qu_precon_simple(double *map, double *dat, double *twogamma, int ndet, int ndata, int *pix)
+{
+  long nn=ndet*ndata;
+  for (long i=0;i<nn;i++) {
+    double mycos=cos(twogamma[i]);
+    double mysin=sin(twogamma[i]);
+    map[3*pix[i]]+=dat[i]*mycos*mycos;
+    map[3*pix[i]+1]+=dat[i]*mysin*mysin;
+    map[3*pix[i]+2]+=dat[i]*mysin*mycos;
+    
+  }  
+}
+
+/*--------------------------------------------------------------------------------*/
+void scan_map(double *map, int nx, int ny, int npol)
+//find non-zero map pixels.  For debugging only.
+{
+  long ii=0;
+  for (int x=0;x<nx;x++)
+    for (int y=0;y<ny;y++)
+      for (int pol=0;pol<npol;pol++) {
+	long ind=x*(ny*npol)+y*npol+pol;
+	if (map[ind]!=0)
+	  printf("Found map %12.5g on ind %ld %ld\n",map[ind],ind,ii);
+	ii=ii+1;
+      }
+}
+
+///*--------------------------------------------------------------------------------*/
+//void invert_qu_precon_simple(double *map, int npix)
+//{
+//  double *tmp=(double *)malloc(4*sizeof(double));
+//  for (int i=0;i<npix;i++) {
+//    tmp[0]=map[3*i];
+//    tmp[1]=map[3*i+2];
+//    tmp[2]=tmp[1];
+//    tmp[3]=map[3*i+1];
+//    if ((tmp[0]>0)||(tmp[3]>0)) {
+//      invsafe_2x2(tmp,1e-6);
+//      map[3*i]=tmp[0];
+//      map[3*i+1]=tmp[3];
+//      map[3*i+2]=tmp[2];  //this had also better equal tmp[1], so it doesn't matter which we take
+//    }
+//  }
+//  free(tmp);
+//}
+/*--------------------------------------------------------------------------------*/
+void tod2map_iqu_precon_simple(double *map, const double *dat, double *twogamma, int ndet, int ndata, const int *pix)
+{
+  long nn=ndet*ndata;
+  for (long i=0;i<nn;i++) {
+    double mycos=cos(twogamma[i]);
+    double mysin=sin(twogamma[i]);
+    map[6*pix[i]]+=dat[i];
+    map[6*pix[i]+1]+=dat[i]*mycos;
+    map[6*pix[i]+2]+=dat[i]*mysin;
+    map[6*pix[i]+3]+=dat[i]*mycos*mycos;
+    map[6*pix[i]+4]+=dat[i]*mysin*mycos;
+    map[6*pix[i]+5]+=dat[i]*mysin*mysin;    
+  }  
+}
 /*--------------------------------------------------------------------------------*/
 void tod2cuts(double *vec, double *dat, long *imap, int ncut)
 {

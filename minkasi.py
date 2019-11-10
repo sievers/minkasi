@@ -44,6 +44,27 @@ map2tod_simple_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c
 map2tod_omp_c=mylib.map2tod_omp
 map2tod_omp_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p,ctypes.c_int]
 
+map2tod_iqu_omp_c=mylib.map2tod_iqu_omp
+map2tod_iqu_omp_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
+
+map2tod_qu_omp_c=mylib.map2tod_qu_omp
+map2tod_qu_omp_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
+
+tod2map_iqu_simple_c=mylib.tod2map_iqu_simple
+tod2map_iqu_simple_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+
+tod2map_qu_simple_c=mylib.tod2map_qu_simple
+tod2map_qu_simple_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+
+tod2map_iqu_precon_simple_c=mylib.tod2map_iqu_precon_simple
+tod2map_iqu_precon_simple_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+
+tod2map_qu_precon_simple_c=mylib.tod2map_qu_precon_simple
+tod2map_qu_precon_simple_c.argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+
+scan_map_c=mylib.scan_map
+scan_map_c.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int]
+
 tod2cuts_c=mylib.tod2cuts
 tod2cuts_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
 
@@ -107,6 +128,22 @@ def tod2map_cached(map,dat,ipix):
         print("Warning - ipix is not int32 in tod2map_cached.  this is likely to produce garbage results.")
     tod2map_cached_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.shape[1])
     
+def tod2polmap(map,dat,poltag,twogamma,ipix):
+    ndet=dat.shape[0]
+    ndata=dat.shape[1]
+    fun=None
+    if poltag=='QU':
+        fun=tod2map_qu_simple_c
+    if poltag=='IQU':
+        fun=tod2map_iqu_simple_c
+    if poltag=='QU_PRECON':
+        fun=tod2map_qu_precon_simple_c
+    if poltag=='IQU_PRECON':
+        fun=tod2map_iqu_precon_simple_c
+    if fun is None:
+        print('unrecognized poltag ' + repr(poltag) + ' in tod2polmap.')
+    #print('calling ' + repr(fun))
+    fun(map.ctypes.data,dat.ctypes.data,twogamma.ctypes.data,ndet,ndata,ipix.ctypes.data)
 
 def map2tod(dat,map,ipix,do_add=False,do_omp=True):
     ndet=dat.shape[0]
@@ -116,7 +153,24 @@ def map2tod(dat,map,ipix,do_add=False,do_omp=True):
     else:
         map2tod_simple_c(dat.ctypes.data,map.ctypes.data,ndet,ndata,ipix.ctypes.data,do_add)
     
-
+def polmap2tod(dat,map,poltag,twogamma,ipix,do_add=False,do_omp=True):
+    ndet=dat.shape[0]
+    ndata=dat.shape[1]
+    fun=None
+    if poltag=='QU':
+        fun=map2tod_qu_omp_c
+    if poltag=='IQU':
+        fun=map2tod_iqu_omp_c
+    if poltag=='QU_PRECON':
+        fun=map2tod_qu_precon_omp_c
+    if poltag=='IQU_PRECON':
+        fun=map2tod_iqu_precon_omp_c
+    if fun is None:
+        print('unknown poltag ' + repr(poltag) + ' in polmap2tod.')
+        return
+    #print('calling ' + repr(fun))
+    fun(dat.ctypes.data,map.ctypes.data,twogamma.ctypes.data,ndet,ndata,ipix.ctypes.data,do_add)
+    
 def set_nthread(nthread):
     set_nthread_c(nthread)
 
@@ -638,6 +692,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
         t2=time.time()
         pAp=p.dot(Ap)
         alpha=zr/pAp
+        print('alpha,pAp, and zr  are ' + repr(alpha) + '  ' + repr(pAp) + '  ' + repr(zr))
         try:
             x_new=x.copy()
             x_new.axpy(p,alpha)
@@ -670,6 +725,13 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
     return x
 
 def run_pcg_wprior(b,x0,tods,prior,precon=None,maxiter=25):
+    t1=time.time()
+    Ax=tods.tod(x0)
+    prior.apply_prior(Ax)
+
+    
+
+def run_pcg_wprior_old(b,x0,tods,prior,precon=None,maxiter=25):
     t1=time.time()
     Ax=tods.dot(x0)
     #prior.apply_prior(Ax,x0)
@@ -1102,7 +1164,7 @@ class Mapset:
 #            self.cuts[tod.info['tag']]=Cuts(tod)
             
 class SkyMap:
-    def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):
+    def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):        
         if mywcs is None:
             self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)
         else:
@@ -1226,7 +1288,7 @@ class SkyMap:
         new_map=self.copy()
         new_map.map[:]=self.map[:]*map.map[:]
         return new_map
-    def mpi_reduce(self,chunksize=1e6):
+    def mpi_reduce(self,chunksize=1e5):
         #chunksize is added since at least on my laptop mpi4py barfs if it
         #tries to reduce an nside=512 healpix map, so need to break it into pieces.
         if have_mpi:
@@ -1241,8 +1303,327 @@ class SkyMap:
                 self.map=comm.allreduce(self.map)
             else:
                 inds=np.asarray(np.linspace(0,self.nx*self.ny,nchunk+1),dtype='int')
+                if len(self.map.shape)>1:
+                    tmp=np.zeros(self.map.size)
+                    tmp[:]=np.reshape(self.map,len(tmp))
+                else:
+                    tmp=self.map
+
                 for i in range(len(inds)-1):
-                    self.map[inds[i]:inds[i+1]]=comm.allreduce(self.map[inds[i]:inds[i+1]])
+                    tmp[inds[i]:inds[i+1]]=comm.allreduce(tmp[inds[i]:inds[i+1]])
+                    #self.map[inds[i]:inds[i+1]]=comm.allreduce(self.map[inds[i]:inds[i+1]])
+                    #tmp=np.zeros(inds[i+1]-inds[i])
+                    #tmp[:]=self.map[inds[i]:inds[i+1]]
+                    #tmp=comm.allreduce(tmp)
+                    #self.map[inds[i]:inds[i+1]]=tmp
+                if len(self.map.shape)>1:
+                    self.map[:]=np.reshape(tmp,self.map.shape)
+            
+            #print("reduced")
+
+def poltag2pols(poltag):
+    if poltag=='I':
+        return ['I']
+    if poltag=='IQU':
+        return ['I','Q','U']
+    if poltag=='QU':
+        return ['Q','U']
+    if poltag=='IQU_PRECON':
+        return ['I','Q','U','QQ','QU','UU']
+    if poltag=='QU_precon':
+        return ['QQ','UU','QU']
+
+    return None
+    
+class PolMap:
+    def __init__(self,lims,pixsize,poltag='I',proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):
+        pols=poltag2pols(poltag)
+        if pols is None:
+            print('Unrecognized polarization state ' + poltag + ' in PolMap.__init__')
+            return
+        npol=len(pols)
+        if mywcs is None:
+            self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)
+        else:
+            self.wcs=mywcs
+        corners=np.zeros([4,2])
+        corners[0,:]=[lims[0],lims[2]]
+        corners[1,:]=[lims[0],lims[3]]
+        corners[2,:]=[lims[1],lims[2]]
+        corners[3,:]=[lims[1],lims[3]]
+        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)        
+        pix_corners=np.round(pix_corners)
+        #print pix_corners
+        #print type(pix_corners)
+        #if pix_corners.min()<0.5:
+        if pix_corners.min()<-0.5:
+            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
+        if True: #try a patch to fix the wcs xxx
+            if nx is None:
+                nx=(pix_corners[:,0].max()+pad)
+            if ny is None:
+                ny=(pix_corners[:,1].max()+pad)
+        else:
+            nx=(pix_corners[:,0].max()+pad)
+            ny=(pix_corners[:,1].max()+pad)
+        #print nx,ny
+        nx=int(nx)
+        ny=int(ny)
+        if not(primes is None):
+            lens=find_good_fft_lens(2*(nx+ny),primes)
+            #print 'nx and ny initially are ',nx,ny
+            nx=lens[lens>=nx].min()
+            ny=lens[lens>=ny].min()
+            #print 'small prime nx and ny are now ',nx,ny
+            self.primes=primes[:]
+        else:
+            self.primes=None
+        self.nx=nx
+        self.ny=ny
+        self.npol=npol
+        self.poltag=poltag
+        self.pols=pols
+        self.lims=lims
+        self.pixsize=pixsize
+        if npol>1:
+            self.map=np.zeros([nx,ny,npol])
+        else:
+            self.map=np.zeros([nx,ny])
+        self.proj=proj
+        self.pad=pad
+        self.caches=None
+        self.cosdec=cosdec
+    def get_caches(self):
+        npix=self.nx*self.ny*self.npol
+        nthread=get_nthread()
+        self.caches=np.zeros([nthread,npix])
+    def clear_caches(self):
+        self.map[:]=np.reshape(np.sum(self.caches,axis=0),self.map.shape)
+        self.caches=None
+    def copy(self):
+        newmap=PolMap(self.lims,self.pixsize,self.poltag,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs)
+        newmap.map[:]=self.map[:]
+        return newmap
+    def clear(self):
+        self.map[:]=0
+    def axpy(self,map,a):
+        self.map[:]=self.map[:]+a*map.map[:]
+    def assign(self,arr):
+        assert(arr.shape[0]==self.nx)
+        assert(arr.shape[1]==self.ny)
+        if self.npol>1:
+            assert(arr.shape[2]==self.npol)
+        #self.map[:,:]=arr
+        self.map[:]=arr
+    def set_polstate(self,poltag):
+        pols=poltag2pols(poltag)
+        if pols is None:
+            print('Unrecognized polarization state ' + poltag + ' in PolMap.set_polstate.')
+            return
+        npol=len(pols)
+        self.npol=npol
+        self.poltag=poltag
+        self.pols=pols
+        if npol>1:
+            self.map=np.zeros([self.nx,self.ny,npol])
+        else:
+            self.map=np.zeros([self.nx,self.ny])
+    def invert(self,thresh=1e-6):
+        #We can use np.linalg.pinv to reasonably efficiently invert a bunch of tiny matrices with an
+        #eigenvalue cut.  It's more efficient to do this in C, but it only has to be done once per run
+        if self.npol>1: 
+            if self.poltag=='QU_PRECON':
+                tmp=np.zeros([self.nx*self.ny,2,2])
+                tmp[:,0,0]=self.map[:,:,0]
+                tmp[:,1,1]=self.map[:,:,1]
+                tmp[:,0,1]=self.map[:,:,2]
+                tmp[:,1,0]=self.map[:,:,2]
+                tmp=np.linalg.pinv(tmp,thresh)
+                self.map[:,:,0]=tmp[:,0,0]
+                self.map[:,:,1]=tmp[:,1,1]
+                self.map[:,:,2]=tmp[:,0,1]
+            if self.poltag=='IQU_PRECON':
+                #the mapping may seem a bit abstruse here.  The preconditioner matrix has entries
+                #  [I   Q   U ]
+                #  [Q  QQ  QU ]
+                #  [U  QU  UU ]
+                #so the unpacking needs to match the ordering in the C file before we can use pinv
+                n=self.nx*self.ny
+                nx=self.nx
+                ny=self.ny
+                tmp=np.zeros([self.nx*self.ny,3,3])
+                tmp[:,0,0]=np.reshape(self.map[:,:,0],n)
+                tmp[:,0,1]=np.reshape(self.map[:,:,1],n)
+                tmp[:,1,0]=tmp[:,0,1]
+                tmp[:,0,2]=np.reshape(self.map[:,:,2],n)
+                tmp[:,2,0]=tmp[:,0,2]
+                tmp[:,1,1]=np.reshape(self.map[:,:,3],n)
+                tmp[:,1,2]=np.reshape(self.map[:,:,4],n)
+                tmp[:,2,1]=tmp[:,1,2]
+                tmp[:,2,2]=np.reshape(self.map[:,:,5],n)
+                alldets=np.linalg.det(tmp)
+                isbad=alldets<thresh*alldets.max()
+                ispos=tmp[:,0,0]>0
+                inds=isbad&ispos
+                vec=tmp[inds,0,0]
+                print('determinant range is ' + repr(alldets.max())+ '  ' + repr(alldets.min()))
+                tmp=np.linalg.pinv(tmp,thresh)
+                if True:
+                    print('Warning!  zeroing out bits like this is super janky.  Be warned...')
+                    tmp[isbad,:,:]=0
+                    inds=isbad&ispos
+                    tmp[inds,0,0]=1.0/vec
+                alldets=np.linalg.det(tmp)                
+                print('determinant range is now ' + repr(alldets.max())+ '  ' + repr(alldets.min()))
+
+                self.map[:,:,0]=np.reshape(tmp[:,0,0],[nx,ny])
+                self.map[:,:,1]=np.reshape(tmp[:,0,1],[nx,ny])
+                self.map[:,:,2]=np.reshape(tmp[:,0,2],[nx,ny])
+                self.map[:,:,3]=np.reshape(tmp[:,1,1],[nx,ny])
+                self.map[:,:,4]=np.reshape(tmp[:,1,2],[nx,ny])
+                self.map[:,:,5]=np.reshape(tmp[:,2,2],[nx,ny])
+                
+        else:
+            mask=self.map!=0
+            self.map[mask]=1.0/self.map[mask]
+    def get_pix(self,tod):
+        ndet=tod.info['dx'].shape[0]
+        nsamp=tod.info['dx'].shape[1]
+        nn=ndet*nsamp
+        coords=np.zeros([nn,2])
+        coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
+        coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+        #print coords.shape
+        pix=self.wcs.wcs_world2pix(coords,1)
+        #print pix.shape
+        xpix=np.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+        ypix=np.reshape(pix[:,1],[ndet,nsamp])-1  
+        xpix=np.round(xpix)
+        ypix=np.round(ypix)
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        return ipix
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        if self.npol>1:
+            polmap2tod(dat,self.map,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'],do_add,do_omp)
+        else:
+            map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+
+        
+    def tod2map(self,tod,dat,do_add=True,do_omp=True):
+        if do_add==False:
+            self.clear()
+        if self.npol>1:
+            tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'])
+            return
+        #print("working on nonpolarized bit")
+
+        if not(self.caches is None):
+            tod2map_cached(self.caches,dat,tod.info['ipix'])
+        else:
+            if do_omp:
+                tod2map_omp(self.map,dat,tod.info['ipix'])
+            else:
+                tod2map_simple(self.map,dat,tod.info['ipix'])
+
+    def r_th_maps(self):
+        xvec=np.arange(self.nx)
+        xvec=xvec-xvec.mean()        
+        yvec=np.arange(self.ny)
+        yvec=yvec-yvec.mean()
+        ymat,xmat=np.meshgrid(yvec,xvec)
+        rmat=np.sqrt(xmat**2+ymat**2)
+        th=np.arctan2(xmat,ymat)
+        return rmat,th
+    def dot(self,map):
+        tot=np.sum(self.map*map.map)
+        return tot
+        
+    def write(self,fname='map.fits'):
+        header=self.wcs.to_header()
+
+        if self.npol>1:
+            ind=fname.rfind('.')
+            if ind>0:
+                if fname[ind+1:]=='fits':
+                    head=fname[:ind]
+                    tail=fname[ind:]
+                else:
+                    head=fname
+                    tail='.fits'
+            else:
+                head=fname
+                tail='.fits'
+            tmp=np.zeros([self.ny,self.nx])
+            for i in range(self.npol):
+                tmp[:]=np.squeeze(self.map[:,:,i]).T
+                hdu=fits.PrimaryHDU(tmp,header=header)
+                try:
+                    hdu.writeto(head+'_'+self.pols[i]+tail,overwrite=True)
+                except:
+                    hdu.writeto(head+'_'+self.pols[i]+tail,clobber=True)
+            return
+
+        if True: #try a patch to fix the wcs xxx 
+            tmp=self.map.transpose().copy()
+            hdu=fits.PrimaryHDU(tmp,header=header)
+        else:
+            hdu=fits.PrimaryHDU(self.map,header=header)
+        try:
+            hdu.writeto(fname,overwrite=True)
+        except:
+            hdu.writeto(fname,clobber=True)
+    def __mul__(self,map):
+        if self.npol==1:
+            new_map=self.copy()
+            new_map.map[:]=self.map[:]*map.map[:]
+            return new_map
+        else:
+            assert(map.poltag+'_PRECON'==self.poltag)
+            new_map=map.copy()
+            if self.poltag=='QU_PRECON':
+                new_map.map[:,:,0]=self.map[:,:,0]*map.map[:,:,0]+self.map[:,:,2]*map.map[:,:,1]
+                new_map.map[:,:,1]=self.map[:,:,2]*map.map[:,:,0]+self.map[:,:,1]*map.map[:,:,1]
+                return new_map
+            if self.poltag=='IQU_PRECON':
+                #the indices are set such that the preconditioner matrix [I Q U; Q QQ QU; U QU UU] match the C code.  
+                #once we've inverted, the output should be the product of that matrix times [I Q U]
+                new_map.map[:,:,0]=self.map[:,:,0]*map.map[:,:,0]+self.map[:,:,1]*map.map[:,:,1]+self.map[:,:,2]*map.map[:,:,2]
+                new_map.map[:,:,1]=self.map[:,:,1]*map.map[:,:,0]+self.map[:,:,3]*map.map[:,:,1]+self.map[:,:,4]*map.map[:,:,2]
+                new_map.map[:,:,2]=self.map[:,:,2]*map.map[:,:,0]+self.map[:,:,4]*map.map[:,:,1]+self.map[:,:,5]*map.map[:,:,2]
+                return new_map
+
+            print('unrecognized tag in PolMap.__mul__:  ' + repr(self.poltag))
+            assert(1==0)
+    def mpi_reduce(self,chunksize=1e5):
+        #chunksize is added since at least on my laptop mpi4py barfs if it
+        #tries to reduce an nside=512 healpix map, so need to break it into pieces.
+        if have_mpi:
+            #print("reducing map")
+            if chunksize>0:
+                nchunk=(1.0*self.nx*self.ny*self.npol)/chunksize
+                nchunk=np.int(np.ceil(nchunk))
+            else:
+                nchunk=1
+            #print('nchunk is ',nchunk)
+            if nchunk==1:
+                self.map=comm.allreduce(self.map)
+            else:
+                inds=np.asarray(np.linspace(0,self.nx*self.ny*self.npol,nchunk+1),dtype='int')
+                if len(self.map.shape)>1:
+                    tmp=np.zeros(self.map.size)
+                    tmp[:]=np.reshape(self.map,len(tmp))
+                else:
+                    tmp=self.map
+
+                for i in range(len(inds)-1):
+                    tmp[inds[i]:inds[i+1]]=comm.allreduce(tmp[inds[i]:inds[i+1]])
+                    #self.map[inds[i]:inds[i+1]]=comm.allreduce(self.map[inds[i]:inds[i+1]])
+                    #tmp=np.zeros(inds[i+1]-inds[i])
+                    #tmp[:]=self.map[inds[i]:inds[i+1]]
+                    #tmp=comm.allreduce(tmp)
+                    #self.map[inds[i]:inds[i+1]]=tmp
+                if len(self.map.shape)>1:
+                    self.map[:]=np.reshape(tmp,self.map.shape)
             
             #print("reduced")
 class HealMap(SkyMap):
@@ -1265,7 +1646,8 @@ class HealMap(SkyMap):
         return ipix
     def write(self,fname='map.fits',overwrite=True):
         if self.map.shape[1]<=1:
-            healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
+            healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)        
+    
 class Cuts:
     def __init__(self,tod,do_add=True):
         #if class(tod)==Cuts: #for use in copy
@@ -1900,7 +2282,7 @@ class TodVec:
 
         return mapset2
 
-    def dot(self,mapset,mapset2=None,report_times=False,cache_maps=True):
+    def dot(self,mapset,mapset2=None,report_times=False,cache_maps=False):
         if mapset2 is None:
             mapset2=mapset.copy()
             mapset2.clear()
@@ -2074,6 +2456,8 @@ def todvec_from_files_octave(fnames):
         
 def make_hits(todvec,map):
     hits=map.copy()
+    if map.npol>1:
+        hits.set_polstate(map.poltag+'_PRECON')
     hits.clear()
     for tod in todvec.tods:
         tmp=np.ones(tod.info['dat_calib'].shape)
