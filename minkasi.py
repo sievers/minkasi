@@ -724,10 +724,74 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
         t3=time.time()
     return x
 
-def run_pcg_wprior(b,x0,tods,prior,precon=None,maxiter=25):
+def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25):
+    #least squares equations in the presence of a prior - chi^2 = (d-Am)^T N^-1 (d-Am) + (p-m)^T Q^-1 (p-m)
+    #where p is the prior target for parameters, and Q is the variance.  The ensuing equations are
+    #(A^T N-1 A + Q^-1)m = A^T N^-1 d + Q^-1 p.  For non-zero p, it is assumed you have done this already and that 
+    #b=A^T N^-1 d + Q^-1 p
+    #to have a prior then, whenever we call Ax, just a Q^-1 x to Ax.
     t1=time.time()
-    Ax=tods.tod(x0)
-    prior.apply_prior(Ax)
+    Ax=tods.dot(x0)    
+    if not(prior is None):
+        prior.apply_prior(x0,Ax) 
+    try:
+        r=b.copy()
+        r.axpy(Ax,-1)
+    except:
+        r=b-Ax
+    if not(precon is None):
+        z=precon*r
+    else:
+        z=r.copy()
+    p=z.copy()
+    k=0.0
+
+    zr=r.dot(z)
+    x=x0.copy()
+    t2=time.time()
+    for iter in range(maxiter):
+        if myrank==0:
+            if iter>0:
+                print(iter,zr,alpha,t2-t1,t3-t2,t3-t1)
+            else:
+                print(iter,zr,t2-t1)
+        t1=time.time()
+        Ap=tods.dot(p)
+        if not(prior is None):
+            prior.apply_prior(p,Ap)
+        t2=time.time()
+        pAp=p.dot(Ap)
+        alpha=zr/pAp
+        try:
+            x_new=x.copy()
+            x_new.axpy(p,alpha)
+        except:
+            x_new=x+p*alpha
+
+        try:
+            r_new=r.copy()
+            r_new.axpy(Ap,-alpha)
+        except:
+            r_new=r-Ap*alpha
+        if not(precon is None):
+            z_new=precon*r_new
+        else:
+            z_new=r_new.copy()
+        zr_new=r_new.dot(z_new)
+        beta=zr_new/zr
+        try:
+            p_new=z_new.copy()
+            p_new.axpy(p,beta)
+        except:
+            p_new=z_new+p*beta
+        
+        p=p_new
+        z=z_new
+        r=r_new
+        zr=zr_new
+        x=x_new
+        t3=time.time()
+    return x
 
     
 
@@ -1058,6 +1122,9 @@ class tsModel:
             dat[:]=0.0
         self.data[nm].map2tod(tod,dat,do_add,do_omp)
 
+    def apply_prior(self,x,Ax):
+        for nm in self.data.keys():
+            self.data[nm].apply_prior(x.data[nm],Ax.data[nm])
     def dot(self,tsmodels=None):
         tot=0.0
         for nm in self.data.keys():
@@ -1145,7 +1212,10 @@ class Mapset:
     def clear_caches(self):
         for i in range(self.nmap):
             self.maps[i].clear_caches()
-
+    def apply_prior(self,x,Ax):
+        for i in range(self.nmap):
+            if not(self.maps[i] is None):
+                self.maps[i].apply_prior(x.maps[i],Ax.maps[i])
     def mpi_reduce(self):
         if have_mpi:
             for map in self.maps:
@@ -1838,6 +1908,8 @@ class CutsCompact:
         self.map=self.map+a*common.map
     def write(self,fname=None):
         pass
+    def apply_prior(self,x,Ax):
+        Ax.map=Ax.map+self.map*x.map
     def __mul__(self,to_mul):
         tt=self.copy()
         tt.map=self.map*to_mul.map
@@ -2275,6 +2347,25 @@ class Tod:
         dat_filt=self.apply_noise(dat)
         chisq=np.sum(dat_filt*dat)
         return chisq
+    def prior_from_skymap(self,skymap):
+        """
+        prior_from_skymap(self,skymap):
+        Given e.g. the gradient of a map that has been zeroed under some threshold,
+        return a CutsCompact object that can be used as a prior for solving for per-sample deviations
+        due to strong map gradients.  This is to reduce X's around bright sources.  The input map
+        should be a SkyMap that is non-zero where one wishes to solve for the per-sample deviations, and 
+        the non-zero values should be the standard deviations expected in those pixel.  The returned CutsCompact 
+        object will have the weight (i.e. 1/input squared) in its map.        
+        """
+        tmp=np.zeros(self.info['dat_calib'].shape)
+        skymap.map2tod(self,tmp)
+        mask=(tmp==0)
+        prior=CutsCompact(self)
+        prior.cuts_from_array(mask)
+        prior.get_imap()
+        prior.tod2map(self,tmp)
+        prior.map=1.0/prior.map**2
+        return prior
 
 def slice_with_copy(arr,ind):
     if isinstance(arr,np.ndarray):
