@@ -2228,8 +2228,11 @@ class Tod:
         ndet=len(s)
         ind=np.argmax(s)
         mode=np.zeros(ndet)
-        mode[:]=u[:,0]
-        pred=np.outer(mode,v[0,:])        
+        #mode[:]=u[:,0]  #bug fixes pointed out by Fernando Zago.  19 Nov 2019
+        #pred=np.outer(mode,v[0,:])
+        mode[:]=u[:,ind]
+        pred=np.outer(mode*s[ind],v[ind,:])
+
         dat_clean=self.info['dat_calib']-pred
         myvar=np.std(dat_clean,1)**2
         self.info['v']=mode
@@ -2610,7 +2613,12 @@ def make_hits(todvec,map):
             tmp=tmp*tod.info['mask']
         hits.tod2map(tod,tmp)
     if have_mpi:
+        print('reducing hits')
+        tot=hits.map.sum()
+        print('starting with total hitcount ' + repr(tot))
         hits.mpi_reduce()
+        tot=hits.map.sum()
+        print('ending with total hitcount ' + repr(tot))
     return hits
 
 
