@@ -895,7 +895,146 @@ def scaled_airmass_from_el(mat):
     airmass=airmass-airmass.mean()
     #airmass=airmass/np.std(airmass)
     return airmass
+
+class tsGeneric:
+    def __init__(self,tod=None):
+        self.fname=tod.info['fname']
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.params=self.params*to_mul.params
+        return tt
+    def clear(self):
+        self.params[:]=0
+    def dot(self,common=None):
+        if common is None:
+            return np.sum(self.params*self.params)
+        else:
+            return np.sum(self.params*common.params)
+    def axpy(self,common,a):
+        self.params=self.params+a*common.params
+    def apply_prior(self,x,Ax):
+        Ax.params=Ax.params+self.params*x.params
+
+    def write(self,fname=None):
+        pass
+class tsDetAz(tsGeneric):
+    def __init__(self,tod,npoly=4):
+        if isinstance(tod,tsDetAz): #we're starting a new instance from an old one, e.g. from copy
+            self.fname=tod.fname
+            self.az=tod.az
+            self.azmin=tod.azmin
+            self.azmax=tod.azmax
+            self.npoly=tod.npoly
+            self.ndet=tod.ndet
+        else:
+            self.fname=tod.info['fname']
+            self.az=tod.info['AZ']
+            self.azmin=np.min(self.az)
+            self.azmax=np.max(self.az)
+            self.npoly=npoly
+            self.ndet=tod.info['dat_calib'].shape[0]            
+        self.params=np.zeros([self.ndet,self.npoly])
+    def _get_polys(self):
+        polys=np.zeros([self.npoly,len(self,az)])
+        polys[0,:]=1.0
+        az_scale= (self.az-self.azmin)/(self.azmax-self.azmin)*2.0-1.0
+        if self.npoly>1:
+            polys[1,:]=az_scale
+        for i in range(2,self.npoly):
+            polys[i,:]=2*az_scale*polys[i-1,:]-polys[i-2,:]
+        return polys
+    def map2tod(self,tod,dat=None):
+        if dat is None:
+            dat=tod.info['dat_calib']
+        dat[:]=dat[:]+np.dot(self.params,self._get_polys())
+    def tod2map(self,tod,dat=None):
+        if dat is None:
+            dat=tod.info['dat_calib']
+        self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
+        
 class tsAirmass:
+    def __init__(self,tod=None,order=3):
+        if tod is None:
+            self.sz=np.asarray([0,0],dtype='int')
+            self.params=np.zeros(1)
+            self.fname=''
+            self.order=0
+            self.airmass=None
+        else:
+            self.sz=tod.info['dat_calib'].shape
+            self.fname=tod.info['fname']
+            self.order=order
+            self.params=np.zeros(order)
+            if not('apix' in tod.info.keys()):
+                #tod.info['apix']=scaled_airmass_from_el(tod.info['elev'])
+                self.airmass=scaled_airmass_from_el(tod.info['elev'])
+            else:
+                self.airmass=tod.info['apix']
+    def copy(self,copyMat=False):
+        cp=tsAirmass()
+        cp.sz=self.sz
+        cp.params=self.params.copy()
+        cp.fname=self.fname
+        cp.order=self.order
+        if copyMat:
+            cp.airmass=self.airmass.copy()
+        else:
+            cp.airmass=self.airmass  #since this shouldn't change, use a pointer to not blow up RAM
+        return cp
+    def clear(self):
+        self.params[:]=0.0
+    def dot(self,ts):
+        return np.sum(self.params*ts.params)
+    def axpy(self,ts,a):
+        self.params=self.params+a*ts.params
+    def _get_current_legmat(self):
+        x=np.linspace(-1,1,self.sz[1])
+        m1=np.polynomial.legendre.legvander(x,self.order)
+        return m1
+    def _get_current_model(self):
+        x=np.linspace(-1,1,self.sz[1])
+        m1=self._get_current_legmat()
+        poly=np.dot(m1,self.params)
+        mat=np.repeat([poly],self.sz[0],axis=0)
+        mat=mat*self.airmass
+        return mat
+
+    def tod2map(self,tod,dat,do_add=True,do_omp=False): 
+        tmp=np.zeros(self.order)
+        for i in range(self.order):
+            #tmp[i]=np.sum(tod.info['apix']**(i+1)*dat)
+            tmp[i]=np.sum(self.airmass**(i+1)*dat)
+        if do_add:
+            self.params[:]=self.params[:]+tmp
+        else:
+            self.params[:]=tmp
+        #poly=self._get_current_legmat()
+        #vec=np.sum(dat*self.airmass,axis=0)
+        #atd=np.dot(vec,poly)
+        #if do_add:
+        #    self.params[:]=self.params[:]+atd
+        #else:
+        #    self.params[:]=atd
+
+    def map2tod(self,tod,dat,do_add=True,do_omp=False):
+        mat=0.0
+        for i in range(self.order):
+            #mat=mat+self.params[i]*tod.info['apix']**(i+1)
+            mat=mat+self.params[i]*self.airmass**(i+1)
+
+        #mat=self._get_current_model()
+        if do_add:
+            dat[:]=dat[:]+mat
+        else:
+            dat[:]=mat
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.params=self.params*to_mul.params
+        return tt
+    def write(self,fname=None):
+        pass
+
+class __tsAirmass_old:
     def __init__(self,tod=None,order=5):
         if tod is None:
             self.sz=np.asarray([0,0],dtype='int')
@@ -962,6 +1101,7 @@ class tsAirmass:
         return tt
     def write(self,fname=None):
         pass
+
 class tsCommon:
     def __init__(self,tod=None,*args,**kwargs):
         if tod is None:
@@ -1202,7 +1342,9 @@ class Mapset:
         mm.axpy(mapset,-1.0)
         return mm
     def __mul__(self,mapset):
-        mm=self.copy()
+        #mm=self.copy()
+        mm=mapset.copy()
+        return mm
         for i in range(self.nmap):
             mm.maps[i]=self.maps[i]*mapset.maps[i]
         return mm
