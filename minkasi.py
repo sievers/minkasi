@@ -8,6 +8,7 @@ import astropy
 from astropy import wcs
 from astropy.io import fits
 import scipy
+import copy
 try:
     import healpy
     have_healpy=True
@@ -914,7 +915,8 @@ class tsGeneric:
         self.params=self.params+a*common.params
     def apply_prior(self,x,Ax):
         Ax.params=Ax.params+self.params*x.params
-
+    def copy(self):
+        return copy.deepcopy(self)
     def write(self,fname=None):
         pass
 class tsDetAz(tsGeneric):
