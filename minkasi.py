@@ -945,14 +945,21 @@ class tsDetAz(tsGeneric):
         for i in range(2,self.npoly):
             polys[i,:]=2*az_scale*polys[i-1,:]-polys[i-2,:]
         return polys
-    def map2tod(self,tod,dat=None):
+    def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
         if dat is None:
             dat=tod.info['dat_calib']
-        dat[:]=dat[:]+np.dot(self.params,self._get_polys())
-    def tod2map(self,tod,dat=None):
+        if do_add:
+            dat[:]=dat[:]+np.dot(self.params,self._get_polys())
+        else:
+            dat[:]=np.dot(self.params,self._get_polys())
+    def tod2map(self,tod,dat=None, do_add=True,do_omp=False):
         if dat is None:
             dat=tod.info['dat_calib']
-        self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
+        if do_add:
+            self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
+        else:
+            self.params[:]=np.dot(self._get_polys(),dat)
+
         
 class tsAirmass:
     def __init__(self,tod=None,order=3):
