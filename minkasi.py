@@ -937,7 +937,7 @@ class tsDetAz(tsGeneric):
             self.ndet=tod.info['dat_calib'].shape[0]            
         self.params=np.zeros([self.ndet,self.npoly])
     def _get_polys(self):
-        polys=np.zeros([self.npoly,len(self,az)])
+        polys=np.zeros([self.npoly,len(self.az)])
         polys[0,:]=1.0
         az_scale= (self.az-self.azmin)/(self.azmax-self.azmin)*2.0-1.0
         if self.npoly>1:
