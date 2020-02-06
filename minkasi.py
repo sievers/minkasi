@@ -960,7 +960,8 @@ class tsDetAz(tsGeneric):
             #self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
             self.params[:]=self.params[:]+np.dot(dat,self._get_polys().T)
         else:
-            self.params[:]=np.dot(self._get_polys(),dat)
+            #self.params[:]=np.dot(self._get_polys(),dat)
+            self.params[:]=np.dot(dat,self._get_polys().T)
 
         
 class tsAirmass:
