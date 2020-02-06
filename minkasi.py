@@ -956,7 +956,9 @@ class tsDetAz(tsGeneric):
         if dat is None:
             dat=tod.info['dat_calib']
         if do_add:
-            self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
+            #print("params shape is ",self.params.shape)
+            #self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
+            self.params[:]=self.params[:]+np.dot(dat,self._get_polys().T)
         else:
             self.params[:]=np.dot(self._get_polys(),dat)
 
