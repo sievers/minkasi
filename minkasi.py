@@ -2740,11 +2740,18 @@ def truncate_tod(dat,primes=[2,3,5,7,11]):
         print('truncating from ',n,' to ',n_new)
         for key in dat.keys():
             try:
-                if dat[key].shape[1]==n:
-                    dat[key]=dat[key][:,0:n_new].copy()
+                #print('working on key ' + key)
+                if len(dat[key].shape)==1:
+                    if dat[key].shape[0]==n:
+                        dat[key]=dat[key][:n_new].copy()
+                else:
+                    if dat[key].shape[1]==n:
+                        dat[key]=dat[key][:,0:n_new].copy()
             except:
-                #print 'skipping key ' + key
+                #print('skipping key ' + key)
                 pass
+
+
 
 
 def todvec_from_files_octave(fnames):
