@@ -16,6 +16,12 @@ except:
     have_healpy=False
 
 try:
+    import qpoint as qp
+    have_qp=True
+except:
+    have_qp=False
+
+try:
     from mpi4py import MPI
     comm=MPI.COMM_WORLD
     myrank = comm.Get_rank()
@@ -2618,7 +2624,7 @@ class TodVec:
         if have_mpi:
             mapset.mpi_reduce()
 
-def read_tod_from_fits_cbass(fname,dopol=False):
+def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
     f=pyfits.open(fname)
     raw=f[1].data
     ra=raw['RA']
@@ -2627,18 +2633,46 @@ def read_tod_from_fits_cbass(fname,dopol=False):
     I=0.5*(raw['I1']+raw['I2'])
 
     mjd=raw['MJD']
-    tvec=(mjd-2455977.5)*86400+1329696000
+    tvec=(mjd-2455977.5+2400000.5)*86400+1329696000
+    #(mjd-2455977.5)*86400+1329696000;
     dt=np.median(np.diff(tvec))
 
     dat={}
     dat['dx']=np.reshape(np.asarray(ra,dtype='float64'),[1,len(ra)])
     dat['dy']=np.reshape(np.asarray(dec,dtype='float64'),[1,len(dec)])
     dat['dt']=dt
-    dat['dat_calib']=np.zeros([1,len(I)])
-    dat['dat_calib'][:]=I
+    if dopol:
+        Q=0.5*(raw['Q1']+raw['Q2'])
+        U=0.5*(raw['U1']+raw['U2'])
+        dat['dat_calib']=np.zeros([2,len(Q)])
+        dat['dat_calib'][0,:]=Q
+        dat['dat_calib'][1,:]=U
+        az=raw['AZ']
+        el=raw['EL']
+        
+        #dat['AZ']=az
+        #dat['EL']=el
+        #dat['ctime']=tvec
+        dat['mask']=np.zeros([2,len(Q)],dtype='int8')
+        dat['mask'][0,:]=1-raw['FLAG']
+        dat['mask'][1,:]=1-raw['FLAG']
+        if have_qp:
+            Q = qp.QPoint(accuracy='low', fast_math=True, mean_aber=True,num_threads=4)
+            #q_bore = Q.azel2bore(dat['AZ'], dat['EL'], 0*dat['AZ'], 0*dat['AZ'], lon*np.pi/180, lat*np.pi/180, dat['ctime'])
+            q_bore = Q.azel2bore(az,el, 0*az, 0*az, lon, lat, dat['ctime'])
+            q_off = Q.det_offset(0.0,0.0,0.0)
+            ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, ctime, q_bore)
+            dat['twogamma_saved']=np.arctan2(sin2psi,cos2psi)
+            dat['ra']=ra*np.pi/180
+            dat['dec']=dec*np.pi/180
+    else:
+        dat['dat_calib']=np.zeros([1,len(I)])
+        dat['dat_calib'][:]=I
+        dat['mask']=np.zeros([1,len(I)],dtype='int8')
+        dat['mask'][:]=1-raw['FLAG']
+
+
     dat['pixid']=[0]
-    dat['mask']=np.zeros([1,len(I)],dtype='int8')
-    dat['mask'][:]=1-raw['FLAG']
     dat['fname']=fname
     f.close()
     return dat
@@ -2719,14 +2753,30 @@ def downsample_array_r2r(arr,fac):
     arr=pyfftw.fft_r2r(arr_ft)/(2*(n-1))
     return arr
 
+def downsample_vec_r2r(vec,fac):
+
+    n=len(vec)
+    nn=int(n/fac)
+    vec_ft=pyfftw.fft_r2r(vec)
+    vec_ft=vec_ft[0:nn].copy()
+    vec=pyfftw.fft_r2r(vec_ft)/(2*(n-1))
+    return vec
+
 def downsample_tod(dat,fac=10):
     ndata=dat['dat_calib'].shape[1]
     keys=dat.keys()
     for key in dat.keys():
         try:
-            if dat[key].shape[1]==ndata:
+            if len(dat[key].shape)==1:
+                #print('working on downsampling ' + key)
+                #print('shape is ' + repr(dat[key].shape[0])+'  '+repr(n))
+                if len(dat[key]):
+                    #print('working on downsampling ' + key)
+                    dat[key]=downsample_vec_r2r(dat[key],fac)
+            else:
+                if dat[key].shape[1]==ndata:
                 #print 'downsampling ' + key
-                dat[key]=downsample_array_r2r(dat[key],fac)
+                    dat[key]=downsample_array_r2r(dat[key],fac)
         except:
             #print 'not downsampling ' + key
             pass
