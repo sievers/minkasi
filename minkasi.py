@@ -669,7 +669,8 @@ def __run_pcg_old(b,x0,tods,mapset,precon):
         x=x_new
     return x
 
-def run_pcg(b,x0,tods,precon=None,maxiter=25):
+def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits'):
+    
     t1=time.time()
     Ax=tods.dot(x0)
 
@@ -729,6 +730,9 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25):
         zr=zr_new
         x=x_new
         t3=time.time()
+        if iter in save_iters:
+            if myrank==0:
+                x.maps[save_ind].write(outroot+'_'+repr(iter)+save_tail)
     return x
 
 def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25):
