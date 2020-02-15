@@ -680,6 +680,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
     except:
         r=b-Ax
     if not(precon is None):
+        #print('applying precon')
         z=precon*r
     else:
         z=r.copy()
@@ -713,6 +714,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
         except:
             r_new=r-Ap*alpha
         if not(precon is None):
+            #print('applying precon')
             z_new=precon*r_new
         else:
             z_new=r_new.copy()
@@ -735,7 +737,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
                 x.maps[save_ind].write(outroot+'_'+repr(iter)+save_tail)
     return x
 
-def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25):
+def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits'):
     #least squares equations in the presence of a prior - chi^2 = (d-Am)^T N^-1 (d-Am) + (p-m)^T Q^-1 (p-m)
     #where p is the prior target for parameters, and Q is the variance.  The ensuing equations are
     #(A^T N-1 A + Q^-1)m = A^T N^-1 d + Q^-1 p.  For non-zero p, it is assumed you have done this already and that 
@@ -802,6 +804,10 @@ def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25):
         zr=zr_new
         x=x_new
         t3=time.time()
+        if iter in save_iters:
+            if myrank==0:
+                x.maps[save_ind].write(outroot+'_'+repr(iter)+save_tail)
+
     return x
 
     
@@ -911,6 +917,7 @@ class tsGeneric:
     def __init__(self,tod=None):
         self.fname=tod.info['fname']
     def __mul__(self,to_mul):
+        #print('calling mul')
         tt=self.copy()
         tt.params=self.params*to_mul.params
         return tt
@@ -945,7 +952,8 @@ class tsDetAz(tsGeneric):
             self.azmax=np.max(self.az)
             self.npoly=npoly
             self.ndet=tod.info['dat_calib'].shape[0]            
-        self.params=np.zeros([self.ndet,self.npoly])
+        #self.params=np.zeros([self.ndet,self.npoly])
+        self.params=np.zeros([self.ndet,self.npoly-1])
     def _get_polys(self):
         polys=np.zeros([self.npoly,len(self.az)])
         polys[0,:]=1.0
@@ -954,6 +962,7 @@ class tsDetAz(tsGeneric):
             polys[1,:]=az_scale
         for i in range(2,self.npoly):
             polys[i,:]=2*az_scale*polys[i-1,:]-polys[i-2,:]
+        polys=polys[1:,:].copy()
         return polys
     def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
         if dat is None:
@@ -1366,8 +1375,9 @@ class Mapset:
     def __mul__(self,mapset):
         #mm=self.copy()
         mm=mapset.copy()
-        return mm
+        #return mm
         for i in range(self.nmap):
+            #print('callin mul on map ',i)
             mm.maps[i]=self.maps[i]*mapset.maps[i]
         return mm
     def get_caches(self):
