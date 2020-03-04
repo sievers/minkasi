@@ -73,10 +73,10 @@ scan_map_c=mylib.scan_map
 scan_map_c.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int]
 
 tod2cuts_c=mylib.tod2cuts
-tod2cuts_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+tod2cuts_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int]
 
 cuts2tod_c=mylib.cuts2tod
-cuts2tod_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
+cuts2tod_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int]
 
 set_nthread_c=mylib.set_nthread
 set_nthread_c.argtypes=[ctypes.c_int]
@@ -426,7 +426,78 @@ def fit_jumps_from_cm(dat,jumps,cm,cm_order=1,poly_order=1):
             
 
     #for i in range(ndet):
+def gapfill_eig(dat,cuts,tod=None,thresh=5.0, niter_eig=3, niter_inner=3, insert_cuts=False):
+    ndat=dat.shape[1]
+    cuts_empty=cuts.copy() #use this to clear out cut samples
+    cuts_empty.clear() 
+    cuts_cur=cuts.copy()
+    cuts_cur.clear()
+    for eig_ctr in range(niter_eig):
+        tmp=dat.copy()
+        cuts_cur.map2tod(tod,tmp,do_add=False)
+        mycov=np.dot(tmp,tmp.T)
+        ee,vv=np.linalg.eig(mycov)
+        mask=ee>thresh*thresh*np.median(ee)
+        neig=np.sum(mask)
+        print('working with ' + repr(neig) + ' eigenvectors.')
+        ee=ee[mask]
+        vv=vv[:,mask]
+        uu=np.dot(vv.T,tmp)
+        lhs=np.dot(uu,uu.T)
+        lhs_inv=np.linalg.inv(lhs)
+        for iter_ctr in range(niter_inner):
+            #in this inner loop, we fit the data 
+            rhs=np.dot(tmp,uu.T)
+            fitp=np.dot(lhs_inv,rhs.T)
+            pred=np.dot(fitp.T,uu)
+            cuts_cur.tod2map(tod,pred,do_add=False)
+            cuts_cur.map2tod(tod,tmp,do_add=False)
+    if insert_cuts:
+        cuts_cur.map2tod(dat)
+    return cuts_cur
+        
 
+def __gapfill_eig_poly(dat,cuts,tod=None,npoly=2, thresh=5.0, niter_eig=3, niter_inner=3):
+    assert(1==0) #this code is not yet working.  regular gapfill_eig should work since the polys could
+                 #be described by SVD, so SVD modes should look like polys iff they would have been important
+    ndat=dat.shape[1]
+    if npoly>0:
+        xvec=np.linspace(-1,1,ndat)
+        polymat=np.polynomial.legendre.legvander(x,npoly-1)
+    old_coeffs=None
+    cuts_cur=cuts.copy()    
+    cuts_cur.clear()
+    cuts_empty.cuts.copy()
+    cuts_empty.clear()
+    for eig_ctr in range(niter_eig):
+        tmp=dat.copy()
+        cuts_cur.map2tod(tod,tmp,do_add=False) #insert current best-guess solution for the cuts
+        if npoly>1:  #if we're fitting polynomials as well as eigenmodes, subtract them off before re-estimating the covariance
+            if not(old_coeffs is None):
+                tmp=tmp-np.dot(polymat,old_coeffs[neig:,:]).T
+        mycov=np.dot(tmp,tmp.T)
+        mycov=0.5*(mycov+mycov.T)
+        ee,vv=np.linalg.eig(mycov)
+        mode_map=ee>thresh*thresh*np.median(ee)
+        neig=mode_map.sum()
+        mat=np.zeros([ndat,neig+npoly])
+        eigs=vv[:,mode_map]
+        ts_vecs=np.dot(eigs.T,tmp)
+        mat[:,:neig]=ts_vecs.T
+        if npoly>0:
+            mat[:,neig:]=polymat
+        lhs=np.dot(mat.T,mat)
+        lhs_inv=np.linalg.inv(lhs)
+        #now that we have the vectors we expect to describe our data, do a few rounds
+        #of fitting amplitudes to timestream models, subtract that off, assign cuts to zero,
+        #and restore the model.  
+        tmp=dat.copy()
+        for inner_ctr in range(niter_inner):
+            cuts_cur.map2tod(tod,tmp)
+            rhs=np.dot(tmp,mat)
+            fitp=np.dot(lhs_inv,rhs.T)
+            pred=np.dot(mat,fitp).T
+            
 
 def get_type(nbyte):
     if nbyte==8:
@@ -2029,6 +2100,7 @@ class CutsCompact:
         for det in range(self.ndet):
             for i in range(self.nseg[det]):
                 ncut=ncut+(self.istop[det][i]-self.istart[det][i])
+        print('ncut is ' + repr(ncut))
         self.imap=np.zeros(ncut,dtype='int64')
         icur=0
         for det in range(self.ndet):
@@ -2060,12 +2132,15 @@ class CutsCompact:
     def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
         if mat is None:
             mat=tod.info['dat_calib']
-        tod2cuts_c(self.map.ctypes.data,mat.ctypes.data,self.imap.ctypes.data,len(self.imap))
+        tod2cuts_c(self.map.ctypes.data,mat.ctypes.data,self.imap.ctypes.data,len(self.imap),do_add)
 
     def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
         if mat is None:
             mat=tod.info['dat_calib']
-        cuts2tod_c(mat.ctypes.data,self.map.ctypes.data,self.imap.ctypes.data,len(self.imap))
+        #print('first element is ' + repr(mat[0,self.imap[0]]))
+        cuts2tod_c(mat.ctypes.data,self.map.ctypes.data,self.imap.ctypes.data,len(self.imap),do_add)
+        #print('first element is now ' + repr(mat[0,self.imap[0]]))
+        #return mat
     def clear(self):
         if not(self.map is None):
             self.map[:]=0
@@ -2365,6 +2440,9 @@ class Tod:
         return xmin,xmax,ymin,ymax
     def set_tag(self,tag):
         self.info['tag']=tag
+    def set_pix(self,map):
+        ipix=map.get_pix(self)
+        self.info['ipix']=ipix
     def copy(self,copy_info=False):
         if copy_info:
             myinfo=self.info.copy()
@@ -2589,8 +2667,9 @@ class TodVec:
         return [xmin,xmax,ymin,ymax]
     def set_pix(self,map):
         for tod in self.tods:
-            ipix=map.get_pix(tod)
-            tod.info['ipix']=ipix
+            #ipix=map.get_pix(tod)
+            #tod.info['ipix']=ipix
+            tod.set_pix(map)
     def dot_cached(self,mapset,mapset2=None):
         nthread=get_nthread()
         mapset2.get_caches()

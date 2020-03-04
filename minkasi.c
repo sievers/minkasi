@@ -230,17 +230,30 @@ void tod2map_iqu_precon_simple(double *map, const double *dat, double *twogamma,
   }  
 }
 /*--------------------------------------------------------------------------------*/
-void tod2cuts(double *vec, double *dat, long *imap, int ncut)
+void tod2cuts(double *vec, double *dat, long *imap, int ncut,int do_add)
 {
-  for (long i=0;i<ncut;i++)
-    vec[i]+=dat[imap[i]];
+  if (do_add)
+    for (long i=0;i<ncut;i++)
+      vec[i]+=dat[imap[i]];
+  else
+    for (long i=0;i<ncut;i++)
+      vec[i]=dat[imap[i]];
 }
 
 /*--------------------------------------------------------------------------------*/
-void cuts2tod(double *dat,double *vec, long *imap, int ncut)
+void cuts2tod(double *dat,double *vec, long *imap, int ncut, int do_add)
 {
-  for (long i=0;i<ncut;i++)
-    dat[imap[i]]+=vec[i];
+  if (do_add)
+    for (long i=0;i<ncut;i++)
+      dat[imap[i]]+=vec[i];
+  else
+    for (long i=0;i<ncut;i++) {
+      //if (i<10)
+      //printf("assigning dat[%d] to be %12.4f from %12.4f\n",imap[i],vec[i],dat[imap[i]]);
+      dat[imap[i]]=vec[i];
+      //if (i<10)
+      //printf("dat[%d] is now %12.4f\n",imap[i],dat[imap[i]]);
+    }
 }
 
 /*--------------------------------------------------------------------------------*/
