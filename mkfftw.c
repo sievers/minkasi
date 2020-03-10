@@ -4,14 +4,14 @@
 #include <fftw3.h>
 #include <omp.h>
 
-#define PYFFTW_FLAG FFTW_ESTIMATE
+#define MKFFTW_FLAG FFTW_ESTIMATE
 
-//gcc-4.9 -I/Users/sievers/local/include -fopenmp -std=c99 -O3 -shared -fPIC -o libpyfftw.so pyfftw.c -L/Users/sievers/local/lib -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
-//gcc-9
+//gcc-4.9 -I/Users/sievers/local/include -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -L/Users/sievers/local/lib -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
+//gcc-9 -I/usr/local/include -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -L/usr/local/lib -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
 
 
-//gcc -I{HIPPO_FFTW_DIR}/include -fopenmp -std=c99 -O3 -shared -fPIC -o libpyfftw.so pyfftw.c -L${HIPPO_FFTW_DIR}/lib    -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
-//gcc -fopenmp -std=c99 -O3 -shared -fPIC -o libpyfftw.so pyfftw.c -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3 -lgomp -lpthread
+//gcc -I{HIPPO_FFTW_DIR}/include -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -L${HIPPO_FFTW_DIR}/lib    -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
+//gcc -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3 -lgomp -lpthread
 
 void set_threaded()
 {
@@ -30,7 +30,7 @@ void set_threaded()
 
 void many_fft_r2c_1d(double *dat, fftw_complex *datft, int ntrans, int ndata, int rlen, int clen)
 {  
-  fftw_plan plan=fftw_plan_many_dft_r2c(1,&ndata,ntrans,dat,&ndata,1,rlen,datft,&ndata,1,clen,PYFFTW_FLAG);
+  fftw_plan plan=fftw_plan_many_dft_r2c(1,&ndata,ntrans,dat,&ndata,1,rlen,datft,&ndata,1,clen,MKFFTW_FLAG);
   fftw_execute(plan);
   fftw_destroy_plan(plan);
 }
@@ -38,7 +38,7 @@ void many_fft_r2c_1d(double *dat, fftw_complex *datft, int ntrans, int ndata, in
 
 void many_fftf_r2c_1d(float *dat, fftwf_complex *datft, int ntrans, int ndata, int rlen, int clen)
 {  
-  fftwf_plan plan=fftwf_plan_many_dft_r2c(1,&ndata,ntrans,dat,&ndata,1,rlen,datft,&ndata,1,clen,PYFFTW_FLAG);
+  fftwf_plan plan=fftwf_plan_many_dft_r2c(1,&ndata,ntrans,dat,&ndata,1,rlen,datft,&ndata,1,clen,MKFFTW_FLAG);
   fftwf_execute(plan);
   fftwf_destroy_plan(plan);
 }
@@ -47,7 +47,7 @@ void many_fftf_r2c_1d(float *dat, fftwf_complex *datft, int ntrans, int ndata, i
 
 void many_fft_c2r_1d(fftw_complex *datft, double *dat,int ntrans, int ndata, int rlen, int clen)
 {  
-  fftw_plan plan=fftw_plan_many_dft_c2r(1,&ndata,ntrans,datft,&ndata,1,rlen,dat,&ndata,1,clen,PYFFTW_FLAG);
+  fftw_plan plan=fftw_plan_many_dft_c2r(1,&ndata,ntrans,datft,&ndata,1,rlen,dat,&ndata,1,clen,MKFFTW_FLAG);
   fftw_execute(plan);
   fftw_destroy_plan(plan);
 }
@@ -57,7 +57,7 @@ void many_fft_c2r_1d(fftw_complex *datft, double *dat,int ntrans, int ndata, int
 
 void many_fftf_c2r_1d(fftwf_complex *datft, float *dat,int ntrans, int ndata, int rlen, int clen)
 {  
-  fftwf_plan plan=fftwf_plan_many_dft_c2r(1,&ndata,ntrans,datft,&ndata,1,rlen,dat,&ndata,1,clen,PYFFTW_FLAG);
+  fftwf_plan plan=fftwf_plan_many_dft_c2r(1,&ndata,ntrans,datft,&ndata,1,rlen,dat,&ndata,1,clen,MKFFTW_FLAG);
   fftwf_execute(plan);
   fftwf_destroy_plan(plan);
 }

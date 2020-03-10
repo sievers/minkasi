@@ -1,7 +1,7 @@
 import numpy as np
 import ctypes
 import time
-import pyfftw
+import mkfftw
 #import pyfits
 from astropy.io import fits as pyfits
 import astropy
@@ -642,11 +642,11 @@ def smooth_spectra(spec,fwhm):
     to_conv=np.exp(-0.5*(x/sig)**2)
     tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
     to_conv=to_conv/tot
-    to_conv_ft=pyfftw.fft_r2r(to_conv)
-    xtrans=pyfftw.fft_r2r(spec)
+    to_conv_ft=mkfftw.fft_r2r(to_conv)
+    xtrans=mkfftw.fft_r2r(spec)
     for i in range(nspec):
         xtrans[i,:]=xtrans[i,:]*to_conv_ft
-    #return pyfftw.fft_r2r(xtrans)/(2*(xtrans.shape[1]-1)),to_conv
+    #return mkfftw.fft_r2r(xtrans)/(2*(xtrans.shape[1]-1)),to_conv
     return xtrans,to_conv_ft
 def smooth_many_vecs(vecs,fwhm=20):
     n=vecs.shape[1]
@@ -656,11 +656,11 @@ def smooth_many_vecs(vecs,fwhm=20):
     to_conv=np.exp(-0.5*(x/sig)**2)
     tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
     to_conv=to_conv/tot
-    to_conv_ft=pyfftw.fft_r2r(to_conv)
-    xtrans=pyfftw.fft_r2r(vecs)
+    to_conv_ft=mkfftw.fft_r2r(to_conv)
+    xtrans=mkfftw.fft_r2r(vecs)
     for i in range(nvec):
         xtrans[i,:]=xtrans[i,:]*to_conv_ft
-    back=pyfftw.fft_r2r(xtrans)
+    back=mkfftw.fft_r2r(xtrans)
     return back/(2*(n-1))
 def smooth_vec(vec,fwhm=20):
     n=vec.size
@@ -669,9 +669,9 @@ def smooth_vec(vec,fwhm=20):
     to_conv=np.exp(-0.5*(x/sig)**2)
     tot=to_conv[0]+to_conv[-1]+2*to_conv[1:-1].sum() #r2r normalization
     to_conv=to_conv/tot
-    to_conv_ft=pyfftw.fft_r2r(to_conv)
-    xtrans=pyfftw.fft_r2r(vec)
-    back=pyfftw.fft_r2r(xtrans*to_conv_ft)
+    to_conv_ft=mkfftw.fft_r2r(to_conv)
+    xtrans=mkfftw.fft_r2r(vec)
+    back=mkfftw.fft_r2r(xtrans*to_conv_ft)
     return back/2.0/(n-1)
 
 
@@ -955,10 +955,10 @@ def apply_noise(tod,dat=None):
     if dat is None:
         dat=tod['dat_calib']
     dat_rot=np.dot(tod['v'],dat)
-    datft=pyfftw.fft_r2r(dat_rot)
+    datft=mkfftw.fft_r2r(dat_rot)
     nn=datft.shape[1]
     datft=datft*tod['mywt'][:,0:nn]
-    dat_rot=pyfftw.fft_r2r(datft)
+    dat_rot=mkfftw.fft_r2r(datft)
     dat=np.dot(tod['v'].transpose(),dat_rot)
     #for fft_r2r, the first/last samples get counted for half of the interior ones, so 
     #divide them by 2 in the post-filtering.  Makes symmetry much happier...
@@ -2446,7 +2446,7 @@ class NoiseBinnedDet:
         nbin=len(bins)-1
         self.nbin=nbin
         det_ps=np.zeros([ndet,nbin])
-        datft=pyfftw.fft_r2r(dat)
+        datft=mkfftw.fft_r2r(dat)
         for i in range(nbin):
             det_ps[:,i]=1.0/np.mean(datft[:,bins[i]:bins[i+1]]**2,axis=1)
         self.det_ps=det_ps
@@ -2454,10 +2454,10 @@ class NoiseBinnedDet:
         self.ndet=ndet
         self.nn=nn
     def apply_noise(self,dat):
-        datft=pyfftw.fft_r2r(dat)
+        datft=mkfftw.fft_r2r(dat)
         for i in range(self.nbin):
             datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],self.bins[i+1]-self.bins[i])
-        dd=pyfftw.fft_r2r(datft)
+        dd=mkfftw.fft_r2r(datft)
         dd[:,0]=0.5*dd[:,0]
         dd[:,-1]=0.5*dd[:,-1]
         return dd
@@ -2492,8 +2492,8 @@ class NoiseBinnedEig:
         nmode=ts.shape[0]
         det_ps=np.zeros([ndet,nbin])
         mode_ps=np.zeros([nmode,nbin])
-        residft=pyfftw.fft_r2r(resid)
-        modeft=pyfftw.fft_r2r(ts)
+        residft=mkfftw.fft_r2r(resid)
+        modeft=mkfftw.fft_r2r(ts)
         
         for i in range(nbin):
             det_ps[:,i]=1.0/np.mean(residft[:,bins[i]:bins[i+1]]**2,axis=1)
@@ -2507,7 +2507,7 @@ class NoiseBinnedEig:
     def apply_noise(self,dat):
         assert(dat.shape[0]==self.ndet)
         assert(dat.shape[1]==self.ndata)
-        datft=pyfftw.fft_r2r(dat)
+        datft=mkfftw.fft_r2r(dat)
         for i in range(self.nbin):
             n=self.bins[i+1]-self.bins[i]
             #print('bins are ',self.bins[i],self.bins[i+1],n,datft.shape[1])
@@ -2522,7 +2522,7 @@ class NoiseBinnedEig:
             tmp=Ax-tmp*np.outer(self.det_ps[:,i],np.ones(n))
             datft[:,self.bins[i]:self.bins[i+1]]=tmp
             #print(tmp.shape,mat.shape)
-        dd=pyfftw.fft_r2r(datft)
+        dd=mkfftw.fft_r2r(datft)
         dd[:,0]=0.5*dd[:,0]
         dd[:,-1]=0.5*dd[:,-1]
         return dd
@@ -2568,7 +2568,7 @@ class NoiseSmoothedSVD:
                 fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
                 spec_smooth[ind,1:]=C
         else:
-            dat_trans=pyfftw.fft_r2r(dat_rot)
+            dat_trans=mkfftw.fft_r2r(dat_rot)
             spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
         spec_smooth[:,1:]=1.0/spec_smooth[:,1:]
         spec_smooth[:,0]=0
@@ -2579,10 +2579,10 @@ class NoiseSmoothedSVD:
         self.mywt=spec_smooth
     def apply_noise(self,dat):
         dat_rot=np.dot(self.v,dat)
-        datft=pyfftw.fft_r2r(dat_rot)
+        datft=mkfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
         datft=datft*self.mywt[:,:nn]
-        dat_rot=pyfftw.fft_r2r(datft)
+        dat_rot=mkfftw.fft_r2r(datft)
         dat=np.dot(self.v.T,dat_rot)
         if not(self.noisevec is None):
             noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
@@ -2730,7 +2730,7 @@ class Tod:
                 fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
                 spec_smooth[ind,1:]=C
         else:
-            dat_trans=pyfftw.fft_r2r(dat_rot)
+            dat_trans=mkfftw.fft_r2r(dat_rot)
             spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
         spec_smooth[:,1:]=1.0/spec_smooth[:,1:]
         spec_smooth[:,0]=0
@@ -2759,10 +2759,10 @@ class Tod:
             dat=dat/noisemat
         dat_rot=np.dot(self.info['v'],dat)
 
-        datft=pyfftw.fft_r2r(dat_rot)
+        datft=mkfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
         datft=datft*self.info['mywt'][:,0:nn]
-        dat_rot=pyfftw.fft_r2r(datft)
+        dat_rot=mkfftw.fft_r2r(datft)
         dat=np.dot(self.info['v'].transpose(),dat_rot)
         #if self.info.has_key('noisevec'):
         if 'noisevec' in self.info:
@@ -3044,18 +3044,18 @@ def downsample_array_r2r(arr,fac):
 
     n=arr.shape[1]
     nn=int(n/fac)
-    arr_ft=pyfftw.fft_r2r(arr)
+    arr_ft=mkfftw.fft_r2r(arr)
     arr_ft=arr_ft[:,0:nn].copy()
-    arr=pyfftw.fft_r2r(arr_ft)/(2*(n-1))
+    arr=mkfftw.fft_r2r(arr_ft)/(2*(n-1))
     return arr
 
 def downsample_vec_r2r(vec,fac):
 
     n=len(vec)
     nn=int(n/fac)
-    vec_ft=pyfftw.fft_r2r(vec)
+    vec_ft=mkfftw.fft_r2r(vec)
     vec_ft=vec_ft[0:nn].copy()
-    vec=pyfftw.fft_r2r(vec_ft)/(2*(n-1))
+    vec=mkfftw.fft_r2r(vec_ft)/(2*(n-1))
     return vec
 
 def downsample_tod(dat,fac=10):
@@ -3136,7 +3136,7 @@ def decimate(vec,nrep=1):
         vec=0.5*(vec[0::2]+vec[1::2])
     return vec
 def plot_ps(vec,downsamp=0):
-    vecft=pyfftw.fft_r2r(vec)
+    vecft=mkfftw.fft_r2r(vec)
     
 def get_wcs(lims,pixsize,proj='CAR',cosdec=None,ref_equ=False):
     w=wcs.WCS(naxis=2)    
@@ -3226,7 +3226,7 @@ def get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs):
     return like,grad,curve,C
 def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=np.inf,scale_fac=1.0,tol=0.01):
 
-    datft=pyfftw.fft_r2r(dat)
+    datft=mkfftw.fft_r2r(dat)
     n=len(datft)
 
     dnu=0.5/(len(dat)*dt) #coefficient should reflect the type of fft you did...

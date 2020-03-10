@@ -2,7 +2,7 @@ import numpy
 import ctypes
 import time
 
-mylib=ctypes.cdll.LoadLibrary("libpyfftw.so")
+mylib=ctypes.cdll.LoadLibrary("libmkfftw.so")
 
 many_fft_r2c_1d_c=mylib.many_fft_r2c_1d
 many_fft_r2c_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int]
