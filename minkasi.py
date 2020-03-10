@@ -2596,6 +2596,7 @@ class Tod:
         self.info=info.copy()
         self.jumps=None
         self.cuts=None
+        self.noise=None
     def lims(self):
         xmin=self.info['dx'].min()
         xmax=self.info['dx'].max()
@@ -2629,6 +2630,7 @@ class Tod:
             except:
                 tod.cuts=self.cuts[:]
             tod.cuts=self.cuts[:]
+        tod.noise=self.noise
             
         return tod
     def set_noise(self,modelclass=NoiseSmoothedSVD,dat=None,*args,**kwargs):
