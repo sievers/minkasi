@@ -2427,6 +2427,170 @@ def isobeta_src_chisq(params,tods):
         chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
     return chisq
 
+
+
+class NoiseBinnedDet:
+    def __init__(self,dat,dt,freqs=None,scale_facs=None):
+        ndet=dat.shape[0]
+        ndata=dat.shape[1]
+        nn=2*(ndata-1)
+        dnu=1/(nn*dt)
+        bins=np.asarray(freqs/dnu,dtype='int')
+        bins=bins[bins<ndata]
+        bins=np.hstack([bins,ndata])
+        if bins[0]>0:
+            bins=np.hstack(0,bins)
+        if bins[0]<0:
+            bins[0]=0
+        self.bins=bins
+        nbin=len(bins)-1
+        self.nbin=nbin
+        det_ps=np.zeros([ndet,nbin])
+        datft=pyfftw.fft_r2r(dat)
+        for i in range(nbin):
+            det_ps[:,i]=1.0/np.mean(datft[:,bins[i]:bins[i+1]]**2,axis=1)
+        self.det_ps=det_ps
+        self.ndata=ndata
+        self.ndet=ndet
+        self.nn=nn
+    def apply_noise(self,dat):
+        datft=pyfftw.fft_r2r(dat)
+        for i in range(self.nbin):
+            datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],self.bins[i+1]-self.bins[i])
+        dd=pyfftw.fft_r2r(datft)
+        dd[:,0]=0.5*dd[:,0]
+        dd[:,-1]=0.5*dd[:,-1]
+        return dd
+
+class NoiseBinnedEig:
+    def __init__(self,dat,dt,freqs=None,scale_facs=None,thresh=5.0):
+
+        ndet=dat.shape[0]
+        ndata=dat.shape[1]
+        nn=2*(ndata-1)
+
+        mycov=np.dot(dat,dat.T)
+        mycov=0.5*(mycov+mycov.T)
+        ee,vv=np.linalg.eig(mycov)
+        mask=ee>thresh*thresh*np.median(ee)
+        vecs=vv[:,mask]
+        ts=np.dot(vecs.T,dat)
+        resid=dat-np.dot(vv[:,mask],ts)
+        dnu=1/(nn*dt)
+        print('dnu is ' + repr(dnu))
+        bins=np.asarray(freqs/dnu,dtype='int')
+        bins=bins[bins<ndata]
+        bins=np.hstack([bins,ndata])
+        if bins[0]>0:
+            bins=np.hstack(0,bins)
+        if bins[0]<0:
+            bins[0]=0
+        self.bins=bins
+        nbin=len(bins)-1
+        self.nbin=nbin
+
+        nmode=ts.shape[0]
+        det_ps=np.zeros([ndet,nbin])
+        mode_ps=np.zeros([nmode,nbin])
+        residft=pyfftw.fft_r2r(resid)
+        modeft=pyfftw.fft_r2r(ts)
+        
+        for i in range(nbin):
+            det_ps[:,i]=1.0/np.mean(residft[:,bins[i]:bins[i+1]]**2,axis=1)
+            mode_ps[:,i]=1.0/np.mean(modeft[:,bins[i]:bins[i+1]]**2,axis=1)
+        self.modes=vecs.copy()
+        self.det_ps=det_ps
+        self.mode_ps=mode_ps
+        self.ndata=ndata
+        self.ndet=ndet
+        self.nn=nn
+    def apply_noise(self,dat):
+        assert(dat.shape[0]==self.ndet)
+        assert(dat.shape[1]==self.ndata)
+        datft=pyfftw.fft_r2r(dat)
+        for i in range(self.nbin):
+            n=self.bins[i+1]-self.bins[i]
+            #print('bins are ',self.bins[i],self.bins[i+1],n,datft.shape[1])
+            tmp=self.modes*np.outer(self.det_ps[:,i],np.ones(self.modes.shape[1]))
+            mat=np.dot(self.modes.T,tmp)
+            mat=mat+np.diag(self.mode_ps[:,i])
+            mat_inv=np.linalg.inv(mat)
+            Ax=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],np.ones(n))
+            tmp=np.dot(self.modes.T,Ax)
+            tmp=np.dot(mat_inv,tmp)
+            tmp=np.dot(self.modes,tmp)
+            tmp=Ax-tmp*np.outer(self.det_ps[:,i],np.ones(n))
+            datft[:,self.bins[i]:self.bins[i+1]]=tmp
+            #print(tmp.shape,mat.shape)
+        dd=pyfftw.fft_r2r(datft)
+        dd[:,0]=0.5*dd[:,0]
+        dd[:,-1]=0.5*dd[:,-1]
+        return dd
+class NoiseCMWhite:
+    def __init__(self,dat):
+        u,s,v=np.linalg.svd(dat,0)
+        self.ndet=len(s)
+        ind=np.argmax(s)
+        self.v=np.zeros(self.ndet)
+        self.v[:]=u[:,ind]
+        pred=np.outer(self.v*s[ind],v[ind,:])
+        dat_clean=dat-pred
+        myvar=np.std(dat_clean,1)**2
+        self.mywt=1.0/myvar
+    def apply_noise(self,dat):
+        mat=np.dot(self.v,np.diag(self.mywt))
+        lhs=np.dot(self.v,mat.T)
+        rhs=np.dot(mat,dat)
+        if isinstance(lhs,np.ndarray):
+            cm=np.dot(np.linalg.inv(lhs),rhs)
+        else:
+            cm=rhs/lhs
+        dd=dat-np.outer(self.v,cm)
+        tmp=np.repeat([self.mywt],len(cm),axis=0).T
+        dd=dd*tmp
+        return dd
+class NoiseSmoothedSVD:
+    def __init__(self,dat_use,fwhm=50,prewhiten=False,fit_powlaw=False):
+        if prewhiten:
+            noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
+            dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())            
+        u,s,v=np.linalg.svd(dat_use,0)
+        #print(u.shape,s.shape,v.shape)
+        print('got svd')
+        ndet=s.size
+        n=dat_use.shape[1]
+        self.v=np.zeros([ndet,ndet])
+        self.v[:]=u.transpose()
+        dat_rot=np.dot(self.v,dat_use)
+        if fit_powlaw:
+            spec_smooth=0*dat_rot
+            for ind in range(ndet):
+                fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
+                spec_smooth[ind,1:]=C
+        else:
+            dat_trans=pyfftw.fft_r2r(dat_rot)
+            spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
+        spec_smooth[:,1:]=1.0/spec_smooth[:,1:]
+        spec_smooth[:,0]=0
+        if prewhiten:
+            self.noisevec=noisevec.copy()
+        else:
+            self.noisevec=None
+        self.mywt=spec_smooth
+    def apply_noise(self,dat):
+        dat_rot=np.dot(self.v,dat)
+        datft=pyfftw.fft_r2r(dat_rot)
+        nn=datft.shape[1]
+        datft=datft*self.mywt[:,:nn]
+        dat_rot=pyfftw.fft_r2r(datft)
+        dat=np.dot(self.v.T,dat_rot)
+        if not(self.noisevec is None):
+            noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
+        dat[:,0]=0.5*dat[:,0]
+        dat[:,-1]=0.5*dat[:,-1]
+        return dat
+
 class Tod:
     def __init__(self,info):
         self.info=info.copy()
@@ -2467,6 +2631,10 @@ class Tod:
             tod.cuts=self.cuts[:]
             
         return tod
+    def set_noise(self,modelclass=NoiseSmoothedSVD,dat=None,*args,**kwargs):
+        if dat is None:
+            dat=self.info['dat_calib']
+        self.noise=modelclass(dat,*args,**kwargs)
     def set_noise_white_masked(self):
         self.info['noise']='white_masked'
         self.info['mywt']=np.ones(self.info['dat_calib'].shape[0])
@@ -2476,6 +2644,10 @@ class Tod:
         dd=self.info['mask']*dat*np.repeat([self.info['mywt']],self.info['dat_calib'].shape[1],axis=0).transpose()
         return dd
     def set_noise_cm_white(self):
+        print('deprecated usage - please switch to tod.set_noise(minkasi.NoiseCMWhite)')
+        self.set_noise(NoiseCMWhite)
+        return
+
         u,s,v=np.linalg.svd(self.info['dat_calib'],0)
         ndet=len(s)
         ind=np.argmax(s)
@@ -2492,6 +2664,7 @@ class Tod:
         self.info['noise']='cm_white'
         
     def apply_noise_cm_white(self,dat=None):
+        print("I'm not sure how you got here (tod.apply_noise_cm_white), but you should not have been able to.  Please complain to someone.")
         if dat is None:
             dat=self.info['dat_calib']
 
@@ -2507,9 +2680,34 @@ class Tod:
         tmp=np.repeat([self.info['mywt']],len(cm),axis=0).transpose()
         dd=dd*tmp
         return dd
+    def set_noise_binned_eig(self,dat=None,freqs=None,scale_facs=None,thresh=5.0):
+        if dat is None:
+            dat=self.info['dat_calib']
+        mycov=np.dot(dat,dat.T)
+        mycov=0.5*(mycov+mycov.T)
+        ee,vv=np.linalg.eig(mycov)
+        mask=ee>thresh*thresh*np.median(ee)
+        vecs=vv[:,mask]
+        ts=np.dot(vecs.T,dat)
+        resid=dat-np.dot(vv[:,mask],ts)
+        
+        return resid
     def set_noise_smoothed_svd(self,fwhm=50,func=None,pars=None,prewhiten=False,fit_powlaw=False):
         '''If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
         we subtract off before estimating the noise.'''
+
+        
+        print('deprecated usage - please switch to tod.set_noise(minkasi.NoiseSmoothedSVD)')
+
+        if func is None:
+            self.set_noise(NoiseSmoothedSVD,self.info['dat_calib'])
+        else:
+            dat_use=func(pars,self)
+            dat_use=self.info['dat_calib']-dat_use
+            self.set_noise(NoiseSmoothedSVD,dat_use)
+        return
+
+
         if func is None:
             dat_use=self.info['dat_calib']
         else:
@@ -2545,6 +2743,11 @@ class Tod:
     def apply_noise(self,dat=None):
         if dat is None:
             dat=self.info['dat_calib']
+        try:
+            return self.noise.apply_noise(dat)
+        except:
+            print("unable to use class-based noised, falling back onto hardwired.")
+            
         if self.info['noise']=='cm_white':
             #print 'calling cm_white'
             return self.apply_noise_cm_white(dat)
