@@ -1007,6 +1007,39 @@ class tsGeneric:
         return copy.deepcopy(self)
     def write(self,fname=None):
         pass
+class tsVecs(tsGeneric):
+    def __init__(self,tod,vecs):
+        self.vecs=vecs
+        self.ndet=tod.info['dat_calib'].shape[0]
+        self.vecs=vecs
+        self.nvec=vecs.shape[0]
+        self.params=np.zeros([self.nvec,self.ndet])
+    def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
+        if mat is None:
+            mat=tod.info['dat_calib']
+        if do_add:
+            self.params[:]=self.params[:]+np.dot(self.vecs,mat.T)
+        else:
+            self.params[:]=np.dot(self.vecs,mat.T)
+    def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
+        if mat is None:
+            mat=tod.info['dat_calib']
+        if do_add:
+            mat[:]=mat[:]+np.dot(self.params.T,self.vecs)
+        else:
+            mat[:]=np.dot(self.params.T,self.vecs)    
+
+class tsPoly(tsVecs):
+    def __init__(self,tod,order=10):
+        self.fname=tod.info['fname']
+        self.ndata=tod.info['dat_calib'].shape[1]
+        self.order=order
+        self.ndet=tod.info['dat_calib'].shape[0]
+        xvec=np.linspace(-1,1,self.ndata)
+        self.vecs=(np.polynomial.legendre.legvander(xvec,order).T).copy()
+        self.nvec=self.vecs.shape[0]
+        self.params=np.zeros([self.nvec,self.ndet])
+        
 class tsDetAz(tsGeneric):
     def __init__(self,tod,npoly=4):
         if isinstance(tod,tsDetAz): #we're starting a new instance from an old one, e.g. from copy
@@ -2549,11 +2582,12 @@ class NoiseCMWhite:
         tmp=np.repeat([self.mywt],len(cm),axis=0).T
         dd=dd*tmp
         return dd
+
 class NoiseSmoothedSVD:
     def __init__(self,dat_use,fwhm=50,prewhiten=False,fit_powlaw=False):
         if prewhiten:
             noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
-            dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())            
+            dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
         u,s,v=np.linalg.svd(dat_use,0)
         #print(u.shape,s.shape,v.shape)
         print('got svd')
@@ -2578,17 +2612,22 @@ class NoiseSmoothedSVD:
             self.noisevec=None
         self.mywt=spec_smooth
     def apply_noise(self,dat):
+        if not(self.noisevec is None):
+            noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
         dat_rot=np.dot(self.v,dat)
         datft=mkfftw.fft_r2r(dat_rot)
         nn=datft.shape[1]
         datft=datft*self.mywt[:,:nn]
         dat_rot=mkfftw.fft_r2r(datft)
         dat=np.dot(self.v.T,dat_rot)
-        if not(self.noisevec is None):
-            noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
-            dat=dat/noisemat
         dat[:,0]=0.5*dat[:,0]
         dat[:,-1]=0.5*dat[:,-1]
+        if not(self.noisevec is None):
+            #noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
+
+        
         return dat
 
 class Tod:
@@ -3112,8 +3151,11 @@ def todvec_from_files_octave(fnames):
         
 def make_hits(todvec,map):
     hits=map.copy()
-    if map.npol>1:
-        hits.set_polstate(map.poltag+'_PRECON')
+    try:
+        if map.npol>1:
+            hits.set_polstate(map.poltag+'_PRECON')
+    except:
+        pass
     hits.clear()
     for tod in todvec.tods:
         tmp=np.ones(tod.info['dat_calib'].shape)
