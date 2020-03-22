@@ -105,6 +105,12 @@ def report_mpi():
     else:
         print('mpi not found')
 
+def barrier():
+    if have_mpi:
+        comm.barrier()
+    else:
+        pass
+
 def invsafe(mat,thresh=1e-14):
     u,s,v=np.linalg.svd(mat,0)
     ii=np.abs(s)<thresh*s.max()
@@ -817,6 +823,7 @@ def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25,outroot='map',sav
     t1=time.time()
     Ax=tods.dot(x0)    
     if not(prior is None):
+        #print('applying prior')
         prior.apply_prior(x0,Ax) 
     try:
         r=b.copy()
@@ -842,6 +849,7 @@ def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25,outroot='map',sav
         t1=time.time()
         Ap=tods.dot(p)
         if not(prior is None):
+            #print('applying prior')
             prior.apply_prior(p,Ap)
         t2=time.time()
         pAp=p.dot(Ap)
@@ -969,6 +977,33 @@ def apply_noise(tod,dat=None):
     return dat
 
 
+
+def get_grad_mask_2d(map,todvec=None,thresh=4.0,noisemap=None,hitsmap=None):
+    """make a mask that has an estimate of the gradient within a pixel.  Look at the 
+    rough expected noise to get an idea of which gradients are substantially larger than
+    the map noise."""
+    if  noisemap is None:
+        noisemap=make_hits(todvec,map,do_weights=True)
+        noisemap.invert()
+        noisemap.map=np.sqrt(noisemap.map)
+    if hitsmap is None:
+        hitsmap=make_hits(todvec,map,do_weights=False)
+    mygrad=(map.map-np.roll(map.map,1,axis=0))**2
+    mygrad=mygrad+(map.map-np.roll(map.map,-1,axis=0))**2
+    mygrad=mygrad+(map.map-np.roll(map.map,-1,axis=1))**2
+    mygrad=mygrad+(map.map-np.roll(map.map,1,axis=1))**2
+    mygrad=np.sqrt(0.25*mygrad)
+
+    #find the typical timestream noise in a pixel, which should be the noise map times sqrt(hits)
+    hitsmask=hitsmap.map>0
+    tmp=noisemap.map.copy()
+    tmp[hitsmask]=tmp[hitsmask]*np.sqrt(hitsmap.map[hitsmask])
+    mask=(mygrad>(thresh*tmp))
+    frac=1.0*np.sum(mask)/mask.size
+    print("Cutting " + repr(frac*100) + "% of map pixels in get_grad_mask_2d.")
+    mygrad[np.logical_not(mask)]=0
+    #return mygrad,tmp,noisemap
+    return mygrad
 
 class null_precon:
     def __init__(self):
@@ -1668,6 +1703,9 @@ class SkyMap:
                     self.map[:]=np.reshape(tmp,self.map.shape)
             
             #print("reduced")
+    def invert(self):
+        mask=np.abs(self.map)>0
+        self.map[mask]=1.0/self.map[mask]
 
 def poltag2pols(poltag):
     if poltag=='I':
@@ -2582,6 +2620,8 @@ class NoiseCMWhite:
         tmp=np.repeat([self.mywt],len(cm),axis=0).T
         dd=dd*tmp
         return dd
+    def get_det_weights(self):
+        return self.mywt.copy()
 
 class NoiseSmoothedSVD:
     def __init__(self,dat_use,fwhm=50,prewhiten=False,fit_powlaw=False):
@@ -2625,10 +2665,13 @@ class NoiseSmoothedSVD:
         dat[:,-1]=0.5*dat[:,-1]
         if not(self.noisevec is None):
             #noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
-            dat=dat/noisemat
-
-        
+            dat=dat/noisemat        
         return dat
+    def get_det_weights(self):
+        """Find the per-detector weights for use in making actual noise maps."""
+        mode_wt=np.sum(self.mywt,axis=1)
+        tmp=np.dot(self.v.T,np.dot(np.diag(mode_wt),self.v))
+        return np.diag(tmp).copy()*2.0
 
 class Tod:
     def __init__(self,info):
@@ -2676,6 +2719,15 @@ class Tod:
         if dat is None:
             dat=self.info['dat_calib']
         self.noise=modelclass(dat,*args,**kwargs)
+    def get_det_weights(self):
+        if self.noise is None:
+            print("noise model not set in get_det_weights.")
+            return None
+        try:
+            return self.noise.get_det_weights()
+        except:
+            print("noise model does not support detector weights in get_det_weights.")
+            return None
     def set_noise_white_masked(self):
         self.info['noise']='white_masked'
         self.info['mywt']=np.ones(self.info['dat_calib'].shape[0])
@@ -2847,7 +2899,7 @@ class Tod:
         chisq=np.sum(dat_filt*dat)
         return chisq
     def prior_from_skymap(self,skymap):
-        """
+        """stuff.
         prior_from_skymap(self,skymap):
         Given e.g. the gradient of a map that has been zeroed under some threshold,
         return a CutsCompact object that can be used as a prior for solving for per-sample deviations
@@ -3149,7 +3201,7 @@ def todvec_from_files_octave(fnames):
         todvec.add_tod(tod)
     return todvec
         
-def make_hits(todvec,map):
+def make_hits(todvec,map,do_weights=False):
     hits=map.copy()
     try:
         if map.npol>1:
@@ -3158,7 +3210,17 @@ def make_hits(todvec,map):
         pass
     hits.clear()
     for tod in todvec.tods:
-        tmp=np.ones(tod.info['dat_calib'].shape)
+        if do_weights:
+            try:
+                weights=tod.get_det_weights()
+                sz=tod.info['dat_calib'].shape
+                tmp=np.outer(weights,np.ones(sz[1]))
+                #tmp=np.outer(weights,np.ones(tod.info['dat_calb'].shape[1]))
+            except:
+                print("error in making weight map.  Detector weights requested, but do not appear to be present.  Do you have a noise model?")
+                             
+        else:
+            tmp=np.ones(tod.info['dat_calib'].shape)    
         #if tod.info.has_key('mask'):
         if 'mask' in tod.info:
             tmp=tmp*tod.info['mask']
