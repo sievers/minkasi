@@ -1716,7 +1716,7 @@ def poltag2pols(poltag):
         return ['Q','U']
     if poltag=='IQU_PRECON':
         return ['I','Q','U','QQ','QU','UU']
-    if poltag=='QU_precon':
+    if poltag=='QU_PRECON':
         return ['QQ','UU','QU']
 
     return None
@@ -2080,11 +2080,14 @@ class HealPolMap(PolMap):
                     else:
                         head=fname
                         tail='.fits'
-                    tmp=np.zeros([self.ny,self.nx])
+                    #tmp=np.zeros([self.ny,self.nx])
+                    tmp=np.zeros(self.nx)
                     for i in range(self.npol):
                         tmp[:]=np.squeeze(self.map[:,:,i]).T
+                        print('tmp shape is ',tmp.shape)
                         fname=head+'_'+self.pols[i]+tail
-                        healpy.write_map(fname,tmp[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
+                        healpy.write_map(fname,tmp,nest=(self.proj=='NEST'),overwrite=overwrite)
+                        #healpy.write_map(fname,tmp[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
     
 
 class Cuts:
@@ -2510,7 +2513,7 @@ class NoiseBinnedDet:
         bins=bins[bins<ndata]
         bins=np.hstack([bins,ndata])
         if bins[0]>0:
-            bins=np.hstack(0,bins)
+            bins=np.hstack([0,bins])
         if bins[0]<0:
             bins[0]=0
         self.bins=bins
@@ -2553,7 +2556,7 @@ class NoiseBinnedEig:
         bins=bins[bins<ndata]
         bins=np.hstack([bins,ndata])
         if bins[0]>0:
-            bins=np.hstack(0,bins)
+            bins=np.hstack([0,bins])
         if bins[0]<0:
             bins[0]=0
         self.bins=bins
@@ -2570,6 +2573,9 @@ class NoiseBinnedEig:
             det_ps[:,i]=1.0/np.mean(residft[:,bins[i]:bins[i+1]]**2,axis=1)
             mode_ps[:,i]=1.0/np.mean(modeft[:,bins[i]:bins[i+1]]**2,axis=1)
         self.modes=vecs.copy()
+        if not(np.all(np.isfinite(det_ps))):
+            print("warning - have non-finite numbers in noise model.  This should not be unexpected.")
+            det_ps[~np.isfinite(det_ps)]=0.0
         self.det_ps=det_ps
         self.mode_ps=mode_ps
         self.ndata=ndata
@@ -3021,6 +3027,7 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
     flag=raw['FLAG']
     I=0.5*(raw['I1']+raw['I2'])
 
+
     mjd=raw['MJD']
     tvec=(mjd-2455977.5+2400000.5)*86400+1329696000
     #(mjd-2455977.5)*86400+1329696000;
@@ -3030,7 +3037,10 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
     dat['dx']=np.reshape(np.asarray(ra,dtype='float64'),[1,len(ra)])
     dat['dy']=np.reshape(np.asarray(dec,dtype='float64'),[1,len(dec)])
     dat['dt']=dt
+    dat['ctime']=tvec
     if dopol:
+        dat['dx']=np.vstack([dat['dx'],dat['dx']])
+        dat['dy']=np.vstack([dat['dy'],dat['dy']])
         Q=0.5*(raw['Q1']+raw['Q2'])
         U=0.5*(raw['U1']+raw['U2'])
         dat['dat_calib']=np.zeros([2,len(Q)])
@@ -3038,6 +3048,8 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
         dat['dat_calib'][1,:]=U
         az=raw['AZ']
         el=raw['EL']
+        dat['az']=az
+        dat['el']=el
         
         #dat['AZ']=az
         #dat['EL']=el
@@ -3050,8 +3062,12 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
             #q_bore = Q.azel2bore(dat['AZ'], dat['EL'], 0*dat['AZ'], 0*dat['AZ'], lon*np.pi/180, lat*np.pi/180, dat['ctime'])
             q_bore = Q.azel2bore(az,el, 0*az, 0*az, lon, lat, dat['ctime'])
             q_off = Q.det_offset(0.0,0.0,0.0)
-            ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, ctime, q_bore)
-            dat['twogamma_saved']=np.arctan2(sin2psi,cos2psi)
+            #ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, ctime, q_bore)
+            ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, tvec, q_bore)
+            tmp=np.arctan2(sin2psi,cos2psi)            
+            #dat['twogamma_saved']=np.arctan2(sin2psi,cos2psi)
+            dat['twogamma_saved']=np.vstack([tmp,tmp+np.pi/2])
+            #print('pointing rms is ',np.std(ra*np.pi/180-dat['dx']),np.std(dec*np.pi/180-dat['dy']))
             dat['ra']=ra*np.pi/180
             dat['dec']=dec*np.pi/180
     else:
