@@ -2530,7 +2530,8 @@ class NoiseBinnedDet:
     def apply_noise(self,dat):
         datft=mkfftw.fft_r2r(dat)
         for i in range(self.nbin):
-            datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],self.bins[i+1]-self.bins[i])
+            #datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],self.bins[i+1]-self.bins[i])
+            datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],np.ones(self.bins[i+1]-self.bins[i]))
         dd=mkfftw.fft_r2r(datft)
         dd[:,0]=0.5*dd[:,0]
         dd[:,-1]=0.5*dd[:,-1]
