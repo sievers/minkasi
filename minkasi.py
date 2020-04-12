@@ -184,6 +184,21 @@ def polmap2tod(dat,map,poltag,twogamma,ipix,do_add=False,do_omp=True):
     #print('calling ' + repr(fun))
     fun(dat.ctypes.data,map.ctypes.data,twogamma.ctypes.data,ndet,ndata,ipix.ctypes.data,do_add)
     
+def read_fits_map(fname,hdu=0,do_trans=True):
+    f=fits.open(fname)
+    raw=f[hdu].data
+    tmp=raw.copy()
+    f.close()
+    if do_trans:
+        tmp=(tmp.T).copy()
+    return tmp
+
+def get_ft_vec(n):
+    x=np.arange(n)
+    x[x>n/2]=x[x>n/2]-n
+    return x
+
+
 def set_nthread(nthread):
     set_nthread_c(nthread)
 
@@ -994,10 +1009,13 @@ def get_grad_mask_2d(map,todvec=None,thresh=4.0,noisemap=None,hitsmap=None):
     mygrad=mygrad+(map.map-np.roll(map.map,1,axis=1))**2
     mygrad=np.sqrt(0.25*mygrad)
 
+
+
     #find the typical timestream noise in a pixel, which should be the noise map times sqrt(hits)
     hitsmask=hitsmap.map>0
     tmp=noisemap.map.copy()
     tmp[hitsmask]=tmp[hitsmask]*np.sqrt(hitsmap.map[hitsmask])
+    #return mygrad,tmp
     mask=(mygrad>(thresh*tmp))
     frac=1.0*np.sum(mask)/mask.size
     print("Cutting " + repr(frac*100) + "% of map pixels in get_grad_mask_2d.")
@@ -1547,18 +1565,24 @@ class Mapset:
 #            self.cuts[tod.info['tag']]=Cuts(tod)
             
 class SkyMap:
-    def __init__(self,lims,pixsize,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):        
+    def __init__(self,lims,pixsize=0,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):        
         if mywcs is None:
-            self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)
+            assert(pixsize!=0) #we had better have a pixel size if we don't have an incoming WCS that contains it
+            self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)            
         else:
             self.wcs=mywcs
+            pixsize_use=mywcs.wcs.cdelt[1]*np.pi/180
+            #print('pixel size from wcs and requested are ',pixsize_use,pixsize,100*(pixsize_use-pixsize)/pixsize)
+            pixsize=pixsize_use
+            
         corners=np.zeros([4,2])
         corners[0,:]=[lims[0],lims[2]]
         corners[1,:]=[lims[0],lims[3]]
         corners[2,:]=[lims[1],lims[2]]
         corners[3,:]=[lims[1],lims[3]]
-        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)        
+        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)
         pix_corners=np.round(pix_corners)
+
         #print pix_corners
         #print type(pix_corners)
         #if pix_corners.min()<0.5:
@@ -1706,6 +1730,95 @@ class SkyMap:
     def invert(self):
         mask=np.abs(self.map)>0
         self.map[mask]=1.0/self.map[mask]
+
+class MapNoiseWhite:
+    def __init__(self,ivar_map,isinv=True):
+        self.ivar=read_fits_map(ivar_map)
+        if not(isinv):
+            mask=self.ivar>0
+            self.ivar[mask]=1.0/self.ivar[mask]
+    def apply_noise(self,map):
+        return map*self.ivar
+    
+        
+
+class SkyMapLowres:
+    """A map to serve as a prior for multi-experiment mapping.  This would e.g. be the ACT map that e.g. Mustang should agree
+    with on large scales."""
+    def __init__(self,map_lowres,lims,osamp=1):        
+        small_wcs,lims_use,map_corner=get_aligned_map_subregion_car(lims,map_lowres,osamp=osamp)
+        self.small_lims=lims_use
+        self.small_wcs=small_wcs
+        self.map=read_fits_map(map_lowres)
+        self.osamp=osamp
+        self.map_corner=map_corner
+        self.beamft=None
+        self.mask=None
+        self.map_deconvolved=None
+        self.noise=None
+        self.fine_prior=None
+        self.nx_coarse=None
+        self.ny_coarse=None
+    def copy(self):
+        return copy.copy(self)
+    def get_map_deconvolved(self,map_deconvolved):
+        self.map_deconvolved=read_fits_map(map_deconvolved)
+    def set_beam_gauss(self,fwhm_pix):
+        tmp=0*self.map
+        xvec=get_ft_vec(tmp.shape[0])
+        yvec=get_ft_vec(tmp.shape[1])
+        xx,yy=np.meshgrid(yvec,xvec)
+        rsqr=xx**2+yy**2
+        sig_pix=fwhm_pix/np.sqrt(8*np.log(2))
+        beam=np.exp(-0.5*rsqr/(sig_pix**2))
+        beam=beam/np.sum(beam)
+        self.beamft=np.fft.rfft2(beam)
+    def set_noise_white(self,ivar_map,isinv=True):
+        self.noise=MapNoiseWhite(ivar_map,isinv)
+        
+    def set_mask(self,hits,thresh=0):
+        self.mask=hits>thresh
+        self.fine_prior=0*hits
+        self.nx_coarse=np.int(np.round(hits.shape[0]/self.osamp))
+        self.ny_coarse=np.int(np.round(hits.shape[1]/self.osamp))
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                self.fine_prior[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=self.map_deconvolved[self.map_corner[0]+i,self.map_corner[1]+j]
+    def apply_Qinv(self,map):
+        tmp=self.fine_prior.copy()
+        tmp[self.mask]=map[self.mask]
+        tmp2=self.map_deconvolved.copy()
+        for i in range(self.nx_coarse):
+            for j in range(self.nx_coarse):
+                tmp2[self.map_corner[0]+i,self.map_corner[1]+j]=np.mean(tmp[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)])
+        tmp2_conv=np.fft.irfft2(np.fft.rfft2(tmp2)*self.beamft)
+        tmp2_conv_filt=self.noise.apply_noise(tmp2_conv)
+        tmp2_reconv=np.fft.irfft2(np.fft.rfft2(tmp2_conv_filt)*self.beamft)
+        fac=1.0/self.osamp**2
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                tmp[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=fac*tmp2_reconv[i+self.map_corner[0],j+self.map_corner[1]]
+        ans=0.0*tmp
+        ans[self.mask]=tmp[self.mask]
+        return ans
+    def get_rhs(self,map=None):
+        if map is None:
+            map=self.map
+        map_filt=self.noise.apply_noise(map)
+        map_filt_conv=np.fft.irfft2(np.fft.rfft2(map_filt)*self.beamft)
+        tmp=0.0*self.mask
+        fac=1.0/self.osamp**2
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                tmp[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=fac*map_filt_conv[i+self.map_corner[0],j+self.map_corner[1]]
+
+        ans=0*tmp
+        ans[self.mask]=tmp[self.mask]
+        return ans
+    def apply_prior(self,map,outmap):
+        outmap.map[:]=outmap.map[:]+self.apply_Qinv(map.map)
+              
+
 
 def poltag2pols(poltag):
     if poltag=='I':
@@ -3271,7 +3384,10 @@ def get_wcs(lims,pixsize,proj='CAR',cosdec=None,ref_equ=False):
         cosdec=1.0
         if ref_equ:
             w.wcs.crval=[0.0,0.0]
-            w.wcs.crpix=[lims[1]/pixsize,-lims[2]/pixsize]
+            #this seems to be a needed hack if you want the position sent
+            #in for the corner to actually be the corner.
+            w.wcs.crpix=[lims[1]/pixsize+1,-lims[2]/pixsize+1]
+            #w.wcs.crpix=[lims[1]/pixsize,-lims[2]/pixsize]
             #print 'crpix is ',w.wcs.crpix
         else:
             w.wcs.crpix=[1.0,1.0]
@@ -3281,6 +3397,54 @@ def get_wcs(lims,pixsize,proj='CAR',cosdec=None,ref_equ=False):
         return w
     print('unknown projection type ',proj,' in get_wcs.')
     return None
+
+
+
+def get_aligned_map_subregion_car(lims,fname=None,big_wcs=None,osamp=1):
+    """Get a wcs for a subregion of a map, with optionally finer pixellization.  
+    Designed for use in e.g. combining ACT maps and Mustang data.  Input arguments
+    are RA/Dec limits for the subregion (which will be tweaked as-needed) and either a 
+    WCS structure or the name of a FITS file containing the WCS info the sub-region
+    will be aligned with."""
+    
+    if big_wcs is None:
+        if fname is None:
+            print("Error in get_aligned_map_subregion_car.  Must send in either a file or a WCS.")
+        big_wcs=wcs.WCS(fname)
+    ll=np.asarray(lims)
+    ll=ll*180/np.pi 
+    
+    #get the ra/dec limits in big pixel coordinates
+    corner1=big_wcs.wcs_world2pix(ll[0],ll[2],0)
+    corner2=big_wcs.wcs_world2pix(ll[1],ll[3],0)
+
+    #get the pixel edges for the corners.  FITS works in
+    #pixel centers, so edges are a half-pixel off
+    corner1[0]=np.ceil(corner1[0])+0.5
+    corner1[1]=np.floor(corner1[1])-0.5
+    corner2[0]=np.floor(corner2[0])-0.5
+    corner2[1]=np.ceil(corner2[1])+0.5
+    
+    corner1_radec=big_wcs.wcs_pix2world(corner1[0],corner1[1],0)
+    corner2_radec=big_wcs.wcs_pix2world(corner2[0],corner2[1],0)
+
+    dra=(corner1_radec[0]-corner2_radec[0])/(corner1[0]-corner2[0])
+    ddec=(corner1_radec[1]-corner2_radec[1])/(corner1[1]-corner2[1])
+    assert(np.abs(dra/ddec)-1<1e-5)  #we are not currently smart enough to deal with rectangular pixels
+    
+    lims_use=np.asarray([corner1_radec[0],corner2_radec[0],corner1_radec[1],corner2_radec[1]])
+    pixsize=ddec/osamp
+    lims_use=lims_use+np.asarray([0.5,-0.5,0.5,-0.5])*pixsize
+    
+    small_wcs=get_wcs(lims_use*np.pi/180,pixsize*np.pi/180,ref_equ=True)
+    imin=np.int(np.round(corner2[0]+0.5))
+    jmin=np.int(np.round(corner1[1]+0.5))
+    map_corner=np.asarray([imin,jmin],dtype='int')
+    lims_use=lims_use*np.pi/180
+
+    return small_wcs,lims_use,map_corner
+
+
 
 
 
