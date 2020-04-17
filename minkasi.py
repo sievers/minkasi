@@ -192,7 +192,14 @@ def read_fits_map(fname,hdu=0,do_trans=True):
     if do_trans:
         tmp=(tmp.T).copy()
     return tmp
-
+def write_fits_map_wheader(map,fname,header,do_trans=True):
+    if do_trans:
+        map=(map.T).copy()
+    hdu=fits.PrimaryHDU(map,header=header)
+    try:
+        hdu.writeto(fname,overwrite=True)
+    except:
+        hdu.writeto(fname,clobber=True)
 def get_ft_vec(n):
     x=np.arange(n)
     x[x>n/2]=x[x>n/2]-n
@@ -1806,6 +1813,13 @@ class SkyMapTwoRes:
         self.beamft=np.fft.rfft2(beam)
     def set_noise_white(self,ivar_map,isinv=True):
         self.noise=MapNoiseWhite(ivar_map,isinv)
+    def maps2fine(self,fine,coarse):
+        out=fine.copy()
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                out[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=coarse[i+self.map_corner[0],j+self.map_corner[1]]
+        out[self.mask]=fine[self.mask]
+        return out
     def maps2coarse(self,fine,coarse):
         out=coarse.copy()
         for i in range(self.nx_coarse):
@@ -3097,13 +3111,26 @@ class Tod:
         dat[:,-1]=0.5*dat[:,-1]
 
         return dat
-    def dot(self,mapset,mapset_out):
-        tmp=0.0*self.info['dat_calib']
+    def mapset2tod(self,mapset,dat=None):
+        if dat is None:
+            dat=0*self.info['dat_calib']
         for map in mapset.maps:
-            map.map2tod(self,tmp)
+            map.map2tod(self,dat)
+        return dat
+    def tod2mapset(self,mapset,dat=None):
+        if dat is None:
+            dat=self.info['dat_calib']
+        for map in mapset.maps:
+            map.tod2map(self,dat)
+    def dot(self,mapset,mapset_out):
+        #tmp=0.0*self.info['dat_calib']
+        #for map in mapset.maps:
+        #    map.map2tod(self,tmp)
+        tmp=self.mapset2tod(mapset)
         tmp=self.apply_noise(tmp)
-        for map in mapset_out.maps:
-            map.tod2map(self,tmp)
+        self.tod2mapset(mapset_out,tmp)
+        #for map in mapset_out.maps:
+        #    map.tod2map(self,tmp)
     def set_jumps(self,jumps):
         self.jumps=jumps
     def cut_detectors(self,isgood):
