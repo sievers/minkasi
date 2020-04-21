@@ -1747,11 +1747,12 @@ class SkyMap:
         self.map[mask]=1.0/self.map[mask]
 
 class MapNoiseWhite:
-    def __init__(self,ivar_map,isinv=True):
+    def __init__(self,ivar_map,isinv=True,nfac=1.0):
         self.ivar=read_fits_map(ivar_map)
         if not(isinv):
             mask=self.ivar>0
             self.ivar[mask]=1.0/self.ivar[mask]
+        self.ivar=self.ivar*nfac
     def apply_noise(self,map):
         return map*self.ivar
     
@@ -1811,8 +1812,8 @@ class SkyMapTwoRes:
         beam=np.exp(-0.5*rsqr/(sig_pix**2))
         beam=beam/np.sum(beam)
         self.beamft=np.fft.rfft2(beam)
-    def set_noise_white(self,ivar_map,isinv=True):
-        self.noise=MapNoiseWhite(ivar_map,isinv)
+    def set_noise_white(self,ivar_map,isinv=True,nfac=1.0):
+        self.noise=MapNoiseWhite(ivar_map,isinv,nfac)
     def maps2fine(self,fine,coarse):
         out=fine.copy()
         for i in range(self.nx_coarse):
@@ -1864,6 +1865,14 @@ class SkyMapTwoRes:
         ans=0.0*tmp
         ans[self.mask]=tmp[self.mask]
         return ans
+    def apply_H(self,coarse,fine):
+        mm=self.maps2coarse(coarse,fine)
+        mm=self.beam_convolve(mm)
+        return mm
+    def apply_HT(self,mm):
+        mm=self.beam_convolve(mm)
+        coarse,fine=self.coarse2maps(mm)
+        return coarse,fine
     def get_rhs(self,mapset):
         #if map is None:
         #    map=self.map
@@ -1892,17 +1901,22 @@ class SkyMapTwoRes:
             print("Errror in twolevel prior:  either fine or coarse skymap not found.")
             return
 
-
+        
         mm=self.noise.apply_noise(self.map)
-        mm=self.beam_convolve(mm)
-        coarse,fine=self.coarse2maps(mm)
-        i1=self.map_corner[0]
-        i2=i1+self.nx_coarse
-        j1=self.map_corner[1]
-        j2=j1+self.ny_coarse
-        coarse[i1:i2,j1:j2]=coarse[i1:i2,j1:j2]*(1-self.grid_facs)
-        mapset.maps[coarse_ind].map[:]=mapset.maps[coarse_ind].map[:]+coarse
-        mapset.maps[fine_ind].map[self.mask]=mapset.maps[fine_ind].map[self.mask]+fine[self.mask]/self.osamp**2
+        if True:
+            coarse,fine=self.apply_HT(mm)
+            mapset.maps[coarse_ind].map[:]=mapset.maps[coarse_ind].map[:]+coarse
+            mapset.maps[fine_ind].map[:]=mapset.maps[fine_ind].map[:]+fine
+        else:
+            mm=self.beam_convolve(mm)
+            coarse,fine=self.coarse2maps(mm)
+            i1=self.map_corner[0]
+            i2=i1+self.nx_coarse
+            j1=self.map_corner[1]
+            j2=j1+self.ny_coarse
+            coarse[i1:i2,j1:j2]=coarse[i1:i2,j1:j2]*(1-self.grid_facs)
+            mapset.maps[coarse_ind].map[:]=mapset.maps[coarse_ind].map[:]+coarse
+            mapset.maps[fine_ind].map[self.mask]=mapset.maps[fine_ind].map[self.mask]+fine[self.mask]/self.osamp**2
 
     def beam_convolve(self,map):
         mapft=np.fft.rfft2(map)
@@ -1920,11 +1934,17 @@ class SkyMapTwoRes:
         if (coarse_ind is None)|(fine_ind is None):
             print("Errror in twolevel prior:  either fine or coarse skymap not found.")
             return
-        summed=self.maps2coarse(mapset.maps[fine_ind].map,mapset.maps[coarse_ind].map)
-        summed=self.beam_convolve(summed)
-        summed=self.noise.apply_noise(summed)
-        summed=self.beam_convolve(summed)
-        coarse,fine=self.coarse2maps(summed)
+        if True:
+            mm=self.apply_H(mapset.maps[fine_ind].map,mapset.maps[coarse_ind].map)
+            mm_filt=self.noise.apply_noise(mm)
+            coarse,fine=self.apply_HT(mm_filt)
+            
+        else:
+            summed=self.maps2coarse(mapset.maps[fine_ind].map,mapset.maps[coarse_ind].map)
+            summed=self.beam_convolve(summed)
+            summed=self.noise.apply_noise(summed)
+            summed=self.beam_convolve(summed)
+            coarse,fine=self.coarse2maps(summed)
 
         outmapset.maps[fine_ind].map[self.mask]=outmapset.maps[fine_ind].map[self.mask]+fine[self.mask]
         outmapset.maps[coarse_ind].map[:]=outmapset.maps[coarse_ind].map[:]+coarse
