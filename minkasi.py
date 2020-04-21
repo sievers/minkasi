@@ -9,6 +9,7 @@ from astropy import wcs
 from astropy.io import fits
 import scipy
 import copy
+import sys
 try:
     import healpy
     have_healpy=True
@@ -868,6 +869,7 @@ def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25,outroot='map',sav
                 print(iter,zr,alpha,t2-t1,t3-t2,t3-t1)
             else:
                 print(iter,zr,t2-t1)
+            sys.stdout.flush()
         t1=time.time()
         Ap=tods.dot(p)
         if not(prior is None):
