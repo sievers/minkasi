@@ -99,6 +99,27 @@ fill_gauss_src_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctype
 
 
 
+def y2rj(freq=90):
+    """conversion to multiply a y map by to get a Rayleigh-Jeans normalized map
+    note that it doesn't have the T_cmb at the end, so the value for low frequencies
+    is -2."""
+    kb=1.38064852e-16
+    h=6.62607004e-27
+    T=2.725
+    x=freq*1e9*h/kb/T
+    
+    ex=np.exp(x)
+    f=x**2*ex/(ex-1)**2*( x*(ex+1)/(ex-1)-4)
+    return f
+
+def planck_g(freq=90):
+    """conversion between T_CMB and T_RJ as a function of frequency."""
+    kb=1.38064852e-16
+    h=6.62607004e-27
+    T=2.725
+    x=freq*1e9*h/kb/T
+    ex=np.exp(x)
+    return x**2*ex/( (ex-1)**2)
 
 def report_mpi():
     if have_mpi:
