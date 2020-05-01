@@ -1562,7 +1562,7 @@ class Mapset:
                     else:
                         self.maps[i].apply_prior(x.maps[i],Ax.maps[i])
                 except:
-                    print('going through exception')
+                    #print('going through exception')
                     self.maps[i].apply_prior(x.maps[i],Ax.maps[i])
     def mpi_reduce(self):
         if have_mpi:
