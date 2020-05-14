@@ -13,13 +13,15 @@
 //gcc -I{HIPPO_FFTW_DIR}/include -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -L${HIPPO_FFTW_DIR}/lib    -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
 //gcc -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3 -lgomp -lpthread
 
-void set_threaded()
+void set_threaded(int nthread)
 {
-  int nthread;
-  #pragma omp parallel
-  #pragma omp single
-  nthread=omp_get_num_threads();
-
+  //int nthread;
+  if (nthread<0) {
+#pragma omp parallel
+#pragma omp single
+    nthread=omp_get_num_threads();
+  }
+  
   printf("Setting FFTW to have %d threads.\n",nthread);
   fftwf_plan_with_nthreads(nthread);
   fftw_plan_with_nthreads(nthread);
