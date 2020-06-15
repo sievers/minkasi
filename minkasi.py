@@ -1835,6 +1835,18 @@ class SkyMapTwoRes:
         beam=np.exp(-0.5*rsqr/(sig_pix**2))
         beam=beam/np.sum(beam)
         self.beamft=np.fft.rfft2(beam)
+    def set_beam_1d(self,prof,pixsize):
+        tmp=0*self.map
+        xvec=get_ft_vec(tmp.shape[0])
+        yvec=get_ft_vec(tmp.shape[1])
+        xx,yy=np.meshgrid(yvec,xvec)
+        rsqr=xx**2+yy**2
+        rr=np.sqrt(rsqr)*pixsize
+        beam=np.interp(rr,prof[:,0],prof[:,1])
+        beam=beam/np.sum(beam)
+        self.beamft=np.fft.rfft2(beam)
+
+
     def set_noise_white(self,ivar_map,isinv=True,nfac=1.0):
         self.noise=MapNoiseWhite(ivar_map,isinv,nfac)
     def maps2fine(self,fine,coarse):
