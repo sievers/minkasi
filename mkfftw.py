@@ -30,7 +30,7 @@ many_fftf_r2r_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes
 
 
 set_threaded_c=mylib.set_threaded
-set_threaded_c.argtypes=[]
+set_threaded_c.argtypes=[ctypes.c_int]
 
 read_wisdom_c=mylib.read_wisdom
 read_wisdom_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
@@ -39,8 +39,8 @@ write_wisdom_c=mylib.write_wisdom
 write_wisdom_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
 
 
-def set_threaded():
-    set_threaded_c()
+def set_threaded(n=-1):
+    set_threaded_c(n)
 
 def fft_r2c(dat):
     ndat=dat.shape[1]
