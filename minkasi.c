@@ -139,7 +139,7 @@ void map2tod_qu_omp(double *dat, double *map, double *twogamma, int ndet, int nd
   if (do_add)
 #pragma omp parallel for
     for (long i=0;i<nn;i++) {
-      dat[i]+=map[2*pix[i]]*cos(twogamma[i])+map[2*pix[i]+i]*sin(twogamma[i]);
+      dat[i]+=map[2*pix[i]]*cos(twogamma[i])+map[2*pix[i]+1]*sin(twogamma[i]);
     }
   else
 #pragma omp parallel for
