@@ -2686,7 +2686,7 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
 
     return pred
 
-def derivs_from_isobeta_c(params,tod):
+def derivs_from_isobeta_c(params,tod,*args,**kwargs):
     npar=5;
     n=tod.info['dat_calib'].size
     sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
@@ -2700,7 +2700,7 @@ def derivs_from_isobeta_c(params,tod):
 
     return derivs,pred
 
-def derivs_from_gauss_c(params,tod):
+def derivs_from_gauss_c(params,tod,*args,**kwargs):
     npar=4
     n=tod.info['dat_calib'].size
     sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
@@ -3694,6 +3694,7 @@ def get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs):
             curve[j,i]=curve[i,j]
     like=-0.5*sum(datsqr*Cinv)-0.5*sum(np.log(C))
     return like,grad,curve,C
+
 def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=np.inf,scale_fac=1.0,tol=0.01):
 
     datft=mkfftw.fft_r2r(dat)
@@ -3988,6 +3989,57 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
     curve=0.5*(curve+curve.transpose())
     return chisq,grad,curve
 
+def get_ts_derivs_many_funcs(tod,pars,npar_fun,funcs,func_args=None,*args,**kwargs):
+    ndet=tod.info['dat_calib'].shape[0]
+    ndat=tod.info['dat_calib'].shape[1]
+
+    npar=np.sum(np.asarray(npar_fun),dtype='int')
+    #vals=np.zeros([ndet,ndat])
+    
+    pred=0
+    derivs=np.zeros([npar,ndet,ndat])
+    icur=0
+    for i in range(len(funcs)):
+        tmp=pars[icur:icur+npar_fun[i]].copy()
+        myderivs,mypred=funcs[i](tmp,tod)
+        pred=pred+mypred
+        derivs[icur:icur+npar_fun[i],:,:]=myderivs
+        icur=icur+npar_fun[i]
+    return derivs,pred
+    #derivs,pred=funcs[i](pars,tod)
+def get_ts_curve_derivs_many_funcs(todvec,pars,npar_fun,funcs,driver=get_ts_derivs_many_funcs,*args,**kwargs):
+    curve=0
+    grad=0
+    chisq=0
+    for tod in todvec.tods:
+        derivs,pred=driver(tod,pars,npar_fun,funcs,*args,**kwargs)
+        npar=derivs.shape[0]
+        ndet=derivs.shape[1]
+        ndat=derivs.shape[2]
+
+        #pred_filt=tod.apply_noise(pred)
+        derivs_filt=np.empty(derivs.shape)
+        for i in range(npar):
+            derivs_filt[i,:,:]=tod.apply_noise(derivs[i,:,:])        
+
+        derivs=np.reshape(derivs,[npar,ndet*ndat])
+        derivs_filt=np.reshape(derivs_filt,[npar,ndet*ndat])
+        delt=tod.info['dat_calib']-pred
+        delt_filt=tod.apply_noise(delt)
+        chisq=chisq+np.sum(delt*delt_filt)
+        delt=np.reshape(delt,[1,ndet*ndat])
+        #delt_filt=np.reshape(delt_filt,[1,ndet*ndat])
+        grad=grad+np.dot(derivs_filt,delt.T)
+        #grad2=grad2+np.dot(derivs,delt_filt.T)
+        curve=curve+np.dot(derivs_filt,derivs.T)
+    if have_mpi:
+        chisq=comm.allreduce(chisq)
+        grad=comm.allreduce(grad)
+        curve=comm.allreduce(curve)
+    return chisq,grad,curve
+
+
+
 def update_lamda(lamda,success):
     if success:
         if lamda<0.2:
@@ -4000,14 +4052,55 @@ def update_lamda(lamda,success):
         else:
             return 2.0*lamda
         
-def invscale(mat):
+def invscale(mat,do_invsafe=False):
     vec=1/np.sqrt(np.diag(mat))
     mm=np.outer(vec,vec)
     mat=mm*mat
     #ee,vv=np.linalg.eig(mat)
     #print 'rcond is ',ee.max()/ee.min(),vv[:,np.argmin(ee)]
-    return mm*np.linalg.inv(mat)
+    if do_invsafe:
+        return mm*invsafe(mat)
+    else:
+        return mm*np.linalg.inv(mat)
 
+def _par_step(grad,curve,to_fit,lamda):
+    curve_use=curve+lamda*np.diag(np.diag(curve))
+    if to_fit is None:
+        step=np.dot(invscale(curve_use,True),grad)
+    else:
+        curve_use=curve_use[to_fit,:]
+        curve_use=curve_use[:,to_fit]
+        grad_use=grad[to_fit]
+        step=np.dot(invscale(curve_use),grad_use)
+        step_use=0*grad
+        step_use[to_fit]=step
+    return step
+
+def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):    
+    lamda=0
+    chisq,grad,curve=get_ts_curve_derivs_many_funcs(tods,pars,npar_fun,funcs,driver=driver)
+    print('starting chisq is ',chisq)
+    for iter in range(maxiter):
+        pars_new=pars+_par_step(grad,curve,to_fit,lamda)
+        chisq_new,grad_new,curve_new=get_ts_curve_derivs_many_funcs(tods,pars_new,npar_fun,funcs,driver=driver)
+        if chisq_new<chisq:
+            if myrank==0:
+                print('accepting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda)
+            pars=pars_new
+            curve=curve_new
+            grad=grad_new
+            lamda=update_lamda(lamda,True)
+            if (chisq-chisq_new<chitol)&(lamda==0):
+                return pars,chisq_new
+            else:
+                chisq=chisq_new
+        else:
+            if myrank==0:
+                print('rejecting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda)
+            lamda=update_lamda(lamda,False)
+    print("fit_timestreams_with_derivs_manyfun failed to converge after ",maxiter," iterations.")
+    return pars,chisq
+        
 def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
     if not(to_fit is None):
         #print 'working on creating rotmat'
