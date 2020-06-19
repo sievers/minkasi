@@ -4084,8 +4084,10 @@ def _par_step(grad,curve,to_fit,lamda):
         curve_use=curve_use[:,to_fit]
         grad_use=grad[to_fit]
         step=np.dot(invscale(curve_use),grad_use)
-        step_use=0*grad
+        step_use=np.zeros(len(to_fit))
         step_use[to_fit]=step
+        step=step_use
+    #print('step shape ',step.shape,step)
     return step
 
 def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):    
