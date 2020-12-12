@@ -1583,7 +1583,7 @@ class Mapset:
                     else:
                         self.maps[i].apply_prior(x.maps[i],Ax.maps[i])
                 except:
-                    print('going through exception')
+                    #print('going through exception')
                     self.maps[i].apply_prior(x.maps[i],Ax.maps[i])
     def mpi_reduce(self):
         if have_mpi:
@@ -1835,6 +1835,18 @@ class SkyMapTwoRes:
         beam=np.exp(-0.5*rsqr/(sig_pix**2))
         beam=beam/np.sum(beam)
         self.beamft=np.fft.rfft2(beam)
+    def set_beam_1d(self,prof,pixsize):
+        tmp=0*self.map
+        xvec=get_ft_vec(tmp.shape[0])
+        yvec=get_ft_vec(tmp.shape[1])
+        xx,yy=np.meshgrid(yvec,xvec)
+        rsqr=xx**2+yy**2
+        rr=np.sqrt(rsqr)*pixsize
+        beam=np.interp(rr,prof[:,0],prof[:,1])
+        beam=beam/np.sum(beam)
+        self.beamft=np.fft.rfft2(beam)
+
+
     def set_noise_white(self,ivar_map,isinv=True,nfac=1.0):
         self.noise=MapNoiseWhite(ivar_map,isinv,nfac)
     def maps2fine(self,fine,coarse):
@@ -4033,7 +4045,7 @@ def get_ts_curve_derivs_many_funcs(todvec,pars,npar_fun,funcs,driver=get_ts_deri
         delt=tod.info['dat_calib']-pred
         delt_filt=tod.apply_noise(delt)
         chisq=chisq+np.sum(delt*delt_filt)
-        delt=np.reshape(delt,[1,ndet*ndat])
+        delt=np.reshape(delt,ndet*ndat)
         #delt_filt=np.reshape(delt_filt,[1,ndet*ndat])
         grad=grad+np.dot(derivs_filt,delt.T)
         #grad2=grad2+np.dot(derivs,delt_filt.T)
@@ -4078,8 +4090,10 @@ def _par_step(grad,curve,to_fit,lamda):
         curve_use=curve_use[:,to_fit]
         grad_use=grad[to_fit]
         step=np.dot(invscale(curve_use),grad_use)
-        step_use=0*grad
+        step_use=np.zeros(len(to_fit))
         step_use[to_fit]=step
+        step=step_use
+    #print('step shape ',step.shape,step)
     return step
 
 def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):    
@@ -4091,21 +4105,23 @@ def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_
         chisq_new,grad_new,curve_new=get_ts_curve_derivs_many_funcs(tods,pars_new,npar_fun,funcs,driver=driver)
         if chisq_new<chisq:
             if myrank==0:
-                print('accepting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda)
+                print('accepting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda,pars_new.shape)
+                print(repr(pars_new))
             pars=pars_new
             curve=curve_new
             grad=grad_new
             lamda=update_lamda(lamda,True)
             if (chisq-chisq_new<chitol)&(lamda==0):
-                return pars,chisq_new
+                return pars,chisq_new,curve_new
             else:
                 chisq=chisq_new
         else:
             if myrank==0:
                 print('rejecting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda)
             lamda=update_lamda(lamda,False)
+        sys.stdout.flush()
     print("fit_timestreams_with_derivs_manyfun failed to converge after ",maxiter," iterations.")
-    return pars,chisq
+    return pars,chisq,curve
         
 def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
     if not(to_fit is None):
