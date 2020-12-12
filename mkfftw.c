@@ -29,6 +29,58 @@ void set_threaded(int nthread)
 }
 
 /*--------------------------------------------------------------------------------*/
+void fft_r2c_n(double *dat, fftw_complex *datft,int ndim,int *dims)
+{
+  fftw_plan plan=fftw_plan_dft_r2c(ndim,dims,dat,datft,MKFFTW_FLAG);
+  fftw_execute(plan);
+  //printf("first element is %12.5g\n",datft[0]);
+  fftw_destroy_plan(plan);
+}
+/*--------------------------------------------------------------------------------*/
+void fft_r2c_3d(double *dat, fftw_complex *datft,long int *dims)
+{
+  //printf("shapes are %d %d %d\n",dims[0],dims[1],dims[2]);
+  fftw_plan plan=fftw_plan_dft_r2c_3d(dims[0],dims[1],dims[2],dat,datft,MKFFTW_FLAG);
+  fftw_execute(plan);
+  //printf("first element is %12.5g\n",datft[0]);
+  fftw_destroy_plan(plan);
+}
+/*--------------------------------------------------------------------------------*/
+void fft_c2r_3d(fftw_complex *datft,double *dat, long int *dims)
+{
+
+  fftw_plan plan=fftw_plan_dft_c2r_3d(dims[0],dims[1],dims[2],datft,dat,MKFFTW_FLAG);
+  fftw_execute(plan);
+  fftw_destroy_plan(plan);
+  //apply the normalization so the inverse of the forward gives you what you started with
+  long int n=dims[0]*dims[1]*dims[2];
+  double nn=n;
+  nn=1.0/n;
+#pragma omp parallel for
+  for (long int i=0;i<n;i++)
+    dat[i]*=nn;
+  
+}
+/*--------------------------------------------------------------------------------*/
+void fft_c2r_n(fftw_complex *datft,double *dat, int ndim,int *dims)
+{
+
+  fftw_plan plan=fftw_plan_dft_c2r(ndim,dims,datft,dat,MKFFTW_FLAG);
+  fftw_execute(plan);
+  fftw_destroy_plan(plan);
+  //apply the normalization so the inverse of the forward gives you what you started with
+  long int n=1;
+  for (int i=0;i<ndim;i++)
+    n*=dims[i];
+  double nn=n;
+  nn=1.0/n;
+#pragma omp parallel for
+  for (long int i=0;i<n;i++)
+    dat[i]*=nn;
+  
+}
+
+/*--------------------------------------------------------------------------------*/
 
 void many_fft_r2c_1d(double *dat, fftw_complex *datft, int ntrans, int ndata, int rlen, int clen)
 {  

@@ -2103,14 +2103,14 @@ class PolMap:
         if self.npol>1: 
             if self.poltag=='QU_PRECON':
                 tmp=np.zeros([self.nx*self.ny,2,2])
-                tmp[:,0,0]=self.map[:,:,0]
-                tmp[:,1,1]=self.map[:,:,1]
-                tmp[:,0,1]=self.map[:,:,2]
-                tmp[:,1,0]=self.map[:,:,2]
+                tmp[:,0,0]=np.ravel(self.map[:,:,0])
+                tmp[:,1,1]=np.ravel(self.map[:,:,1])
+                tmp[:,0,1]=np.ravel(self.map[:,:,2])
+                tmp[:,1,0]=np.ravel(self.map[:,:,2])
                 tmp=np.linalg.pinv(tmp,thresh)
-                self.map[:,:,0]=tmp[:,0,0]
-                self.map[:,:,1]=tmp[:,1,1]
-                self.map[:,:,2]=tmp[:,0,1]
+                self.map[:,:,0]=np.reshape(tmp[:,0,0],[self.map.shape[0],self.map.shape[1]])
+                self.map[:,:,1]=np.reshape(tmp[:,1,1],[self.map.shape[0],self.map.shape[1]])
+                self.map[:,:,2]=np.reshape(tmp[:,0,1],[self.map.shape[0],self.map.shape[1]])
             if self.poltag=='IQU_PRECON':
                 #the mapping may seem a bit abstruse here.  The preconditioner matrix has entries
                 #  [I   Q   U ]
@@ -3316,7 +3316,7 @@ class TodVec:
         if have_mpi:
             mapset.mpi_reduce()
 
-def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
+def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941,v34=True):
     f=pyfits.open(fname)
     raw=f[1].data
     ra=raw['RA']
@@ -3341,8 +3341,12 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
         Q=0.5*(raw['Q1']+raw['Q2'])
         U=0.5*(raw['U1']+raw['U2'])
         dat['dat_calib']=np.zeros([2,len(Q)])
-        dat['dat_calib'][0,:]=Q
-        dat['dat_calib'][1,:]=U
+        if v34:  #We believe this is the correct sign convention for V34
+            dat['dat_calib'][0,:]=-U
+            dat['dat_calib'][1,:]=Q
+        else:
+            dat['dat_calib'][0,:]=Q
+            dat['dat_calib'][1,:]=U            
         az=raw['AZ']
         el=raw['EL']
         dat['az']=az
@@ -3361,7 +3365,9 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941):
             q_off = Q.det_offset(0.0,0.0,0.0)
             #ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, ctime, q_bore)
             ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, tvec, q_bore)
-            tmp=np.arctan2(sin2psi,cos2psi)            
+            tmp=np.arctan2(sin2psi,cos2psi) 
+            tmp=tmp-np.pi/2 #this seems to be needed to get these coordinates to line up with 
+                            #the expected, in IAU convention I believe.  JLS Nov 12 2020
             #dat['twogamma_saved']=np.arctan2(sin2psi,cos2psi)
             dat['twogamma_saved']=np.vstack([tmp,tmp+np.pi/2])
             #print('pointing rms is ',np.std(ra*np.pi/180-dat['dx']),np.std(dec*np.pi/180-dat['dy']))
