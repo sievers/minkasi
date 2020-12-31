@@ -4081,10 +4081,11 @@ def invscale(mat,do_invsafe=False):
     else:
         return mm*np.linalg.inv(mat)
 
-def _par_step(grad,curve,to_fit,lamda):
+def _par_step(grad,curve,to_fit,lamda,return_full=False):
     curve_use=curve+lamda*np.diag(np.diag(curve))
     if to_fit is None:
         step=np.dot(invscale(curve_use,True),grad)
+        errs=np.sqrt(np.diag(invscale(curve_use,True)))
     else:
         curve_use=curve_use[to_fit,:]
         curve_use=curve_use[:,to_fit]
@@ -4092,14 +4093,23 @@ def _par_step(grad,curve,to_fit,lamda):
         step=np.dot(invscale(curve_use),grad_use)
         step_use=np.zeros(len(to_fit))
         step_use[to_fit]=step
+        errs_tmp=np.sqrt(np.diag(invscale(curve_use,True)))
+        errs=np.zeros(len(to_fit))
+        errs[to_fit]=errs_tmp
         step=step_use
     #print('step shape ',step.shape,step)
-    return step
+    if return_full:
+        return step,errs
+    else:
+        return step
 
 def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):    
     lamda=0
+    t1=time.time()
     chisq,grad,curve=get_ts_curve_derivs_many_funcs(tods,pars,npar_fun,funcs,driver=driver)
-    print('starting chisq is ',chisq)
+    t2=time.time()
+    if myrank==0:
+        print('starting chisq is ',chisq,' with ',t2-t1,' seconds to get curvature')
     for iter in range(maxiter):
         pars_new=pars+_par_step(grad,curve,to_fit,lamda)
         chisq_new,grad_new,curve_new=get_ts_curve_derivs_many_funcs(tods,pars_new,npar_fun,funcs,driver=driver)
@@ -4112,7 +4122,8 @@ def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_
             grad=grad_new
             lamda=update_lamda(lamda,True)
             if (chisq-chisq_new<chitol)&(lamda==0):
-                return pars,chisq_new,curve_new
+                step,errs=_par_step(grad,curve,to_fit,lamda,True)
+                return pars,chisq_new,curve_new,errs
             else:
                 chisq=chisq_new
         else:
@@ -4120,8 +4131,10 @@ def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_
                 print('rejecting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda)
             lamda=update_lamda(lamda,False)
         sys.stdout.flush()
-    print("fit_timestreams_with_derivs_manyfun failed to converge after ",maxiter," iterations.")
-    return pars,chisq,curve
+    if myrank==0:
+        print("fit_timestreams_with_derivs_manyfun failed to converge after ",maxiter," iterations.")    
+    step,errs=_par_step(grad,curve,to_fit,lamda,True)
+    return pars,chisq,curve,errs
         
 def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
     if not(to_fit is None):
