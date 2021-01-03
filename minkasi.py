@@ -35,6 +35,12 @@ except:
     have_mpi=False
     myrank=0
     nproc=1
+#try:
+#    import numba as nb
+#    have_numba=True
+#else:
+#    have_numba=False
+
 
 mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
 tod2map_simple_c=mylib.tod2map_simple
@@ -1123,6 +1129,105 @@ class tsPoly(tsVecs):
         self.nvec=self.vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
         
+class tsStripes(tsGeneric):
+    def __init__(self,tod,seg_len=100,do_slope=True):
+        dims=tod.get_data_dims()
+        nseg=dims[1]//seg_len
+        if nseg*seg_len<dims[1]:
+            nseg=nseg+1
+        #this says to connect segments with straight lines as
+        #opposed to simple horizontal offsets
+        if do_slope:
+            nseg=nseg+1
+        self.nseg=nseg
+        self.seg_len=seg_len
+        self.params=np.zeros([dims[0],self.nseg])
+        self.do_slope=do_slope
+    def tod2map(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            dat=tod.get_data()
+        tmp=np.zeros(self.params.shape)
+        if self.do_slope:
+            vec=np.arange(self.seg_len)/self.seg_len
+            vec2=1-vec
+            vv=np.vstack([vec2,vec])
+            nseg=dat.shape[1]//self.seg_len
+            imax=nseg
+            if nseg*self.seg_len<dat.shape[1]:
+                have_extra=True
+                nextra=dat.shape[1]-imax*self.seg_len
+            else:
+                have_extra=False
+                nseg=nseg-1
+                nextra=0
+            for i in range(imax):
+                tmp[:,i:i+2]=tmp[:,i:i+2]+dat[:,i*self.seg_len:(i+1)*self.seg_len]@(vv.T)
+            if have_extra:
+                vec=np.arange(nextra)/nextra
+                vec2=1-vec
+                vv=np.vstack([vec2,vec])
+                tmp[:,-2:]=tmp[:,-2:]+dat[:,self.seg_len*nseg:]@(vv.T)
+
+        else:
+            nseg=dat.shape[1]//self.seg_len
+            if nseg*self.seg_len<dat.shape[1]:
+                nseg=nseg+1
+            vec=np.zeros(nseg*self.seg_len)
+            ndet=dat.shape[0]
+            ndat=dat.shape[1]
+            for i in range(ndet):
+                vec[:ndat]=dat[i,:]
+                vv=np.reshape(vec,[nseg,self.seg_len])
+                tmp[i,:]=np.sum(vv,axis=1)
+        if do_add:
+            self.params[:]=self.params[:]+tmp
+        else:
+            self.params[:]=tmp
+
+    def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
+        tmp=tod.get_empty()
+        ndet=tmp.shape[0] 
+        ndat=tmp.shape[1]
+            
+        if self.do_slope:
+            vec=np.arange(self.seg_len)/self.seg_len
+            vec2=1-vec
+            vv=np.vstack([vec2,vec])
+            nseg=tmp.shape[1]//self.seg_len
+            imax=nseg
+            if imax*self.seg_len<tmp.shape[1]:
+                have_extra=True
+                nextra=tmp.shape[1]-imax*self.seg_len
+            else:
+                have_extra=False
+                nseg=nseg-1
+                #imax=imax+1
+            
+            for i in range(imax):
+                tmp[:,i*self.seg_len:(i+1)*self.seg_len]=self.params[:,i:i+2]@vv
+            if have_extra:
+                vec=np.arange(nextra)/nextra
+                vec2=1-vec
+                vv=np.vstack([vec2,vec])
+                tmp[:,self.seg_len*nseg:]=self.params[:,-2:]@vv
+        else:
+            ndet=tmp.shape[0] 
+            ndat=tmp.shape[1]
+            for i in range(ndet):
+                pars=self.params[i,:]
+                mymod=np.repeat(pars,self.seg_len)
+                tmp[i,:]=mymod[:ndat]
+                
+        if dat is None:
+            dat=tmp
+            return dat
+        else:
+            if do_add:
+                dat[:]=dat[:]+tmp
+            else:
+                dat[:]=tmp
+
+
 class tsDetAz(tsGeneric):
     def __init__(self,tod,npoly=4):
         if isinstance(tod,tsDetAz): #we're starting a new instance from an old one, e.g. from copy
@@ -2832,6 +2937,20 @@ class NoiseBinnedDet:
         dd[:,-1]=0.5*dd[:,-1]
         return dd
 
+class NoiseWhite:
+    def __init__(self,dat):
+        #this is the ratio between the median absolute
+        #deviation of the diff and sigma
+        fac=scipy.special.erfinv(0.5)*2
+        sigs=np.median(np.abs(np.diff(dat,axis=1)),axis=1)/fac
+        self.sigs=sigs
+        self.weights=1/sigs**2
+    def apply_noise(self,dat):
+        assert(dat.shape[0]==len(self.weights))
+        ndet=dat.shape[0]
+        for i in range(ndet):
+            dat[i,:]=dat[i,:]*self.weights[i]
+        return dat
 class NoiseBinnedEig:
     def __init__(self,dat,dt,freqs=None,scale_facs=None,thresh=5.0):
 
@@ -2987,6 +3106,21 @@ class Tod:
         ymin=self.info['dy'].min()
         ymax=self.info['dy'].max()
         return xmin,xmax,ymin,ymax
+    def get_data_dims(self):
+        dims=self.info['dat_calib'].shape
+        if len(dims)==1:
+            dims=np.asarray([1,dims[0]],dtype='int')
+        return dims
+        return self.info['dat_calib'].shape
+    def get_data(self):
+        return self.info['dat_calib']
+    def get_radec(self):
+        return self.info['dx'],self.info['dy']
+    def get_empty(self,clear=False):
+        if clear:
+            return np.zero(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
+        else:
+            return np.empty(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
     def set_tag(self,tag):
         self.info['tag']=tag
     def set_pix(self,map):
