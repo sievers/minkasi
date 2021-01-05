@@ -1169,12 +1169,14 @@ class tsStripes(tsGeneric):
                 nseg=nseg-1
                 nextra=0
             for i in range(imax):
-                tmp[:,i:i+2]=tmp[:,i:i+2]+dat[:,i*self.seg_len:(i+1)*self.seg_len]@(vv.T)
+                #tmp[:,i:i+2]=tmp[:,i:i+2]+dat[:,i*self.seg_len:(i+1)*self.seg_len]@(vv.T)
+                tmp[:,i:i+2]=tmp[:,i:i+2]+np.dot(dat[:,i*self.seg_len:(i+1)*self.seg_len],(vv.T))
             if have_extra:
                 vec=np.arange(nextra)/nextra
                 vec2=1-vec
                 vv=np.vstack([vec2,vec])
-                tmp[:,-2:]=tmp[:,-2:]+dat[:,self.seg_len*nseg:]@(vv.T)
+                #tmp[:,-2:]=tmp[:,-2:]+dat[:,self.seg_len*nseg:]@(vv.T)
+                tmp[:,-2:]=tmp[:,-2:]+np.dot(dat[:,self.seg_len*nseg:],(vv.T))
 
         else:
             nseg=dat.shape[1]//self.seg_len
@@ -1212,12 +1214,14 @@ class tsStripes(tsGeneric):
                 #imax=imax+1
             
             for i in range(imax):
-                tmp[:,i*self.seg_len:(i+1)*self.seg_len]=self.params[:,i:i+2]@vv
+                #tmp[:,i*self.seg_len:(i+1)*self.seg_len]=self.params[:,i:i+2]@vv
+                tmp[:,i*self.seg_len:(i+1)*self.seg_len]=np.dot(self.params[:,i:i+2],vv)
             if have_extra:
                 vec=np.arange(nextra)/nextra
                 vec2=1-vec
                 vv=np.vstack([vec2,vec])
-                tmp[:,self.seg_len*nseg:]=self.params[:,-2:]@vv
+                #tmp[:,self.seg_len*nseg:]=self.params[:,-2:]@vv
+                tmp[:,self.seg_len*nseg:]=np.dot(self.params[:,-2:],vv)
         else:
             ndet=tmp.shape[0] 
             ndat=tmp.shape[1]
