@@ -1012,7 +1012,8 @@ def run_pcg_wprior_old(b,x0,tods,prior,precon=None,maxiter=25):
 
 def apply_noise(tod,dat=None):
     if dat is None:
-        dat=tod['dat_calib']
+        #dat=tod['dat_calib']
+        dat=tod.get_data()
     dat_rot=np.dot(tod['v'],dat)
     datft=mkfftw.fft_r2r(dat_rot)
     nn=datft.shape[1]
@@ -1099,20 +1100,23 @@ class tsGeneric:
 class tsVecs(tsGeneric):
     def __init__(self,tod,vecs):
         self.vecs=vecs
-        self.ndet=tod.info['dat_calib'].shape[0]
+        #self.ndet=tod.info['dat_calib'].shape[0]
+        self.ndet=tod.get_data_dims()[0]
         self.vecs=vecs
         self.nvec=vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
     def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
         if mat is None:
-            mat=tod.info['dat_calib']
+            #mat=tod.info['dat_calib']
+            mat=tod.get_data()
         if do_add:
             self.params[:]=self.params[:]+np.dot(self.vecs,mat.T)
         else:
             self.params[:]=np.dot(self.vecs,mat.T)
     def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
         if mat is None:
-            mat=tod.info['dat_calib']
+            #mat=tod.info['dat_calib']
+            mat=tod.get_data()
         if do_add:
             mat[:]=mat[:]+np.dot(self.params.T,self.vecs)
         else:
@@ -1121,9 +1125,13 @@ class tsVecs(tsGeneric):
 class tsPoly(tsVecs):
     def __init__(self,tod,order=10):
         self.fname=tod.info['fname']
-        self.ndata=tod.info['dat_calib'].shape[1]
+
+        #self.ndata=tod.info['dat_calib'].shape[1]
+        dims=tod.get_data_dims()
+        self.ndata=dims[1]
         self.order=order
-        self.ndet=tod.info['dat_calib'].shape[0]
+        #self.ndet=tod.info['dat_calib'].shape[0]
+        self.ndet=dims[0]
         xvec=np.linspace(-1,1,self.ndata)
         self.vecs=(np.polynomial.legendre.legvander(xvec,order).T).copy()
         self.nvec=self.vecs.shape[0]
@@ -1243,7 +1251,8 @@ class tsDetAz(tsGeneric):
             self.azmin=np.min(self.az)
             self.azmax=np.max(self.az)
             self.npoly=npoly
-            self.ndet=tod.info['dat_calib'].shape[0]            
+            #self.ndet=tod.info['dat_calib'].shape[0]            
+            self.ndet=tod.get_ndet()
         #self.params=np.zeros([self.ndet,self.npoly])
         self.params=np.zeros([self.ndet,self.npoly-1])
     def _get_polys(self):
@@ -1258,14 +1267,16 @@ class tsDetAz(tsGeneric):
         return polys
     def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
         if dat is None:
-            dat=tod.info['dat_calib']
+            #dat=tod.info['dat_calib']
+            dat=tod.get_data()
         if do_add:
             dat[:]=dat[:]+np.dot(self.params,self._get_polys())
         else:
             dat[:]=np.dot(self.params,self._get_polys())
     def tod2map(self,tod,dat=None, do_add=True,do_omp=False):
         if dat is None:
-            dat=tod.info['dat_calib']
+            #dat=tod.info['dat_calib']
+            dat=tod.get_data()
         if do_add:
             #print("params shape is ",self.params.shape)
             #self.params[:]=self.params[:]+np.dot(self._get_polys(),dat)
@@ -1284,7 +1295,8 @@ class tsAirmass:
             self.order=0
             self.airmass=None
         else:
-            self.sz=tod.info['dat_calib'].shape
+            #self.sz=tod.info['dat_calib'].shape
+            self.sz=tod.get_data_dims()
             self.fname=tod.info['fname']
             self.order=order
             self.params=np.zeros(order)
@@ -1366,7 +1378,8 @@ class __tsAirmass_old:
             self.order=0
             self.airmass=None
         else:
-            self.sz=tod.info['dat_calib'].shape
+            #self.sz=tod.info['dat_calib'].shape
+            self.sz=tod.get_data_dims()
             self.fname=tod.info['fname']
             self.order=order
             self.params=np.zeros(order+1)
@@ -1432,7 +1445,8 @@ class tsCommon:
             self.params=np.zeros(1)
             self.fname=''
         else:
-            self.sz=tod.info['dat_calib'].shape
+            #self.sz=tod.info['dat_calib'].shape
+            self.sz=tod.get_data_dims()
             self.params=np.zeros(self.sz[1])
             self.fname=tod.info['fname']
     def copy(self):
@@ -1476,7 +1490,8 @@ class detOffset:
             self.params=np.zeros(1)
             self.fname=''
         else:
-            self.sz=tod.info['dat_calib'].shape[0]
+            #self.sz=tod.info['dat_calib'].shape[0]
+            self.sz=tod.get_ndet()
             self.params=np.zeros(self.sz)
             self.fname=tod.info['fname']
     def copy(self):
@@ -1517,7 +1532,8 @@ class tsCalib:
             self.fname=''
             self.pred=None
         else:
-            self.sz=tod.info['dat_calib'].shape[0]
+            #self.sz=tod.info['dat_calib'].shape[0]
+            self.sz=tod.get_ndet()
             self.params=np.zeros(self.sz)
             self.pred=model[tod.info['fname']].copy()
             self.fname=tod.info['fname']
@@ -2500,7 +2516,8 @@ class Cuts:
             self.do_add=tod.do_add
             return
         bad_inds=np.where(tod.info['bad_samples'])
-        dims=tod.info['dat_calib'].shape
+        #dims=tod.info['dat_calib'].shape
+        dims=tod.get_data_dims()
         bad_inds=np.ravel_multi_index(bad_inds,dims)
         self.nsamp=len(bad_inds)
         self.inds=bad_inds
@@ -2532,12 +2549,14 @@ class CutsCompact:
             self.istart=tod.istart
             self.istop=tod.istop
         else:
-            ndet=tod.info['dat_calib'].shape[0]
+            #ndet=tod.info['dat_calib'].shape[0]
+            ndet=tod.get_ndet()
             self.ndet=ndet
             self.nseg=np.zeros(ndet,dtype='int')
             self.istart=[None]*ndet
             self.istop=[None]*ndet
-            self.imax=tod.info['dat_calib'].shape[1]
+            #self.imax=tod.info['dat_calib'].shape[1]
+            self.imax=tod.get_ndata()
 
         self.imap=None
         self.map=None
@@ -2605,12 +2624,14 @@ class CutsCompact:
     
     def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
         if mat is None:
-            mat=tod.info['dat_calib']
+            #mat=tod.info['dat_calib']
+            mat=tod.get_data()
         tod2cuts_c(self.map.ctypes.data,mat.ctypes.data,self.imap.ctypes.data,len(self.imap),do_add)
 
     def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
         if mat is None:
-            mat=tod.info['dat_calib']
+            #mat=tod.info['dat_calib']
+            mat=tod.get_data()
         #print('first element is ' + repr(mat[0,self.imap[0]]))
         cuts2tod_c(mat.ctypes.data,self.map.ctypes.data,self.imap.ctypes.data,len(self.imap),do_add)
         #print('first element is now ' + repr(mat[0,self.imap[0]]))
@@ -2768,8 +2789,10 @@ def find_bad_skew_kurt(dat,skew_thresh=6.0,kurt_thresh=5.0):
 
 def timestreams_from_gauss(ra,dec,fwhm,tod,pred=None):
     if pred is None:
-        pred=np.zeros(tod.info['dat_calib'].shape)
-    n=tod.info['dat_calib'].size
+        #pred=np.zeros(tod.info['dat_calib'].shape)
+        pred=tod.get_empty(True)
+    #n=tod.info['dat_calib'].size
+    n=np.product(tod.get_data_dims())
     assert(pred.size==n)
     npar_src=4 #x,y,sig,amp
     dx=tod.info['dx']
@@ -2784,8 +2807,10 @@ def timestreams_from_gauss(ra,dec,fwhm,tod,pred=None):
 
 def timestreams_from_isobeta_c(params,tod,pred=None):
     if pred is None:
-        pred=np.zeros(tod.info['dat_calib'].shape)
-    n=tod.info['dat_calib'].size
+        #pred=np.zeros(tod.info['dat_calib'].shape)
+        pred=tod.get_empty(True)
+    #n=tod.info['dat_calib'].size
+    n=np.product(tod.get_data_dims())
     assert(pred.size==n)
     dx=tod.info['dx']
     dy=tod.info['dy']
@@ -2805,10 +2830,13 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
 
 def derivs_from_isobeta_c(params,tod,*args,**kwargs):
     npar=5;
-    n=tod.info['dat_calib'].size
-    sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
-    
-    pred=np.zeros(tod.info['dat_calib'].shape)
+    #n=tod.info['dat_calib'].size
+    dims=tod.get_data_dims()
+    n=np.product(dims)
+    #sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    sz_deriv=np.append(npar,dims)
+    #pred=np.zeros(tod.info['dat_calib'].shape)
+    pred=tod.get_empty(True)
     derivs=np.zeros(sz_deriv)
 
     dx=tod.info['dx']
@@ -2819,10 +2847,14 @@ def derivs_from_isobeta_c(params,tod,*args,**kwargs):
 
 def derivs_from_gauss_c(params,tod,*args,**kwargs):
     npar=4
-    n=tod.info['dat_calib'].size
-    sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    #n=tod.info['dat_calib'].size
+    n=tod.get_nsamp()
+    #sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    sz_deriv=np.append(npar,tod.get_data_dims())
     
-    pred=np.zeros(tod.info['dat_calib'].shape)
+    #pred=np.zeros(tod.info['dat_calib'].shape)
+    pred=tod.get_empty(True)
+
     derivs=np.zeros(sz_deriv)
 
     dx=tod.info['dx']
@@ -2869,8 +2901,9 @@ def isobeta_src_chisq(params,tods):
     chisq=0.0
     for tod in tods.tods:
         pred=timestreams_from_isobeta_c(params,tod)
-        chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
-
+        #chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+        chisq=chisq+tod.timestream_chisq(tod.get_data()-pred)
+        
     return chisq
     npar_beta=5 #x,y,theta,beta,amp
     npar_src=4 #x,y,sig,amp
@@ -2898,7 +2931,8 @@ def isobeta_src_chisq(params,tods):
             dy=tod.info['dy']-src_y
             rsqr=( (dx*np.cos(src_y))**2+dy**2)
             pred=pred+src_amp*np.exp(-0.5*rsqr/src_sig**2)
-        chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+        #chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+        chisq=chisq+tod.timestream_chisq(tod.get_data()-pred)
     return chisq
 
 
@@ -3106,14 +3140,27 @@ class Tod:
         ymin=self.info['dy'].min()
         ymax=self.info['dy'].max()
         return xmin,xmax,ymin,ymax
+    def get_ndet(self):
+        return self.info['dat_calib'].shape[0]
+    def get_ndata(self):
+        return self.info['dat_calib'].shape[1]
+    def get_nsamp(self):
+        #get total number of timestream samples, not samples per detector
+        #return np.product(self.info['dat_calib'].shape)
+        return self.get_ndet()*self.get_ndata()
+
     def get_data_dims(self):
-        dims=self.info['dat_calib'].shape
-        if len(dims)==1:
-            dims=np.asarray([1,dims[0]],dtype='int')
-        return dims
-        return self.info['dat_calib'].shape
+        return (self.get_ndet(),self.get_ndata())
+        #dims=self.info['dat_calib'].shape
+        #if len(dims)==1:
+        #    dims=np.asarray([1,dims[0]],dtype='int')
+        #return dims
+        #return self.info['dat_calib'].shape
+
     def get_data(self):
         return self.info['dat_calib']
+
+
     def get_radec(self):
         return self.info['dx'],self.info['dy']
     def get_empty(self,clear=False):
@@ -3678,14 +3725,16 @@ def make_hits(todvec,map,do_weights=False):
         if do_weights:
             try:
                 weights=tod.get_det_weights()
-                sz=tod.info['dat_calib'].shape
+                #sz=tod.info['dat_calib'].shape
+                sz=tod.get_data_dims()
                 tmp=np.outer(weights,np.ones(sz[1]))
                 #tmp=np.outer(weights,np.ones(tod.info['dat_calb'].shape[1]))
             except:
                 print("error in making weight map.  Detector weights requested, but do not appear to be present.  Do you have a noise model?")
                              
         else:
-            tmp=np.ones(tod.info['dat_calib'].shape)    
+            #tmp=np.ones(tod.info['dat_calib'].shape)
+            tmp=np.ones(tod.get_data_dims())
         #if tod.info.has_key('mask'):
         if 'mask' in tod.info:
             tmp=tmp*tod.info['mask']
@@ -3974,7 +4023,8 @@ def get_derivs_tod_isosrc(pars,tod,niso=None):
     #print 'fitp_iso is ',fitp_iso
     derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
 
-    nn=tod.info['dat_calib'].size
+    #nn=tod.info['dat_calib'].size
+    nn=tod.get_nsamp()
     derivs=np.reshape(derivs_iso,[np_iso,nn])
     pred=f_iso
 
@@ -3992,7 +4042,8 @@ def get_curve_deriv_tod_manygauss(pars,tod,return_vecs=False):
     npp=4
     nsrc=len(pars)/npp
     fitp_gauss=np.zeros(npp)
-    dat=tod.info['dat_calib']
+    #dat=tod.info['dat_calib']
+    dat=tod.get_data()
     big_derivs=np.zeros([np*nsrc,dat.shape[0],dat.shape[1]])
     pred=0
     curve=np.zeros([npp*nsrc,npp*nsrc])
@@ -4029,8 +4080,10 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
     #print 'fitp_iso is ',fitp_iso
     derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
     derivs_iso_filt=0*derivs_iso
-    tmp=0*tod.info['dat_calib']
-    nn=tod.info['dat_calib'].size
+    #tmp=0*tod.info['dat_calib']
+    tmp=tod.get_empty(True)
+    #nn=tod.info['dat_calib'].size
+    nn=tod.get_nsamp
     for i in range(np_iso):
         tmp[:,:]=derivs_iso[i,:,:]
         derivs_iso_filt[i,:,:]=tod.apply_noise(tmp)
@@ -4054,11 +4107,14 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
         derivs_src_tmp=np.reshape(derivs_src_filt,[np_src,nn])
         derivs_filt=np.append(derivs_filt,derivs_src_tmp,axis=0)
 
-    delt_filt=tod.apply_noise(tod.info['dat_calib']-pred)
+    #delt_filt=tod.apply_noise(tod.info['dat_calib']-pred)
+    delt_filt=tod.apply_noise(tod.get_data()-pred)
     delt_filt=np.reshape(delt_filt,nn)
 
-    dvec=np.reshape(tod.info['dat_calib'],nn)
-    predvec=np.reshape(pred,nn)
+    #dvec=np.reshape(tod.info['dat_calib'],nn)
+    dvec=np.ravel(tod.get_data())
+    #predvec=np.reshape(pred,nn)
+    predvec=np.ravel(pred)
     delt=dvec-predvec
     
 
@@ -4079,7 +4135,8 @@ def get_timestream_chisq_from_func(func,pars,tods):
     chisq=0.0
     for tod in tods.tods:
         pred,derivs=func(pars,tod)
-        delt=tod.info['dat_calib']-pred
+        #delt=tod.info['dat_calib']-pred
+        delt=tod.get_data()-pred
         delt_filt=tod.apply_noise(delt)
         delt_filt[:,0]=delt_filt[:,0]*0.5
         delt_filt[:,-1]=delt_filt[:,-1]*0.5
@@ -4097,11 +4154,13 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
         if not(rotmat is None):
             derivs=np.dot(rotmat.transpose(),derivs)
         derivs_filt=0*derivs
-        sz=tod.info['dat_calib'].shape
+        #sz=tod.info['dat_calib'].shape
+        sz=tod.get_data_dims()
         tmp=np.zeros(sz)
         npp=derivs.shape[0]
         nn=derivs.shape[1]
-        delt=tod.info['dat_calib']-pred
+        #delt=tod.info['dat_calib']-pred
+        delt=tod.get_data()-pred
         delt_filt=tod.apply_noise(delt)
         #delt_filt[:,1:-1]=delt_filt[:,1:-1]*2
 #<<<<<<< HEAD
@@ -4142,9 +4201,10 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
     return chisq,grad,curve
 
 def get_ts_derivs_many_funcs(tod,pars,npar_fun,funcs,func_args=None,*args,**kwargs):
-    ndet=tod.info['dat_calib'].shape[0]
-    ndat=tod.info['dat_calib'].shape[1]
-
+    #ndet=tod.info['dat_calib'].shape[0]
+    #ndat=tod.info['dat_calib'].shape[1]
+    ndet=tod.get_ndet()
+    ndat=tod.get_ndata()
     npar=np.sum(np.asarray(npar_fun),dtype='int')
     #vals=np.zeros([ndet,ndat])
     
@@ -4176,7 +4236,8 @@ def get_ts_curve_derivs_many_funcs(todvec,pars,npar_fun,funcs,driver=get_ts_deri
 
         derivs=np.reshape(derivs,[npar,ndet*ndat])
         derivs_filt=np.reshape(derivs_filt,[npar,ndet*ndat])
-        delt=tod.info['dat_calib']-pred
+        #delt=tod.info['dat_calib']-pred
+        delt=tod.get_data()-pred
         delt_filt=tod.apply_noise(delt)
         chisq=chisq+np.sum(delt*delt_filt)
         delt=np.reshape(delt,ndet*ndat)
@@ -4372,7 +4433,8 @@ def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,to
         chisq=0.0
         
         for tod in tods.tods:
-            sz=tod.info['dat_calib'].shape
+            #sz=tod.info['dat_calib'].shape
+            sz=tod.get_data_dims()
             pred,derivs=func(pp,tod)
             if not (to_fit is None):
                 derivs=np.dot(rotmat.transpose(),derivs)
@@ -4380,7 +4442,8 @@ def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,to
             tmp=np.zeros(sz)
             npp=derivs.shape[0]
             nn=derivs.shape[1]
-            delt=tod.info['dat_calib']-pred
+            #delt=tod.info['dat_calib']-pred
+            delt=tod.get_data()-pred
             delt_filt=tod.apply_noise(delt)
             for i in range(npp):
                 tmp[:,:]=np.reshape(derivs[i,:],sz)
