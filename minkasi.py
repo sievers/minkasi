@@ -15,6 +15,12 @@ try:
     have_healpy=True
 except:
     have_healpy=False
+try: 
+    import numba as nb
+    import minkasi_nb
+    have_numba=True
+except:
+    have_numba=False
 
 try:
     import qpoint as qp
@@ -1136,8 +1142,77 @@ class tsPoly(tsVecs):
         self.vecs=(np.polynomial.legendre.legvander(xvec,order).T).copy()
         self.nvec=self.vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
-        
+
+
+def partition_interval(start,stop,seg_len=100,round_up=False):
+    #print('partitioning ',start,stop,seg_len)
+    #make sure we behave correctly if the interval is shorter than the desired segment
+    if (stop-start)<=seg_len:
+        return np.asarray([start,stop],dtype='int')
+    nseg=(stop-start)//seg_len
+    if nseg*seg_len<(stop-start):
+        if round_up:
+            nseg=nseg+1
+    seg_len=(stop-start)//nseg
+    nextra=(stop-start)-seg_len*nseg
+    inds=np.arange(start,stop+1,seg_len)
+    if nextra>0:
+        vec=np.zeros(len(inds),dtype='int')
+        vec[1:nextra+1]=1
+        vec=np.cumsum(vec)
+        inds=inds+vec
+    return inds
+    
+def split_partitioned_vec(start,stop,breaks=[],seg_len=100):
+    if len(breaks)==0:
+        return partition_interval(start,stop,seg_len)
+    if breaks[0]==start:
+        breaks=breaks[1:]
+        if len(breaks)==0:
+            return partition_interval(start,stop,seg_len)
+    if breaks[-1]==stop:
+        breaks=breaks[:-1]
+        if len(breaks)==0:
+            return partition_interval(start,stop,seg_len)
+    breaks=np.hstack([start,breaks,stop])
+    nseg=len(breaks)-1
+    segs=[None]*(nseg)
+    for i in range(nseg):
+        inds=partition_interval(breaks[i],breaks[i+1],seg_len)
+        if i<(nseg-1):
+            inds=inds[:-1]
+        segs[i]=inds
+    segs=np.hstack(segs)
+    return segs
+
+#breaks,stop,start=0,seg_len=100)
 class tsStripes(tsGeneric):
+    def __init__(self,tod,seg_len=500,do_slope=False,tthresh=10):
+        dims=tod.get_data_dims()
+        tvec=tod.get_tvec()
+        dt=np.median(np.diff(tvec))        
+        splits=np.where(np.abs(np.diff(tvec))>tthresh*dt)[0]
+
+        dims=tod.get_data_dims()
+        inds=split_partitioned_vec(0,dims[1],splits,seg_len)
+        
+        self.inds=inds
+        self.splits=splits
+        self.nseg=len(self.inds)-1
+        self.params=np.zeros([dims[0],self.nseg])
+    def tod2map(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            print('need dat in tod2map destriper')
+            return
+        minkasi_nb.tod2map_destriped(dat,self.params,self.inds,do_add)
+    def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            print('need dat in map2tod destriper')
+            return
+        minkasi_nb.map2tod_destriped(dat,self.params,self.inds,do_add)
+        
+
+class tsStripes_old(tsGeneric):
     def __init__(self,tod,seg_len=100,do_slope=True):
         dims=tod.get_data_dims()
         nseg=dims[1]//seg_len
@@ -3163,7 +3238,8 @@ class Tod:
 
     def get_data(self):
         return self.info['dat_calib']
-
+    def get_tvec(self):
+        return self.info['ctime']
 
     def get_radec(self):
         return self.info['dx'],self.info['dy']
@@ -3322,7 +3398,8 @@ class Tod:
         
     def apply_noise(self,dat=None):
         if dat is None:
-            dat=self.info['dat_calib']
+            #dat=self.info['dat_calib']
+            dat=self.get_data()
         try:
             return self.noise.apply_noise(dat)
         except:
