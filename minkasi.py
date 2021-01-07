@@ -4571,3 +4571,31 @@ def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,to
 
         iter=iter+1
     return pp,chisq
+
+
+def mask_dict(mydict,mask):
+    for key in mydict.keys():
+        tmp=mydict[key]
+        try:
+            dims=tmp.shape
+            ndim=len(dims)
+            if ndim==1:
+                if dims[0]==len(mask):
+                    tmp=tmp[mask]
+                    mydict[key]=tmp
+            if ndim==2:
+                if dims[0]==len(mask):
+                    tmp=tmp[mask,:]
+                if dims[1]==len(mask):
+                    tmp=tmp[:,mask]
+                mydict[key]=tmp
+            if ndim==3:
+                if dims[0]==len(mask):
+                    tmp=tmp[mask,:,:]
+                if dims[1]==len(mask):
+                    tmp=tmp[:,mask,:]
+                if dims[2]==len(maks):
+                    tmp=tmp[:,:,mask]
+                mydict[key]=tmp
+        except:
+            continue
