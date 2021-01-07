@@ -3278,10 +3278,17 @@ class Tod:
         tod.noise=self.noise
             
         return tod
-    def set_noise(self,modelclass=NoiseSmoothedSVD,dat=None,*args,**kwargs):
-        if dat is None:
-            dat=self.info['dat_calib']
-        self.noise=modelclass(dat,*args,**kwargs)
+    def set_noise(self,modelclass=NoiseSmoothedSVD,dat=None,delayed=False,*args,**kwargs):
+        if delayed:
+            self.noise_args=copy.deepcopy(args)
+            self.noise_kwargs=copy.deepcopy(kwargs)
+            self.noise_delayed=True
+            self.noise_modelclass=modelclass
+        else:
+            self.noise_delayed=False
+            if dat is None:
+                dat=self.info['dat_calib']
+            self.noise=modelclass(dat,*args,**kwargs)
     def get_det_weights(self):
         if self.noise is None:
             print("noise model not set in get_det_weights.")
@@ -3400,6 +3407,9 @@ class Tod:
         if dat is None:
             #dat=self.info['dat_calib']
             dat=self.get_data()
+        if self.noise_delayed:
+            self.noise=self.noise_modelclass(dat,*(self.noise_args), **(self.noise_kwargs))
+            self.noise_delayed=False
         try:
             return self.noise.apply_noise(dat)
         except:
