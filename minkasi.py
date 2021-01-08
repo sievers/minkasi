@@ -2579,7 +2579,7 @@ class HealPolMap(PolMap):
                     tmp=np.zeros(self.nx)
                     for i in range(self.npol):
                         tmp[:]=np.squeeze(self.map[:,:,i]).T
-                        print('tmp shape is ',tmp.shape)
+                        #print('tmp shape is ',tmp.shape)
                         fname=head+'_'+self.pols[i]+tail
                         healpy.write_map(fname,tmp,nest=(self.proj=='NEST'),overwrite=overwrite)
                         #healpy.write_map(fname,tmp[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
