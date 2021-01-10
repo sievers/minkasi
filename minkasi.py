@@ -1314,7 +1314,8 @@ class tsStripes_old(tsGeneric):
             else:
                 dat[:]=tmp
 
-
+#class tsBinnedAz(tsGeneric):
+#    def __init__(self,
 class tsDetAz(tsGeneric):
     def __init__(self,tod,npoly=4):
         if isinstance(tod,tsDetAz): #we're starting a new instance from an old one, e.g. from copy
@@ -3245,7 +3246,7 @@ class Tod:
         return self.info['dx'],self.info['dy']
     def get_empty(self,clear=False):
         if clear:
-            return np.zero(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
+            return np.zeros(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
         else:
             return np.empty(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
     def set_tag(self,tag):
@@ -3440,13 +3441,15 @@ class Tod:
         return dat
     def mapset2tod(self,mapset,dat=None):
         if dat is None:
-            dat=0*self.info['dat_calib']
+            #dat=0*self.info['dat_calib']
+            dat=self.get_empty(True)
         for map in mapset.maps:
             map.map2tod(self,dat)
         return dat
-    def tod2mapset(self,mapset,dat=None):
+    def tod2mapset(self,mapset,dat=None):                     
         if dat is None:
-            dat=self.info['dat_calib']
+            #dat=self.info['dat_calib']
+            dat=self.get_data()
         for map in mapset.maps:
             map.tod2map(self,dat)
     def dot(self,mapset,mapset_out):
