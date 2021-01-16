@@ -1019,7 +1019,7 @@ def run_pcg_wprior_old(b,x0,tods,prior,precon=None,maxiter=25):
 def apply_noise(tod,dat=None):
     if dat is None:
         #dat=tod['dat_calib']
-        dat=tod.get_data()
+        dat=tod.get_data().copy()
     dat_rot=np.dot(tod['v'],dat)
     datft=mkfftw.fft_r2r(dat_rot)
     nn=datft.shape[1]
@@ -1210,7 +1210,8 @@ class tsStripes(tsGeneric):
             print('need dat in map2tod destriper')
             return
         minkasi_nb.map2tod_destriped(dat,self.params,self.inds,do_add)
-        
+    def copy(self):
+        return copy.deepcopy(self)
 
 class tsStripes_old(tsGeneric):
     def __init__(self,tod,seg_len=100,do_slope=True):
@@ -3214,6 +3215,7 @@ class Tod:
         self.jumps=None
         self.cuts=None
         self.noise=None
+        self.noise_delayed=False
     def lims(self):
         xmin=self.info['dx'].min()
         xmax=self.info['dx'].max()
@@ -3245,10 +3247,18 @@ class Tod:
     def get_radec(self):
         return self.info['dx'],self.info['dy']
     def get_empty(self,clear=False):
+        if 'dtype' in self.info.keys():
+            dtype=self.info['dtype']
+        elif 'dat_calib' in self.info.keys():
+            dtype=self.info['dat_calib'].dtype
+        else:            
+            dtype='float'
         if clear:
-            return np.zeros(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
+            #return np.zeros(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)            
+            return np.zeros([self.get_ndet(),self.get_ndata()],dtype=dtype)
         else:
-            return np.empty(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
+            #return np.empty(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
+            return np.empty([self.get_ndet(),self.get_ndata()],dtype=dtype)
     def set_tag(self,tag):
         self.info['tag']=tag
     def set_pix(self,map):
@@ -3407,7 +3417,7 @@ class Tod:
     def apply_noise(self,dat=None):
         if dat is None:
             #dat=self.info['dat_calib']
-            dat=self.get_data()
+            dat=self.get_data().copy()
         if self.noise_delayed:
             self.noise=self.noise_modelclass(dat,*(self.noise_args), **(self.noise_kwargs))
             self.noise_delayed=False
