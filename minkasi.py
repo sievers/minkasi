@@ -1212,7 +1212,21 @@ class tsStripes(tsGeneric):
         minkasi_nb.map2tod_destriped(dat,self.params,self.inds,do_add)
     def copy(self):
         return copy.deepcopy(self)
-
+    def set_prior_from_corr(self,corrvec,thresh=0.5):
+        assert(corrvec.shape[0]==self.params.shape[0])
+        n=self.params.shape[1]
+        corrvec=corrvec[:,:n].copy()
+        corrft=mkfftw.fft_r2r(corrvec)
+        if thresh>0:
+            for i in range(corrft.shape[0]):
+                tt=thresh*np.median(corrft[i,:])
+                ind=corrft[i,:]<tt
+                corrft[i,ind]=tt
+        self.params=1.0/corrft/(2*(n-1))
+    def apply_prior(self,x,Ax):
+        xft=mkfftw.fft_r2r(x.params)        
+        Ax.params=Ax.params+mkfftw.fft_r2r(xft*self.params)
+        
 class tsStripes_old(tsGeneric):
     def __init__(self,tod,seg_len=100,do_slope=True):
         dims=tod.get_data_dims()
@@ -3417,7 +3431,8 @@ class Tod:
     def apply_noise(self,dat=None):
         if dat is None:
             #dat=self.info['dat_calib']
-            dat=self.get_data().copy()
+            dat=self.get_data().copy() #the .copy() is here so you don't
+                                       #overwrite data stored in the TOD.
         if self.noise_delayed:
             self.noise=self.noise_modelclass(dat,*(self.noise_args), **(self.noise_kwargs))
             self.noise_delayed=False

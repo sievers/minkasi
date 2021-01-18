@@ -1,7 +1,7 @@
 import numpy as np
 import numba as nb
 
-@nb.njit
+@nb.njit(parallel=True)
 def map2tod_destriped(mat,pars,lims,do_add=True):
     ndet=mat.shape[0]
     nseg=len(lims)-1
@@ -14,7 +14,7 @@ def map2tod_destriped(mat,pars,lims,do_add=True):
                 for i in range(lims[seg],lims[seg+1]):
                     mat[det,i]=pars[det,seg]
 
-@nb.njit
+@nb.njit(parallel=True)
 def tod2map_destriped(mat,pars,lims,do_add=True):
     ndet=mat.shape[0]
     nseg=len(lims)-1
