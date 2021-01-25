@@ -1329,8 +1329,20 @@ class tsStripes_old(tsGeneric):
             else:
                 dat[:]=tmp
 
-#class tsBinnedAz(tsGeneric):
-#    def __init__(self,
+class tsBinnedAz(tsGeneric):
+    def __init__(self,ndet=2,lims=[0,2*np.pi],nbin=360):
+        self.params=np.zeros([ndet,nbin])
+        self.lims=[lims[0],lims[1]]
+        self.nbin=nbin
+        
+    def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            dat=tod.get_data()
+        minkasi_nb.map2tod_binned_det(dat,self.params,tod.info['az'],self.lims,self.nbin,do_add)
+    def tod2map(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            dat=tod.get_data()
+        minkasi_nb.tod2map_binned_det(dat,self.params,tod.info['az'],self.lims,self.nbin.do_add)
 class tsDetAz(tsGeneric):
     def __init__(self,tod,npoly=4):
         if isinstance(tod,tsDetAz): #we're starting a new instance from an old one, e.g. from copy
@@ -1743,6 +1755,40 @@ class tsModel:
                 pass
     def mpi_reduce(self):
         pass
+
+class tsMultiModel(tsModel):
+    """A class to hold timestream models that are shared between groups of TODs."""
+    def __init__(self,todvec=None,todtags=None,modelclass=None,tag='ts_multi_model',*args,**kwargs):        
+        self.data={}
+        self.tag=tag
+        if not(todtags is None):
+            alltags=comm.allgather(todtags)
+            alltags=np.hstack(alltags)
+            alltags=np.unique(alltags)
+            if not(modelclass is None):
+                for mytag in alltags:
+                    self.data[mytag]=modelclass(*args,**kwargs)
+            if not(todvec is None):
+                for i,tod in enumerate(todvec.tods):
+                    tod.info[tag]=todtags[i]
+    def copy(self):
+        return copy.deepcopy(self)
+    def tod2map(self,tod,dat,do_add=True,do_omp=False):
+        self.data[tod.info[self.tag]].tod2map(tod,dat,do_add,do_omp)
+    def map2tod(self,tod,dat,do_add=True,do_omp=False):
+        self.data[tod.info[self.tag]].map2tod(tod,dat,do_add,do_omp)
+    def dot(self,tsmodels=None):
+        tot=0.0
+        for nm in self.data.keys():
+            if tsmodels is None:
+                tot=tot+self.data[nm].dot(self.data[nm])
+            else:
+                if nm in tsmodels.data:
+                    tot=tot+self.data[nm].dot(tsmodels.data[nm])
+                else:
+                    print('error in tsMultiModel.dot - missing key ',nm)
+                    assert(1==0)
+        return tot
 class Mapset:
     def __init__(self):
         self.nmap=0
@@ -3628,7 +3674,7 @@ class TodVec:
         if have_mpi:
             mapset.mpi_reduce()
 
-def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941,v34=True):
+def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941,v34=True,nm20=False):
     f=pyfits.open(fname)
     raw=f[1].data
     ra=raw['RA']
@@ -3694,6 +3740,25 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941,v34=Tru
 
     dat['pixid']=[0]
     dat['fname']=fname
+
+    if nm20:
+        try:
+        #kludget to read in bonus cuts, which should be in f[3]
+            raw=f[3].data 
+            dat['nm20_start']=raw['START']
+            dat['nm20_stop']=raw['END']
+            #nm20=0*dat['flag']
+            print(dat.keys())
+            nm20=0*dat['mask']
+            start=dat['nm20_start']
+            stop=dat['nm20_stop']
+            for i in range(len(start)):
+                nm20[:,start[i]:stop[i]]=1
+                #nm20[:,start[i]:stop[i]]=0
+            dat['mask']=dat['mask']*nm20
+        except:
+            print('missing nm20 for ',fname)
+
     f.close()
     return dat
 
@@ -4600,6 +4665,47 @@ def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,to
         iter=iter+1
     return pp,chisq
 
+
+def split_dict(mydict,vec,thresh):
+    #split a dictionary into sub-dictionaries wherever a gap in vec is larger than thresh.
+    #useful for e.g. splitting TODs where there's a large time gap due to cuts.
+    inds=np.where(np.diff(vec)>thresh)[0]
+    #print(inds,len(inds))
+    if len(inds)==0:
+        return [mydict]
+    ndict=len(inds)+1
+    inds=np.hstack([[0],inds+1,[len(vec)]])
+    #print(inds)
+
+    out=[None]*ndict
+    for i in range(ndict):
+        out[i]={}
+    for key in mydict.keys():
+        tmp=mydict[key]
+        for i in range(ndict):
+            out[i][key]=tmp
+        try:
+            dims=tmp.shape
+            ndim=len(dims)
+            if ndim==1:
+                if dims[0]==len(vec):
+                    for i in range(ndict):
+                        out[i][key]=tmp[inds[i]:inds[i+1]].copy()
+            if ndim==2:
+                if dims[1]==len(vec):
+                    for i in range(ndict):
+                        out[i][key]=tmp[:,inds[i]:inds[i+1]].copy()
+                elif dims[0]==len(vec):
+                    for i in range(ndict):
+                        out[i][key]=tmp[inds[i]:inds[i+1],:].copy()
+        except:
+            continue
+            #print('copying ',key,' unchanged')
+            #don't need below as it's already copied by default
+            #for i in range(ndict):
+            #    out[i][key]=mydict[key]
+
+    return out
 
 def mask_dict(mydict,mask):
     for key in mydict.keys():

@@ -26,3 +26,33 @@ def tod2map_destriped(mat,pars,lims,do_add=True):
                 pars[det,seg]=pars[det,seg]+mat[det,i]
                 
 
+@nb.njit(parallel=True)
+def map2tod_binned_det(mat,pars,vec,lims,nbin,do_add=True):
+    n=mat.shape[1]
+    inds=np.empty(n,dtype='int')
+    fac=nbin/(lims[1]-lims[0]) 
+    for i in nb.prange(n):
+        inds[i]=(vec[i]-lims[0])*fac
+    ndet=mat.shape[0]
+    if do_add==False:
+        pars[:]=0
+    for det in nb.prange(ndet):
+        for i in np.arange(n):
+            pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+
+
+@nb.njit(parallel=True)
+def map2tod_binned_det(mat,pars,vec,lims,nbin,do_add=True):
+    n=mat.shape[1]
+    inds=np.empty(n,dtype='int')
+    fac=nbin/(lims[1]-lims[0]) 
+    for i in nb.prange(n):
+        inds[i]=(vec[i]-lims[0])*fac
+    ndet=mat.shape[0]
+    if do_add==False:
+        mat[:]=0
+    for det in np.arange(ndet):
+        for i in nb.prange(n):
+            mat[det][i]=mat[det][i]+pars[det][inds[i]]
+
+
