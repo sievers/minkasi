@@ -2969,6 +2969,31 @@ def timestreams_from_isobeta_c(params,tod,pred=None):
 
     return pred
 
+def derivs_from_elliptical_isobeta(params,tod,*args,**kwargs):
+    npar=len(params)
+    assert(npar==7)
+    pred=tod.get_empty()
+    dims=np.hstack([npar,pred.shape])
+    derivs=np.empty(dims)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    minkasi_nb.fill_elliptical_isobeta_derivs(params,dx,dy,pred,derivs)
+    return derivs,pred
+
+def derivs_from_elliptical_gauss(params,tod,*args,**kwargs):
+    npar=len(params)
+    assert(npar==6)
+    pred=tod.get_empty()
+    dims=np.hstack([npar,pred.shape])
+    derivs=np.empty(dims)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    minkasi_nb.fill_elliptical_gauss_derivs(params,dx,dy,pred,derivs)
+    return derivs,pred
+
+
 def derivs_from_isobeta_c(params,tod,*args,**kwargs):
     npar=5;
     #n=tod.info['dat_calib'].size
