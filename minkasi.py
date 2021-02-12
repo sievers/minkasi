@@ -1127,6 +1127,48 @@ class tsVecs(tsGeneric):
             mat[:]=mat[:]+np.dot(self.params.T,self.vecs)
         else:
             mat[:]=np.dot(self.params.T,self.vecs)    
+class tsNotch(tsGeneric):
+    def __init__(self,tod,numin,numax):
+        self.fname=tod.info['fname']
+        tvec=tod.get_tvec()
+        dt=tvec[-1]-tvec[0]
+        bw=numax-numin
+        dnu=1/dt
+        nfreq=np.int(np.ceil(2*bw/dnu)) #factor of 2 is to account for partial waves
+        ndet=tod.get_ndet()
+        self.freqs=np.linspace(numin,numax,nfreq)
+        self.nfreq=nfreq
+        self.params=np.zeros([2*nfreq,ndet])
+    def get_vecs(self,tvec):
+        tvec=tvec-tvec[0]
+        vecs=np.zeros([self.nfreq*2,len(tvec)])
+        for i in range(self.nfreq):
+            vecs[2*i,:]=np.cos(tvec*self.freqs[i])
+            vecs[2*i+1,:]=np.sin(tvec*self.freqs[i])
+        return vecs
+        
+    def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
+        tvec=tod.get_tvec()
+        vecs=self.get_vecs(tvec)
+        pred=self.params.T@vecs
+        if mat is None:
+            mat=tod.get_data()
+        if do_add:
+            mat[:]=mat[:]+pred
+        else:
+            mat[:]=pred
+    def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
+        tvec=tod.get_tvec()
+        vecs=self.get_vecs(tvec)
+        if mat is None:
+            mat=tod.get_data()
+        tmp=mat@(vecs.T)
+        if do_add:
+            self.params[:]=self.params[:]+tmp
+        else:
+            self.params[:]=tmp
+
+
 
 class tsPoly(tsVecs):
     def __init__(self,tod,order=10):
@@ -1753,8 +1795,6 @@ class tsModel:
                 self.data[nm].clear_caches()
             except:
                 pass
-    def mpi_reduce(self):
-        pass
 
 class tsMultiModel(tsModel):
     """A class to hold timestream models that are shared between groups of TODs."""
