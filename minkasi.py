@@ -1191,6 +1191,49 @@ class tsVecs(tsGeneric):
         else:
             mat[:]=np.dot(self.params.T,self.vecs)    
 
+class tsNotch(tsGeneric):
+    def __init__(self,tod,numin,numax):
+        self.fname=tod.info['fname']
+        tvec=tod.get_tvec()
+        dt=tvec[-1]-tvec[0]
+        bw=numax-numin
+        dnu=1/dt
+        nfreq=np.int(np.ceil(2*bw/dnu)) #factor of 2 is to account for partial waves
+        ndet=tod.get_ndet()
+        self.freqs=np.linspace(numin,numax,nfreq)
+        self.nfreq=nfreq
+        self.params=np.zeros([2*nfreq,ndet])
+    def get_vecs(self,tvec):
+        tvec=tvec-tvec[0]
+        vecs=np.zeros([self.nfreq*2,len(tvec)])
+        for i in range(self.nfreq):
+            vecs[2*i,:]=np.cos(tvec*self.freqs[i])
+            vecs[2*i+1,:]=np.sin(tvec*self.freqs[i])
+        return vecs
+        
+    def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
+        tvec=tod.get_tvec()
+        vecs=self.get_vecs(tvec)
+        pred=self.params.T@vecs
+        if mat is None:
+            mat=tod.get_data()
+        if do_add:
+            mat[:]=mat[:]+pred
+        else:
+            mat[:]=pred
+    def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
+        tvec=tod.get_tvec()
+        vecs=self.get_vecs(tvec)
+        if mat is None:
+            mat=tod.get_data()
+        #tmp=mat@(vecs.T)
+        tmp=vecs@mat.T
+        if do_add:
+            self.params[:]=self.params[:]+tmp
+        else:
+            self.params[:]=tmp
+
+
 class tsPoly(tsVecs):
     def __init__(self,tod,order=10):
         self.fname=tod.info['fname']
@@ -3214,6 +3257,31 @@ class NoiseWhite:
         for i in range(ndet):
             dat[i,:]=dat[i,:]*self.weights[i]
         return dat
+class NoiseWhiteNotch:
+    def __init__(self,dat,numin,numax,tod):
+        fac=scipy.special.erfinv(0.5)*2
+        sigs=np.median(np.abs(np.diff(dat,axis=1)),axis=1)/fac
+        self.sigs=sigs
+        self.weights=1/sigs**2
+        self.weights=self.weights/(2*(dat.shape[1]-1)) #fold in fft normalization to the weights
+        tvec=tod.get_tvec()
+        dt=np.median(np.diff(tvec))
+        tlen=tvec[-1]-tvec[0]
+        dnu=1.0/(2*tlen-dt)
+        self.istart=np.int(np.floor(numin/dnu))
+        self.istop=np.int(np.ceil(numax/dnu))+1
+
+    def apply_noise(self,dat):
+        assert(dat.shape[0]==len(self.weights))
+        datft=mkfftw.fft_r2r(dat)
+        datft[:,self.istart:self.istop]=0
+        dat=mkfftw.fft_r2r(datft)
+
+        ndet=dat.shape[0]
+        for i in range(ndet):
+            dat[i,:]=dat[i,:]*self.weights[i]
+        return dat
+        
 class NoiseBinnedEig:
     def __init__(self,dat,dt,freqs=None,scale_facs=None,thresh=5.0):
 
