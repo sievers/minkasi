@@ -4525,10 +4525,6 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
         #delt=tod.info['dat_calib']-pred
         delt=tod.get_data()-pred
         delt_filt=tod.apply_noise(delt)
-        #delt_filt[:,1:-1]=delt_filt[:,1:-1]*2
-#<<<<<<< HEAD
-#        delt_filt[:,0]=delt_filt[:,0]*0.5
-#        delt_filt[:,-1]=delt_filt[:,-1]*0.5
         for i in range(npp):
             tmp[:,:]=np.reshape(derivs[i,:],sz)
             tmp_filt=tod.apply_noise(tmp)
@@ -4541,22 +4537,6 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
         grad1=np.dot(derivs,delt_filt)
         grad2=np.dot(derivs_filt,delt)
         #print 'grad error is ',np.mean(np.abs((grad1-grad2)/(0.5*(np.abs(grad1)+np.abs(grad2)))))
-#=======#
-#        #delt_filt[:,0]=delt_filt[:,0]*0.5
-#        #delt_filt[:,-1]=delt_filt[:,-1]*0.5
-#        for i in range(np):
-#            tmp[:,:]=np.reshape(derivs[i,:],sz)
-#            tmp_filt=tod.apply_noise(tmp)
-#            #tmp_filt[:,1:-1]=tmp_filt[:,1:-1]*2
-#            #tmp_filt[:,0]=tmp_filt[:,0]*0.5
-#            #tmp_filt[:,-1]=tmp_filt[:,-1]*0.5
-#            derivs_filt[i,:]=numpy.reshape(tmp_filt,nn)
-#        delt=numpy.reshape(delt,nn)
-#        delt_filt=numpy.reshape(delt_filt,nn)
-#        grad1=numpy.dot(derivs,delt_filt)
-#        grad2=numpy.dot(derivs_filt,delt)
-#        #print 'grad error is ',numpy.mean(numpy.abs((grad1-grad2)/(0.5*(numpy.abs(grad1)+numpy.abs(grad2)))))
-#>>>>>>> bbb21b998a2d0152d5228ea7eb318946309da37b
         grad=grad+0.5*(grad1+grad2)
         curve=curve+np.dot(derivs,derivs_filt.transpose())
         chisq=chisq+np.dot(delt,delt_filt)
