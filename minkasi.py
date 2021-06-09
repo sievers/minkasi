@@ -1436,6 +1436,24 @@ class tsStripes_old(tsGeneric):
                 dat[:]=tmp
 
 class tsBinnedAz(tsGeneric):
+    def __init__(self,tod,lims=[0,2*np.pi],nbin=360):
+        #print('nbin is',nbin)
+        ndet=tod.get_ndet()
+        self.params=np.zeros([ndet,nbin])
+        self.lims=[lims[0],lims[1]]
+        self.nbin=nbin
+        
+    def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            dat=tod.get_data()
+        minkasi_nb.map2tod_binned_det(dat,self.params,tod.info['az'],self.lims,self.nbin,do_add)
+    def tod2map(self,tod,dat=None,do_add=True,do_omp=False):
+        if dat is None:
+            dat=tod.get_data()
+        minkasi_nb.tod2map_binned_det(dat,self.params,tod.info['az'],self.lims,self.nbin,do_add)
+
+class tsBinnedAzShared(tsGeneric):
+#"""class to have az shared amongst TODs (say, if you think the ground is constant for a while)"""
     def __init__(self,ndet=2,lims=[0,2*np.pi],nbin=360):
         self.params=np.zeros([ndet,nbin])
         self.lims=[lims[0],lims[1]]
@@ -1448,7 +1466,9 @@ class tsBinnedAz(tsGeneric):
     def tod2map(self,tod,dat=None,do_add=True,do_omp=False):
         if dat is None:
             dat=tod.get_data()
-        minkasi_nb.tod2map_binned_det(dat,self.params,tod.info['az'],self.lims,self.nbin.do_add)
+        print('nbin is',self.nbin)
+        print(self.params.dtype)
+        minkasi_nb.tod2map_binned_det(dat,self.params,tod.info['az'],self.lims,self.nbin,do_add)
 class tsDetAz(tsGeneric):
     def __init__(self,tod,npoly=4):
         if isinstance(tod,tsDetAz): #we're starting a new instance from an old one, e.g. from copy
@@ -3135,6 +3155,35 @@ def derivs_from_gauss_c(params,tod,*args,**kwargs):
 
     return derivs,pred
 
+def derivs_from_map(pars,tod,fun,map,dpar,do_symm=False,*args,**kwargs):
+    #print('do_symm is ',do_symm)
+    pred=tod.get_empty()
+    fun(map,pars,*args,**kwargs)
+    map.map2tod(tod,pred,False)
+    npar=len(pars)
+    tmp=tod.get_empty()
+    if do_symm:
+        tmp2=tod.get_empty()
+    derivs=np.empty([npar,pred.shape[0],pred.shape[1]])
+    for i in range(npar):
+        pp=pars.copy()
+        pp[i]=pp[i]+dpar[i]
+        fun(map,pp,*args,**kwargs)
+        tmp[:]=0 #strictly speaking, we shouldn't need this, but it makes us more robust to bugs elsewhere
+        map.map2tod(tod,tmp,False)
+        if do_symm:
+            pp=pars.copy()
+            pp[i]=pp[i]-dpar[i]
+            fun(map,pp,*args,**kwargs)
+            tmp2[:]=0
+            map.map2tod(tod,tmp2,False)
+            derivs[i,:,:]=(tmp-tmp2)/(2*dpar[i])
+        else:
+            derivs[i,:,:]=(tmp-pred)/(dpar[i])
+    #pred=np.reshape(pred,pred.size)
+    #derivs=np.reshape(derivs,[derivs.shape[0],derivs.shape[1]*derivs.shape[2]])
+    return pred,derivs
+
 def timestreams_from_isobeta(params,tod):
     npar_beta=5 #x,y,theta,beta,amp
     npar_src=4 #x,y,sig,amp
@@ -3877,8 +3926,9 @@ def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941,v34=Tru
             dat['dat_calib'][1,:]=U            
         az=raw['AZ']
         el=raw['EL']
-        dat['az']=az
-        dat['el']=el
+        #JLS- changing default az/el to radians and not degrees in TOD
+        dat['az']=az*np.pi/180
+        dat['el']=el*np.pi/180
         
         #dat['AZ']=az
         #dat['EL']=el
@@ -4506,25 +4556,29 @@ def get_timestream_chisq_from_func(func,pars,tods):
         chisq=chisq+np.sum(delt*delt_filt)
     return chisq
 
-def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
+def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None,*args,**kwargs):
     chisq=0.0
     grad=0.0
     curve=0.0
     #print 'inside func, len(tods) is ',len(tods.tods),len(pars)
     for tod in tods.tods:
         #print 'type of tod is ',type(tod)
-        pred,derivs=func(pars,tod)
+        pred,derivs=func(pars,tod,*args,**kwargs)
         if not(rotmat is None):
             derivs=np.dot(rotmat.transpose(),derivs)
+        derivs=np.reshape(derivs,[derivs.shape[0],np.product(derivs.shape[1:])])
         derivs_filt=0*derivs
+        #print('derivs_filt shape is ',derivs_filt.shape)
+        #derivs_filt=np.reshape(derivs_filt,[derivs_filt.shape[0],np.product(derivs_filt.shape[1:])])
         #sz=tod.info['dat_calib'].shape
         sz=tod.get_data_dims()
         tmp=np.zeros(sz)
         npp=derivs.shape[0]
-        nn=derivs.shape[1]
+        nn=np.product(derivs.shape[1:])
         #delt=tod.info['dat_calib']-pred
         delt=tod.get_data()-pred
         delt_filt=tod.apply_noise(delt)
+
         for i in range(npp):
             tmp[:,:]=np.reshape(derivs[i,:],sz)
             tmp_filt=tod.apply_noise(tmp)
@@ -4541,6 +4595,10 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None):
         curve=curve+np.dot(derivs,derivs_filt.transpose())
         chisq=chisq+np.dot(delt,delt_filt)
     curve=0.5*(curve+curve.transpose())
+    if have_mpi:
+        curve=comm.allreduce(curve)
+        grad=comm.allreduce(grad)
+        chisq=comm.allreduce(chisq)
     return chisq,grad,curve
 
 def get_ts_derivs_many_funcs(tod,pars,npar_fun,funcs,func_args=None,*args,**kwargs):
@@ -4641,7 +4699,7 @@ def _par_step(grad,curve,to_fit,lamda,return_full=False):
     else:
         return step
 
-def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):    
+def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):
     lamda=0
     t1=time.time()
     chisq,grad,curve=get_ts_curve_derivs_many_funcs(tods,pars,npar_fun,funcs,driver=driver)

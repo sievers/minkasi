@@ -27,33 +27,74 @@ def tod2map_destriped(mat,pars,lims,do_add=True):
                 
 
 @nb.njit(parallel=True)
-def map2tod_binned_det(mat,pars,vec,lims,nbin,do_add=True):
-    n=mat.shape[1]
-    inds=np.empty(n,dtype='int')
-    fac=nbin/(lims[1]-lims[0]) 
-    for i in nb.prange(n):
-        inds[i]=(vec[i]-lims[0])*fac
-    ndet=mat.shape[0]
-    if do_add==False:
-        pars[:]=0
+def __map2tod_binned_det_loop(pars,inds,mat,ndet,n):
     for det in nb.prange(ndet):
-        for i in np.arange(n):
-            pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+        for i in range(n):
+            mat[det][i]=mat[det][i]+pars[det][inds[i]]
+            #pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
 
 
-@nb.njit(parallel=True)
 def map2tod_binned_det(mat,pars,vec,lims,nbin,do_add=True):
     n=mat.shape[1]
-    inds=np.empty(n,dtype='int')
+    #print('range is ',pars.min(),pars.max())
+    #inds=np.empty(n,dtype='int64')
     fac=nbin/(lims[1]-lims[0]) 
-    for i in nb.prange(n):
-        inds[i]=(vec[i]-lims[0])*fac
+    inds=np.asarray((vec-lims[0])*fac,dtype='int64')
+    #print('ind range is ',inds.min(),inds.max())
+    #for i in nb.prange(n):
+    #    inds[i]=(vec[i]-lims[0])*fac
     ndet=mat.shape[0]
     if do_add==False:
         mat[:]=0
-    for det in np.arange(ndet):
-        for i in nb.prange(n):
-            mat[det][i]=mat[det][i]+pars[det][inds[i]]
+    __map2tod_binned_det_loop(pars,inds,mat,ndet,n)
+    #for det in nb.prange(ndet):
+    #    for i in np.arange(n):
+    #        pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+
+
+
+@nb.njit(parallel=True)
+def __tod2map_binned_det_loop(pars,inds,mat,ndet,n):
+    for det in nb.prange(ndet):
+        for i in range(n):
+            pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+            
+def tod2map_binned_det(mat,pars,vec,lims,nbin,do_add=True):
+    #print('dims are ',mat.shape,pars.shape,vec.shape)
+    #print('lims are ',lims,nbin,vec.min(),vec.max())
+    n=mat.shape[1]
+    
+    fac=nbin/(lims[1]-lims[0]) 
+    #inds=np.empty(n,dtype='int64')
+    #for i in nb.prange(n):
+    #    inds[i]=(vec[i]-lims[0])*fac
+    inds=np.asarray((vec-lims[0])*fac,dtype='int64')
+
+    #print('max is ',inds.max())
+    ndet=mat.shape[0]
+    if do_add==False:
+        mat[:]=0
+    __tod2map_binned_det_loop(pars,inds,mat,ndet,n)
+    #for det in nb.prange(ndet):
+    #    for i in np.arange(n):
+    #        pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+    return 0
+            
+
+
+#@nb.njit(parallel=True)
+#def map2tod_binned_det(mat,pars,vec,lims,nbin,do_add=True):
+#    n=mat.shape[1]
+#    inds=np.empty(n,dtype='int')
+#    fac=nbin/(lims[1]-lims[0]) 
+#    for i in nb.prange(n):
+#        inds[i]=(vec[i]-lims[0])*fac
+#    ndet=mat.shape[0]
+#    if do_add==False:
+#        mat[:]=0
+#    for det in np.arange(ndet):
+#        for i in nb.prange(n):
+#            mat[det][i]=mat[det][i]+pars[det][inds[i]]
 
 
 @nb.njit(parallel=True)
@@ -83,6 +124,7 @@ def fill_elliptical_isobeta(params,dx,dy,pred):
             yy=dely*cospsi-delx*sinpsi
             rr=1+theta1_inv_sqr*xx*xx+theta2_inv_sqr*yy*yy
             pred[det,j]=amp*(rr**mypow)
+
 
 
 @nb.njit(parallel=True)
