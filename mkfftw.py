@@ -122,7 +122,7 @@ def fft_r2c(dat):
         many_fft_r2c_1d_c(dat.ctypes.data,datft.ctypes.data,ntrans,ndat,ndat,ndat)
     else:
         assert(dat.dtype==numpy.dtype('float32'))
-        datft=numpy.zeros(dat.shape,dtype='complex64')
+        datft=numpy.empty(dat.shape,dtype='complex64')
         many_fftf_r2c_1d_c(dat.ctypes.data,datft.ctypes.data,ntrans,ndat,ndat,ndat)
     return datft
 
@@ -153,7 +153,8 @@ def fft_r2r(dat,kind=1):
         return fft_r2r_1d(dat,kind)
     ntrans=dat.shape[0]
     n=dat.shape[1]
-    trans=numpy.zeros([ntrans,n],dtype=type(dat[0,0]))
+    #trans=numpy.zeros([ntrans,n],dtype=type(dat[0,0]))
+    trans=numpy.empty([ntrans,n],dtype=type(dat[0,0]))
     
 
     if type(dat[0,0])==numpy.dtype('float32'):

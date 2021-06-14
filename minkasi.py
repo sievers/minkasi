@@ -3425,17 +3425,24 @@ class NoiseCMWhite:
         return self.mywt.copy()
 
 class NoiseSmoothedSVD:
-    def __init__(self,dat_use,fwhm=50,prewhiten=False,fit_powlaw=False):
+    def __init__(self,dat_use,fwhm=50,prewhiten=False,fit_powlaw=False,u_in=None):
         if prewhiten:
             noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
             dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
-        u,s,v=np.linalg.svd(dat_use,0)
+        if u_in is None:
+            u,s,v=np.linalg.svd(dat_use,0)
+        else:
+            u=u_in
         #print(u.shape,s.shape,v.shape)
         print('got svd')
         ndet=s.size
         n=dat_use.shape[1]
         self.v=np.zeros([ndet,ndet])
         self.v[:]=u.transpose()
+        if u_in is none:
+            self.vT=self.v.T
+        else:
+            self.vT=np.linalg.inv(self.v)
         dat_rot=np.dot(self.v,dat_use)
         if fit_powlaw:
             spec_smooth=0*dat_rot
@@ -3461,7 +3468,8 @@ class NoiseSmoothedSVD:
         nn=datft.shape[1]
         datft=datft*self.mywt[:,:nn]
         dat_rot=mkfftw.fft_r2r(datft)
-        dat=np.dot(self.v.T,dat_rot)
+        #dat=np.dot(self.v.T,dat_rot)
+        dat=np.dot(self.vT,dat_rot)
         dat[:,0]=0.5*dat[:,0]
         dat[:,-1]=0.5*dat[:,-1]
         if not(self.noisevec is None):
@@ -3471,7 +3479,8 @@ class NoiseSmoothedSVD:
     def get_det_weights(self):
         """Find the per-detector weights for use in making actual noise maps."""
         mode_wt=np.sum(self.mywt,axis=1)
-        tmp=np.dot(self.v.T,np.dot(np.diag(mode_wt),self.v))
+        #tmp=np.dot(self.v.T,np.dot(np.diag(mode_wt),self.v))
+        tmp=np.dot(self.vT,np.dot(np.diag(mode_wt),self.v))
         return np.diag(tmp).copy()*2.0
 
 class Tod:
