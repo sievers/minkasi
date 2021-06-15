@@ -2082,7 +2082,9 @@ class SkyMap:
     def map2tod(self,tod,dat,do_add=True,do_omp=True):
         map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
 
-    def tod2map(self,tod,dat,do_add=True,do_omp=True):
+    def tod2map(self,tod,dat=None,do_add=True,do_omp=True):
+        if dat is None:
+            dat=tod.get_data()
         if do_add==False:
             self.clear()
         if not(self.caches is None):
