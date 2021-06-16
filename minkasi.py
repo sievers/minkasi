@@ -3433,15 +3433,19 @@ class NoiseSmoothedSVD:
             dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
         if u_in is None:
             u,s,v=np.linalg.svd(dat_use,0)
+            ndet=s.size
         else:
             u=u_in
+            assert(u.shape[0]==u.shape[1])
+            ndet=u.shape[0]
+
         #print(u.shape,s.shape,v.shape)
         print('got svd')
-        ndet=s.size
+
         n=dat_use.shape[1]
         self.v=np.zeros([ndet,ndet])
         self.v[:]=u.transpose()
-        if u_in is none:
+        if u_in is None:
             self.vT=self.v.T
         else:
             self.vT=np.linalg.inv(self.v)
