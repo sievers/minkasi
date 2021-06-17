@@ -1991,7 +1991,7 @@ class Mapset:
 #            self.cuts[tod.info['tag']]=Cuts(tod)
             
 class SkyMap:
-    def __init__(self,lims,pixsize=0,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):        
+    def __init__(self,lims,pixsize=0,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
         if mywcs is None:
             assert(pixsize!=0) #we had better have a pixel size if we don't have an incoming WCS that contains it
             self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)            
@@ -2041,6 +2041,8 @@ class SkyMap:
         self.map=np.zeros([nx,ny])
         self.proj=proj
         self.pad=pad
+        self.tag=tag
+        self.purge_pixellization=purge_pixellization
         self.caches=None
         self.cosdec=cosdec
     def get_caches(self):
@@ -2051,9 +2053,12 @@ class SkyMap:
         self.map[:]=np.reshape(np.sum(self.caches,axis=0),self.map.shape)
         self.caches=None
     def copy(self):
-        newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs)
-        newmap.map[:]=self.map[:]
-        return newmap
+        if False:
+            newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs,tag=self.tag)
+            newmap.map[:]=self.map[:]
+            return newmap
+        else:
+            return copy.deepcopy(self)
     def clear(self):
         self.map[:]=0
     def axpy(self,map,a):
@@ -2063,13 +2068,17 @@ class SkyMap:
         assert(arr.shape[1]==self.ny)
         #self.map[:,:]=arr
         self.map[:]=arr
-    def get_pix(self,tod):
-        ndet=tod.info['dx'].shape[0]
-        nsamp=tod.info['dx'].shape[1]
+    def pix_from_radec(self,ra,dec):
+        ndet=ra.shape[0]
+        nsamp=ra.shape[1]
         nn=ndet*nsamp
         coords=np.zeros([nn,2])
-        coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
-        coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+        #coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
+        #coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+        coords[:,0]=np.reshape(ra*180/np.pi,nn)
+        coords[:,1]=np.reshape(dec*180/np.pi,nn)
+
+
         #print coords.shape
         pix=self.wcs.wcs_world2pix(coords,1)
         #print pix.shape
@@ -2079,21 +2088,63 @@ class SkyMap:
         ypix=np.round(ypix)
         ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
         return ipix
+
+    def get_pix(self,tod,savepix=True):
+        if not(self.tag is None):
+            ipix=tod.get_saved_pix(self.tag)
+            if not(ipix is None):
+                return ipix
+        ra,dec=tod.get_radec()
+        #ndet=tod.info['dx'].shape[0]
+        #nsamp=tod.info['dx'].shape[1]
+        if False:
+            ndet=ra.shape[0]
+            nsamp=ra.shape[1]
+            nn=ndet*nsamp
+            coords=np.zeros([nn,2])
+        #coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
+        #coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+            coords[:,0]=np.reshape(ra*180/np.pi,nn)
+            coords[:,1]=np.reshape(dec*180/np.pi,nn)
+
+
+        #print coords.shape
+            pix=self.wcs.wcs_world2pix(coords,1)
+        #print pix.shape
+            xpix=np.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+            ypix=np.reshape(pix[:,1],[ndet,nsamp])-1  
+            xpix=np.round(xpix)
+            ypix=np.round(ypix)
+            ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        else:
+            ipix=self.pix_from_radec(ra,dec)
+        if savepix:
+            if not(self.tag is None):
+                tod.save_pixellization(self.tag,ipix)
+        return ipix
     def map2tod(self,tod,dat,do_add=True,do_omp=True):
-        map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+        ipix=self.get_pix(tod)
+        #map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+        map2tod(dat,self.map,ipix,do_add,do_omp)
 
     def tod2map(self,tod,dat=None,do_add=True,do_omp=True):
         if dat is None:
             dat=tod.get_data()
         if do_add==False:
             self.clear()
+        ipix=self.get_pix(tod)
         if not(self.caches is None):
-            tod2map_cached(self.caches,dat,tod.info['ipix'])
+            #tod2map_cached(self.caches,dat,tod.info['ipix'])
+            tod2map_cached(self.caches,dat,ipix)
         else:
             if do_omp:
-                tod2map_omp(self.map,dat,tod.info['ipix'])
+                #tod2map_omp(self.map,dat,tod.info['ipix'])
+                tod2map_omp(self.map,dat,ipix)
             else:
-                tod2map_simple(self.map,dat,tod.info['ipix'])
+                #tod2map_simple(self.map,dat,tod.info['ipix'])
+                tod2map_simple(self.map,dat,ipix)
+        if self.purge_pixellization:
+            tod.clear_saved_pix(tod,self.tag)
 
     def r_th_maps(self):
         xvec=np.arange(self.nx)
@@ -2407,7 +2458,7 @@ def poltag2pols(poltag):
     return None
     
 class PolMap:
-    def __init__(self,lims,pixsize,poltag='I',proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,ref_equ=False):
+    def __init__(self,lims,pixsize,poltag='I',proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
         pols=poltag2pols(poltag)
         if pols is None:
             print('Unrecognized polarization state ' + poltag + ' in PolMap.__init__')
@@ -2455,6 +2506,8 @@ class PolMap:
         self.poltag=poltag
         self.pols=pols
         self.lims=lims
+        self.tag=tag
+        self.purge_pixellization=purge_pixellization
         self.pixsize=pixsize
         if npol>1:
             self.map=np.zeros([nx,ny,npol])
@@ -2472,9 +2525,12 @@ class PolMap:
         self.map[:]=np.reshape(np.sum(self.caches,axis=0),self.map.shape)
         self.caches=None
     def copy(self):
-        newmap=PolMap(self.lims,self.pixsize,self.poltag,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs)
-        newmap.map[:]=self.map[:]
-        return newmap
+        if False:
+            newmap=PolMap(self.lims,self.pixsize,self.poltag,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs)
+            newmap.map[:]=self.map[:]
+            return newmap
+        else:
+            return copy.deepcopy(self)
     def clear(self):
         self.map[:]=0
     def axpy(self,map,a):
@@ -2557,13 +2613,13 @@ class PolMap:
         else:
             mask=self.map!=0
             self.map[mask]=1.0/self.map[mask]
-    def get_pix(self,tod):
-        ndet=tod.info['dx'].shape[0]
-        nsamp=tod.info['dx'].shape[1]
+    def pix_from_radec(self,ra,dec):
+        ndet=ra.shape[0]
+        nsamp=ra.shape[1]
         nn=ndet*nsamp
         coords=np.zeros([nn,2])
-        coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
-        coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+        coords[:,0]=np.reshape(ra*180/np.pi,nn)
+        coords[:,1]=np.reshape(dec*180/np.pi,nn)
         #print coords.shape
         pix=self.wcs.wcs_world2pix(coords,1)
         #print pix.shape
@@ -2573,28 +2629,68 @@ class PolMap:
         ypix=np.round(ypix)
         ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
         return ipix
-    def map2tod(self,tod,dat,do_add=True,do_omp=True):
-        if self.npol>1:
-            polmap2tod(dat,self.map,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'],do_add,do_omp)
+    def get_pix(self,tod,savepix=True):
+        if not(self.tag is None):
+            ipix=tod.get_saved_pix(self.tag)
+            if not(ipix is None):
+                return ipix
+        if False:
+            ndet=tod.info['dx'].shape[0]
+            nsamp=tod.info['dx'].shape[1]
+            nn=ndet*nsamp
+            coords=np.zeros([nn,2])
+            coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
+            coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+        #print coords.shape
+            pix=self.wcs.wcs_world2pix(coords,1)
+        #print pix.shape
+            xpix=np.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+            ypix=np.reshape(pix[:,1],[ndet,nsamp])-1  
+            xpix=np.round(xpix)
+            ypix=np.round(ypix)
+            ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
         else:
-            map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+            ra,dec=tod.get_radec()
+            ipix=self.pix_from_radec(ra,dec)
+        if savepix:
+            if not(self.tag is None):
+                tod.save_pixellization(self.tag,ipix)
+        return ipix
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        ipix=self.get_pix(tod)
+        if self.npol>1:
+            #polmap2tod(dat,self.map,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'],do_add,do_omp)
+            polmap2tod(dat,self.map,self.poltag,tod.info['twogamma_saved'],ipix,do_add,do_omp)
+        else:
+            #map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+            map2tod(dat,self.map,ipix,do_add,do_omp)
 
         
     def tod2map(self,tod,dat,do_add=True,do_omp=True):
         if do_add==False:
             self.clear()
+        ipix=self.get_pix(tod)
+        #print('ipix start is ',ipix[0,0:500:100])
         if self.npol>1:
-            tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'])
+            #tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'])
+            tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],ipix)
+            if self.purge_pixellization:
+                tod.clear_saved_pix(tod,self.tag)
             return
         #print("working on nonpolarized bit")
 
         if not(self.caches is None):
-            tod2map_cached(self.caches,dat,tod.info['ipix'])
+            #tod2map_cached(self.caches,dat,tod.info['ipix'])
+            tod2map_cached(self.caches,dat,ipix)
         else:
             if do_omp:
-                tod2map_omp(self.map,dat,tod.info['ipix'])
+                #tod2map_omp(self.map,dat,tod.info['ipix'])
+                tod2map_omp(self.map,dat,ipix)
             else:
-                tod2map_simple(self.map,dat,tod.info['ipix'])
+                #tod2map_simple(self.map,dat,tod.info['ipix'])
+                tod2map_simple(self.map,dat,ipix)
+        if self.purge_pixellization:
+            tod.clear_saved_pix(tod,self.tag)
 
     def r_th_maps(self):
         xvec=np.arange(self.nx)
@@ -2698,7 +2794,7 @@ class PolMap:
             
             #print("reduced")
 class HealMap(SkyMap):
-    def __init__(self,proj='RING',nside=512):
+    def __init__(self,proj='RING',nside=512,tag='ipix'):
         if not(have_healpy):
             printf("Healpix map requested, but healpy not found.")
             return
@@ -2707,21 +2803,33 @@ class HealMap(SkyMap):
         self.nx=healpy.nside2npix(self.nside)
         self.ny=1
         self.caches=None
+        self.tag=tag
         self.map=np.zeros([self.nx,self.ny])
     def copy(self):
-        newmap=HealMap(self.proj,self.nside)
+        newmap=HealMap(self.proj,self.nside,self.tag)
         newmap.map[:]=self.map[:]
         return newmap
-    def get_pix(self,tod):
-        ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
-        return ipix
+    def pix_from_radec(self,ra,dec):
+        ipix=healpy.ang2pix(self.nside,np.pi/2-dec,ra,self.proj=='NEST')
+        return np.asarray(ipix,dtype='int32')
+    #def get_pix(self,tod,savepix=True):
+    #    if not(self.tag is None):
+    #        ipix=tod.get_saved_pix(self.tag)
+    #        if not(ipix is None):
+    #            return ipix
+    #    ra,dec=tod.get_radec()
+    #    #ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
+    #    ipix=healpy.ang2pix(self.nside,np.pi/2-dec,ra,self.proj=='NEST')
+    #    if savepix:
+    #        tod.save_pixellization(self.tag,ipix)            
+    #    return ipix
     def write(self,fname='map.fits',overwrite=True):
         if self.map.shape[1]<=1:
             healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)        
     
 
 class HealPolMap(PolMap):
-    def __init__(self,poltag='I',proj='RING',nside=512):
+    def __init__(self,poltag='I',proj='RING',nside=512,tag='ipix',purge_pixellization=False):
         if not(have_healpy):
             printf("Healpix map requested, but healpy not found.")
             return
@@ -2738,17 +2846,37 @@ class HealPolMap(PolMap):
         self.poltag=poltag
         self.pols=pols
         self.caches=None
+        self.tag=tag
+        self.purge_pixellization=purge_pixellization
         if self.npol>1:
             self.map=np.zeros([self.nx,self.ny,self.npol])
         else:
             self.map=np.zeros([self.nx,self.ny])
     def copy(self):
-        newmap=HealPolMap(self.poltag,self.proj,self.nside)
-        newmap.map[:]=self.map[:]
-        return newmap
-    def get_pix(self,tod):
-        ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
-        return ipix
+        if False:
+            newmap=HealPolMap(self.poltag,self.proj,self.nside,self.tag)
+            newmap.map[:]=self.map[:]
+            return newmap
+        else:
+            return copy.deepcopy(self)
+    #def get_pix(self,tod):
+    #    ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
+    #    return ipix
+    def pix_from_radec(self,ra,dec):
+        ipix=healpy.ang2pix(self.nside,np.pi/2-dec,ra,self.proj=='NEST')
+        return np.asarray(ipix,dtype='int32')
+    #def get_pix(self,tod,savepix=True):
+    #    if not(self.tag is None):
+    #        ipix=tod.get_saved_pix(self.tag)
+    #        if not(ipix is None):
+    #            return ipix
+    #    ra,dec=tod.get_radec()
+    #    ipix=self.pix_from_radec(ra,dec)
+    #    if savepix:
+    #        if not(self.tag is None):
+    #            tod.save_pixellization(self.tag,ipix)
+    #    return ipix
+
     def write(self,fname='map.fits',overwrite=True):
         if self.map.shape[1]<=1:
             if self.npol==1:
@@ -3522,6 +3650,24 @@ class Tod:
         #return np.product(self.info['dat_calib'].shape)
         return self.get_ndet()*self.get_ndata()
 
+    def get_saved_pix(self,tag=None):
+        if tag is None:
+            return None
+        if tag in self.info.keys():
+            return self.info[tag]
+        else:
+            return None
+    def clear_saved_pix(self,tag=None):
+        if tag is None:
+            return
+        if tag in self.info.keys():
+            del(self.info[tag])
+    def save_pixellization(self,tag,ipix):
+        if tag in self.info.keys():
+            print('warning - overwriting key ',tag,' in tod.save_pixellization.')
+        self.info[tag]=ipix
+    
+
     def get_data_dims(self):
         return (self.get_ndet(),self.get_ndata())
         #dims=self.info['dat_calib'].shape
@@ -3554,7 +3700,8 @@ class Tod:
         self.info['tag']=tag
     def set_pix(self,map):
         ipix=map.get_pix(self)
-        self.info['ipix']=ipix
+        #self.info['ipix']=ipix
+        self.info[map.tag]=ipix
     def copy(self,copy_info=False):
         if copy_info:
             myinfo=self.info.copy()
