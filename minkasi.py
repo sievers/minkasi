@@ -110,6 +110,9 @@ fill_gauss_derivs_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ct
 fill_gauss_src_c=mylib.fill_gauss_src
 fill_gauss_src_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int]
 
+outer_c=mylib.outer_block
+outer_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int]
+
 
 
 def y2rj(freq=90):
@@ -886,10 +889,12 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
     zr=r.dot(z)
     x=x0.copy()
     t2=time.time()
+    nsamp=tods.get_nsamp()
+    tloop=time.time()
     for iter in range(maxiter):
         if myrank==0:
             if iter>0:
-                print(iter,zr,alpha,t2-t1,t3-t2,t3-t1)
+                print(iter,zr,alpha,t2-t1,t3-t2,t3-t1,nsamp/(t2-t1)/1e6)
             else:
                 print(iter,zr,t2-t1)
         t1=time.time()
@@ -931,6 +936,8 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
         if iter in save_iters:
             if myrank==0:
                 x.maps[save_ind].write(outroot+'_'+repr(iter)+save_tail)
+    tave=(time.time()-tloop)/maxiter
+    print('average time per iteration was ',tave,' with effective throughput ',nsamp/tave/1e6,' Msamp/s')
     return x
 
 def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits'):
@@ -2144,7 +2151,7 @@ class SkyMap:
                 #tod2map_simple(self.map,dat,tod.info['ipix'])
                 tod2map_simple(self.map,dat,ipix)
         if self.purge_pixellization:
-            tod.clear_saved_pix(tod,self.tag)
+            tod.clear_saved_pix(self.tag)
 
     def r_th_maps(self):
         xvec=np.arange(self.nx)
@@ -2675,7 +2682,7 @@ class PolMap:
             #tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'])
             tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],ipix)
             if self.purge_pixellization:
-                tod.clear_saved_pix(tod,self.tag)
+                tod.clear_saved_pix(self.tag)
             return
         #print("working on nonpolarized bit")
 
@@ -2690,7 +2697,7 @@ class PolMap:
                 #tod2map_simple(self.map,dat,tod.info['ipix'])
                 tod2map_simple(self.map,dat,ipix)
         if self.purge_pixellization:
-            tod.clear_saved_pix(tod,self.tag)
+            tod.clear_saved_pix(self.tag)
 
     def r_th_maps(self):
         xvec=np.arange(self.nx)
@@ -3111,7 +3118,15 @@ class CutsCompact:
         
                                  
             
-class SkyMapCar:
+class SkyMapCar(SkyMap):
+    def pix_from_radec(self,ra,dec):
+        xpix=np.round((ra-self.lims[0])*self.cosdec/self.pixsize)
+        #ypix=np.round((dec-self.lims[2])/self.pixsize)
+        ypix=((dec-self.lims[2])/self.pixsize)+0.5
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        return ipix
+        
+class SkyMapCarOld:
     def __init__(self,lims,pixsize):
         try:
             self.lims=lims.copy()
@@ -3530,6 +3545,7 @@ class NoiseBinnedEig:
         return dd
 class NoiseCMWhite:
     def __init__(self,dat):
+        print('setting up noise cm white')
         u,s,v=np.linalg.svd(dat,0)
         self.ndet=len(s)
         ind=np.argmax(s)
@@ -3539,7 +3555,8 @@ class NoiseCMWhite:
         dat_clean=dat-pred
         myvar=np.std(dat_clean,1)**2
         self.mywt=1.0/myvar
-    def apply_noise(self,dat):
+    def apply_noise(self,dat,dd=None):
+        t1=time.time()
         mat=np.dot(self.v,np.diag(self.mywt))
         lhs=np.dot(self.v,mat.T)
         rhs=np.dot(mat,dat)
@@ -3547,9 +3564,23 @@ class NoiseCMWhite:
             cm=np.dot(np.linalg.inv(lhs),rhs)
         else:
             cm=rhs/lhs
-        dd=dat-np.outer(self.v,cm)
-        tmp=np.repeat([self.mywt],len(cm),axis=0).T
-        dd=dd*tmp
+        t2=time.time()
+        if dd is None:
+            dd=np.empty(dat.shape)
+        if have_numba:
+            np.outer(-self.v,cm,dd)
+            t3=time.time()
+            #dd[:]=dd[:]+dat
+            minkasi_nb.axpy_in_place(dd,dat)
+            minkasi_nb.scale_matrix_by_vector(dd,self.mywt)
+        else:
+            dd=dat-np.outer(self.v,cm)
+            #print(dd[:4,:4])
+            t3=time.time()
+            tmp=np.repeat([self.mywt],len(cm),axis=0).T
+            dd=dd*tmp
+        t4=time.time()
+        #print(t2-t1,t3-t2,t4-t3)
         return dd
     def get_det_weights(self):
         return self.mywt.copy()
@@ -3901,15 +3932,21 @@ class Tod:
             dat=self.get_data()
         for map in mapset.maps:
             map.tod2map(self,dat)
-    def dot(self,mapset,mapset_out):
+    def dot(self,mapset,mapset_out,times=False):
         #tmp=0.0*self.info['dat_calib']
         #for map in mapset.maps:
         #    map.map2tod(self,tmp)
+        t1=time.time()
         tmp=self.mapset2tod(mapset)
+        t2=time.time()
         tmp=self.apply_noise(tmp)
+        t3=time.time()
         self.tod2mapset(mapset_out,tmp)
+        t4=time.time()
         #for map in mapset_out.maps:
         #    map.tod2map(self,tmp)
+        if times:
+            return(np.asarray([t2-t1,t3-t2,t4-t3]))
     def set_jumps(self,jumps):
         self.jumps=jumps
     def cut_detectors(self,isgood):
@@ -4020,6 +4057,15 @@ class TodVec:
 
         return mapset2
 
+    def get_nsamp(self,reduce=True):
+        tot=0
+        for tod in self.tods:
+            tot=tot+tod.get_nsamp()
+        if reduce:
+            if have_mpi:
+                tot=comm.allreduce(tot)
+        return tot
+
     def dot(self,mapset,mapset2=None,report_times=False,cache_maps=False):
         if mapset2 is None:
             mapset2=mapset.copy()
@@ -4031,15 +4077,18 @@ class TodVec:
             
 
         times=np.zeros(self.ntod)
+        tot_times=0
         #for tod in self.tods:
         for i in range(self.ntod):
             tod=self.tods[i]
             t1=time.time()
-            tod.dot(mapset,mapset2)
+            mytimes=tod.dot(mapset,mapset2,True)
             t2=time.time()
+            tot_times=tot_times+mytimes
             times[i]=t2-t1
         if have_mpi:
             mapset2.mpi_reduce()
+        print(tot_times)
         if report_times:
             return mapset2,times
         else:

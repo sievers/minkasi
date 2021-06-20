@@ -384,3 +384,39 @@ void fill_isobeta_derivs(double *param, double *dx, double *dy, double *dat, dou
   }
 }
 /*--------------------------------------------------------------------------------*/
+void outer(double *A,double *fitp,double *vec,double *out,int n,int ndet,int npar)
+{
+
+#pragma omp parallel for
+  for (int i=0;i<n;i++)
+    for (int j=0;j<ndet;j++) {
+      double tmp=vec[i];
+      for (int k=0;k<npar;k++)
+	tmp+=A[i*npar+k]*fitp[j*npar+k];
+      out[i*ndet+j]=tmp;      
+    }
+}
+
+/*--------------------------------------------------------------------------------*/
+void outer_block(double *A,double *fitp,double *vec,double *out,int n,int ndet,int npar)
+{
+
+  int bs=16;
+  for (int b=0;b<ndet;b+=bs)
+    {
+      int jmin=b;
+      int jmax=b+bs;
+      if (jmax>ndet)
+	jmax=ndet;
+#pragma omp parallel for
+      for (int i=0;i<n;i++)
+	for (int j=jmin;j<jmax;j++) {
+	  double tmp=vec[i];
+	  for (int k=0;k<npar;k++)
+	    tmp+=A[i*npar+k]*fitp[j*npar+k];
+	  //out[i*ndet+j]=tmp;      
+	  //out[i]=out[i]+tmp;
+	  out[j*n+i]=tmp;
+	}
+    }
+}

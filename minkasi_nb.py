@@ -242,3 +242,55 @@ def fill_elliptical_gauss_derivs(params,dx,dy,pred,derivs):
             derivs[4,det,j]=dfdrr*drdtheta
             derivs[5,det,j]=rrpow
 
+
+@nb.njit(parallel=True)
+def radec2pix_car(ra,dec,ipix,lims,pixsize,cosdec,ny):
+    ra=np.ravel(ra)
+    dec=np.ravel(dec)
+    ipix=np.ravel(ipix)
+    n=len(ipix)
+    for i in nb.prange(n):
+        xpix=int((ra[i]-lims[0])*cosdec/pixsize+0.5)
+        ypix=int((dec[i]-lims[2])/pixsize+0.5)
+        ipix[i]=xpix*ny+ypix
+
+@nb.njit(parallel=True)
+def axpy_in_place(y,x,a=1.0):
+    #add b into a
+    n=x.shape[0]
+    m=x.shape[1]
+    assert(n==y.shape[0])
+    assert(m==y.shape[1])
+    #Numba has a bug, as of at least 0.53.1 (an 0.52.0) where
+    #both parts of a conditional can get executed, so don't 
+    #try to be fancy.  Lower-down code can be used in the future.
+    for i in nb.prange(n):
+        for j in np.arange(m):
+            y[i,j]=y[i,j]+x[i,j]*a
+    
+    #isone=(a==1.0)
+    #if isone:
+    #    for  i in nb.prange(n):
+    #        for j in np.arange(m):
+    #            y[i,j]=y[i,j]+x[i,j]
+    #else:
+    #    for i in nb.prange(n):
+    #        for j in np.arange(m):
+    #            y[i,j]=y[i,j]+x[i,j]*a
+
+@nb.njit(parallel=True)
+def scale_matrix_by_vector(mat,vec,axis=1):
+    n=mat.shape[0]
+    m=mat.shape[1]
+    if axis==1:
+        assert(len(vec)==n)
+        for i in nb.prange(n):
+            for j in np.arange(m):
+                mat[i,j]=mat[i,j]*vec[i]
+    elif axis==0:
+        assert(len(vec)==m)
+        for i in nb.prange(n):
+            for j in np.arange(m):
+                mat[i,j]=mat[i,j]*vec[j]
+    else:
+        print('unsupported number of dimensions in scale_matrix_by_vector')

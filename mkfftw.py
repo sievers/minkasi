@@ -148,13 +148,14 @@ def fft_r2r_1d(dat,kind=1):
     fft_r2r_1d_c(dat.ctypes.data,trans.ctypes.data,nn,kind)
     return trans
 
-def fft_r2r(dat,kind=1):
+def fft_r2r(dat,trans=None,kind=1):
     if len(dat.shape)==1:
         return fft_r2r_1d(dat,kind)
     ntrans=dat.shape[0]
     n=dat.shape[1]
     #trans=numpy.zeros([ntrans,n],dtype=type(dat[0,0]))
-    trans=numpy.empty([ntrans,n],dtype=type(dat[0,0]))
+    if trans is None:
+        trans=numpy.empty([ntrans,n],dtype=type(dat[0,0]))
     
 
     if type(dat[0,0])==numpy.dtype('float32'):
