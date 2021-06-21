@@ -3641,6 +3641,29 @@ class NoiseSmoothedSVD:
             #noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
             dat=dat/noisemat        
         return dat
+
+    def apply_noise_wscratch(self,dat,tmp,tmp2):
+        if not(self.noisevec is None):
+            noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
+        dat_rot=tmp
+        dat_rot=np.dot(self.v,dat,dat_rot)
+        dat=tmp2
+        datft=dat
+        datft=mkfftw.fft_r2r(dat_rot,datft)
+        nn=datft.shape[1]
+        datft[:]=datft*self.mywt[:,:nn]
+        dat_rot=tmp
+        dat_rot=mkfftw.fft_r2r(datft,dat_rot)
+        #dat=np.dot(self.v.T,dat_rot)
+        dat=np.dot(self.vT,dat_rot,dat)
+        dat[:,0]=0.5*dat[:,0]
+        dat[:,-1]=0.5*dat[:,-1]
+        if not(self.noisevec is None):
+            #noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat        
+        return dat
+
     def get_det_weights(self):
         """Find the per-detector weights for use in making actual noise maps."""
         mode_wt=np.sum(self.mywt,axis=1)
