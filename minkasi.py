@@ -4902,6 +4902,7 @@ def update_lamda(lamda,success):
         
 def invscale(mat,do_invsafe=False):
     vec=1/np.sqrt(np.diag(mat))
+    vec[np.where(vec == np.inf)[0]] = 1e-10
     mm=np.outer(vec,vec)
     mat=mm*mat
     #ee,vv=np.linalg.eig(mat)
@@ -4911,7 +4912,7 @@ def invscale(mat,do_invsafe=False):
     else:
         return mm*np.linalg.inv(mat)
 
-def _par_step(grad,curve,to_fit,lamda,return_full=False):
+def _par_step(grad,curve,to_fit,lamda,flat_priors=None,return_full=False):
     curve_use=curve+lamda*np.diag(np.diag(curve))
     if to_fit is None:
         step=np.dot(invscale(curve_use,True),grad)
@@ -4933,15 +4934,40 @@ def _par_step(grad,curve,to_fit,lamda,return_full=False):
     else:
         return step
 
-def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs):
+def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs, priors=None, prior_vals=None):
     lamda=0
     t1=time.time()
     chisq,grad,curve=get_ts_curve_derivs_many_funcs(tods,pars,npar_fun,funcs,driver=driver)
     t2=time.time()
     if myrank==0:
         print('starting chisq is ',chisq,' with ',t2-t1,' seconds to get curvature')
+    if to_fit is None:
+        #If to_fit is not already defined, define it an intialize it to true
+        #we're going to use it to handle not stepping for flat priors
+        to_fit = np.ones(len(pars),dtype='bool')
+
     for iter in range(maxiter):
-        pars_new=pars+_par_step(grad,curve,to_fit,lamda)
+        temp_to_fit = np.copy(to_fit) #Make a copy of to fit, so we can temporarily set values to false 
+        if np.any(priors):
+            #first build a mask that will identify parameters with flat priors
+            flat_mask = np.where((priors == 'flat'))[0]
+
+            for flat_id in flat_mask:
+                print(pars[flat_id])
+                if (pars[flat_id] == prior_vals[flat_id][0]) or (pars[flat_id] == prior_vals[flat_id][1]):
+                    #Check to see if we're at the boundry values, if so don't fit for this iter
+                    temp_to_fit[flat_id] = False
+                 
+            #Make the new step
+            pars_new = pars + _par_step(grad, curve, temp_to_fit, lamda)
+            #check to see if we're outside the range for the flat priors: if so, peg them
+            print('old gamma: ', pars_new[flat_id])
+            for flat_id in flat_mask:
+                if (pars_new[flat_id] < prior_vals[flat_id][0]): pars_new[flat_id] = prior_vals[flat_id][0]
+                elif (pars_new[flat_id] > prior_vals[flat_id][1]): pars_new[flat_id] = prior_vals[flat_id][1]
+            print('new gamma: ',pars_new[flat_id])
+        else:
+            pars_new=pars+_par_step(grad,curve,to_fit,lamda)
         chisq_new,grad_new,curve_new=get_ts_curve_derivs_many_funcs(tods,pars_new,npar_fun,funcs,driver=driver)
         if chisq_new<chisq:
             if myrank==0:
@@ -4952,7 +4978,7 @@ def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_
             grad=grad_new
             lamda=update_lamda(lamda,True)
             if (chisq-chisq_new<chitol)&(lamda==0):
-                step,errs=_par_step(grad,curve,to_fit,lamda,True)
+                step,errs=_par_step(grad,curve,temp_to_fit,lamda,return_full=True)
                 return pars,chisq_new,curve_new,errs
             else:
                 chisq=chisq_new
@@ -4963,7 +4989,7 @@ def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_
         sys.stdout.flush()
     if myrank==0:
         print("fit_timestreams_with_derivs_manyfun failed to converge after ",maxiter," iterations.")    
-    step,errs=_par_step(grad,curve,to_fit,lamda,True)
+    step,errs=_par_step(grad,curve,temp_to_fit,lamda,return_full=True)
     return pars,chisq,curve,errs
         
 def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
