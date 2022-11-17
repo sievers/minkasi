@@ -55,6 +55,33 @@ void tod2map_simple(double *map, double *dat, int ndet, int ndata, int *pix)
 }
 
 /*--------------------------------------------------------------------------------*/
+
+void tod2map_atomic(double *map, double *dat, int ndet, int ndata, int *pix)
+{
+  long nn=ndet*ndata;
+#pragma omp parallel for
+  for (long i=0;i<nn;i++)
+#pragma omp atomic
+    map[pix[i]]+=dat[i];
+}
+/*--------------------------------------------------------------------------------*/
+void tod2map_everyone(double *map, double *dat, int ndet, int ndata, int *ipix, int npix, int *edge,int nedge)
+//do tod2map where all threads loop over all data, but only assign a region they are responsible for
+{
+#pragma omp parallel
+  {    
+    int mythread=omp_get_thread_num();
+    if (omp_get_num_threads()<nedge) {  //safety check to make sure # of threads hasn't changed in a bad way
+      int itop=edge[mythread+1];
+      int ibot=edge[mythread];
+      for (int i=0;i<ndet*ndata;i++)
+	if ((ipix[i]<itop)&&(ipix[i]>=ibot))
+	  map[ipix[i]]+=dat[i];
+    }
+    
+  }
+}
+/*--------------------------------------------------------------------------------*/
 void tod2map_cached(double *maps, double *dat, int ndet, int ndata, int *ipix, int npix)
 {
 #pragma omp parallel

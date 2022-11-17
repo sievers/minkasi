@@ -50,8 +50,15 @@ except:
 
 
 mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
+
 tod2map_simple_c=mylib.tod2map_simple
 tod2map_simple_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+
+tod2map_atomic_c=mylib.tod2map_atomic
+tod2map_atomic_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+
+#tod2map_everyone_c=mylib.tod2map_everyone
+#tod2map_everyone_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
 
 tod2map_omp_c=mylib.tod2map_omp
 tod2map_omp_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
@@ -164,13 +171,19 @@ def tod2map_simple(map,dat,ipix):
     if not(ipix.dtype=='int32'):
         print("Warning - ipix is not int32 in tod2map_simple.  this is likely to produce garbage results.")
     tod2map_simple_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data)
+def tod2map_everyone(map,dat,ipix,edges):
+    assert(len(edges)==get_nthread()+1)
+    tod2map_everyone_c(map.ctypes.data,dat.ctypes.data,dat.shape[0],dat.shape[1],ipix.ctypes.data,map.size,edges.ctypes.data,len(edges))
 
-def tod2map_omp(map,dat,ipix):
+def tod2map_omp(map,dat,ipix,atomic=False):
     ndet=dat.shape[0]
     ndata=dat.shape[1]
     if not(ipix.dtype=='int32'):
         print("Warning - ipix is not int32 in tod2map_omp.  this is likely to produce garbage results.")
-    tod2map_omp_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.size)
+    if atomic:
+        tod2map_atomic_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.size)
+    else:
+        tod2map_omp_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data,map.size)
 
 def tod2map_cached(map,dat,ipix):
     ndet=dat.shape[0]
@@ -868,7 +881,7 @@ def __run_pcg_old(b,x0,tods,mapset,precon):
         x=x_new
     return x
 
-def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits'):
+def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits',plot_iters=[],plot_info=None,plot_ind=0):
     
     t1=time.time()
     Ax=tods.dot(x0)
@@ -936,8 +949,17 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
         if iter in save_iters:
             if myrank==0:
                 x.maps[save_ind].write(outroot+'_'+repr(iter)+save_tail)
+        if iter in plot_iters:
+            print('plotting on iteration ',iter)
+            x.maps[plot_ind].plot(plot_info)
+
     tave=(time.time()-tloop)/maxiter
     print('average time per iteration was ',tave,' with effective throughput ',nsamp/tave/1e6,' Msamp/s')
+    if iter in plot_iters:
+        print('plotting on iteration ',iter)
+        x.maps[plot_ind].plot(plot_info)
+    else:
+        print('skipping plotting on iter ',iter)
     return x
 
 def run_pcg_wprior(b,x0,tods,prior=None,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits'):
@@ -2052,6 +2074,7 @@ class SkyMap:
         self.purge_pixellization=purge_pixellization
         self.caches=None
         self.cosdec=cosdec
+        self.tod2map_method=None
     def get_caches(self):
         npix=self.nx*self.ny
         nthread=get_nthread()
@@ -2059,6 +2082,51 @@ class SkyMap:
     def clear_caches(self):
         self.map[:]=np.reshape(np.sum(self.caches,axis=0),self.map.shape)
         self.caches=None
+    def set_tod2map(self,method=None,todvec=None):
+        """Select which method of tod2map to use.  options include simple (1 proc), omp (everyone makes a map copy), everyone (everyone loops through
+           all the data but assigns only to their own piece), atomic (no map copy, accumulate via atomic adds), and cached (every thread has a sticky
+           copy of the map)."""
+        if method is None:
+            if nproc==1:
+                self.tod2map_method=self.tod2map_simple
+            else:
+                self.tod2map_method=self.tod2map_omp
+            return
+        if method=='omp':
+            self.tod2map_method=self.tod2map_omp
+            return
+        if method=='simple':
+            self.tod2map_method=self.tod2map_simple
+        if method=='everyone':
+            if todvec is None:
+                print('need tods when setting to everyone so we can know which pieces belong to which threads')
+            for tod in todvec.tods:
+                ipix=self.get_pix(tod,False)
+                ipix=ipix.copy()
+                ipix=np.ravel(ipix)
+                ipix.sort()
+                inds=len(ipix)*np.arange(nproc+1)//nproc
+                inds=np.asarray(inds,dtype='int32')
+                tod.save_pixellization(self.tag+'_edges',inds)
+                self.tod2map_method=self.tod2map_everyone
+        if method=='cached':
+            self.get_caches()
+            self.tod2map_method=self.tod2map_cached
+        if method=='atomic':
+            self.tod2map_method=self.todmap_atomic
+    def tod2map_atomic(self,tod,dat):
+        ipix=self.get_pix(tod)
+        tod2map_omp(self.map,dat,ipix,True)
+    def todmap_omp(self,tod,dat):
+        ipix=self.get_pix(tod)
+        tod2map_omp(self.map,dat,ipix,False)
+    def tod2map_simple(self,tod,dat):
+        ipix=self.get_pix(tod)
+        tod2map_simple(self.map,dat,ipix)
+    #def tod2map_cached(self.map,dat,ipix):
+    #    ipix=self.get_pix(tod)
+    #    tod2map_cached(map,dat,ipix)
+
     def copy(self):
         if False:
             newmap=SkyMap(self.lims,self.pixsize,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs,tag=self.tag)
@@ -2134,7 +2202,27 @@ class SkyMap:
         #map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
         map2tod(dat,self.map,ipix,do_add,do_omp)
 
-    def tod2map(self,tod,dat=None,do_add=True,do_omp=True):
+    def tod2map(self,tod,dat=None,do_add=True,do_omp=True):        
+        if dat is None:
+            dat=tod.get_data()
+        if do_add==False:
+            self.clear()
+        ipix=self.get_pix(tod)
+        
+        if not(self.caches is None):
+            #tod2map_cached(self.caches,dat,tod.info['ipix'])
+            tod2map_cached(self.caches,dat,ipix)
+        else:
+            if do_omp:
+                #tod2map_omp(self.map,dat,tod.info['ipix'])
+                tod2map_omp(self.map,dat,ipix)
+            else:
+                #tod2map_simple(self.map,dat,tod.info['ipix'])
+                tod2map_simple(self.map,dat,ipix)
+        if self.purge_pixellization:
+            tod.clear_saved_pix(self.tag)
+
+    def tod2map_old(self,tod,dat=None,do_add=True,do_omp=True):
         if dat is None:
             dat=tod.get_data()
         if do_add==False:
@@ -2166,6 +2254,30 @@ class SkyMap:
         tot=np.sum(self.map*map.map)
         return tot
         
+    def plot(self,plot_info=None):
+        vmin=self.map.min()
+        vmax=self.map.max()
+        clf=True
+        pause=True
+        pause_len=0.001
+        if not(plot_info is None):
+            if 'vmin' in plot_info.keys():
+                vmin=plot_info['vmin']
+            if 'vmax' in plot_info.keys():
+                vmax=plot_info['vmax']
+            if 'clf' in plot_info.keys():
+                clf=plot_info['clf']
+            if 'pause' in plot_info.keys():
+                pause=plot_info['pause']
+            if pause_len in plot_info.keys():
+                pause_len=plot_info['pause_len']
+        from matplotlib import pyplot as plt
+        if clf:
+            plt.clf()
+        plt.imshow(self.map,vmin=vmin,vmax=vmax)
+        if pause:
+            plt.pause(pause_len)
+
     def write(self,fname='map.fits'):
         header=self.wcs.to_header()
         if True: #try a patch to fix the wcs xxx 
