@@ -3,4 +3,6 @@ intel-jack/
 *.swp
 __pychache__/
 *.so
+*.pyc
+*.cfg
 
