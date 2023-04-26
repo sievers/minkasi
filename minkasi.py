@@ -29,11 +29,17 @@ try:
 except:
     have_qp=False
 
+print('importing mpi4py')
+
 try:
+    import mpi4py.rc
+    mpi4py.rc.threads = False
     from mpi4py import MPI
+    print('mpi4py imported')
     comm=MPI.COMM_WORLD
     myrank = comm.Get_rank()
     nproc=comm.Get_size()
+    print('nproc:, ', nproc)
     if nproc>1:
         have_mpi=True
     else:
@@ -171,6 +177,7 @@ def tod2map_simple(map,dat,ipix):
     if not(ipix.dtype=='int32'):
         print("Warning - ipix is not int32 in tod2map_simple.  this is likely to produce garbage results.")
     tod2map_simple_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data)
+
 def tod2map_everyone(map,dat,ipix,edges):
     assert(len(edges)==get_nthread()+1)
     tod2map_everyone_c(map.ctypes.data,dat.ctypes.data,dat.shape[0],dat.shape[1],ipix.ctypes.data,map.size,edges.ctypes.data,len(edges))
@@ -4893,7 +4900,7 @@ def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
 def get_timestream_chisq_from_func(func,pars,tods):
     chisq=0.0
     for tod in tods.tods:
-        pred,derivs=func(pars,tod)
+        derivs,pred=func(pars,tod)
         #delt=tod.info['dat_calib']-pred
         delt=tod.get_data()-pred
         delt_filt=tod.apply_noise(delt)
@@ -4909,7 +4916,7 @@ def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None,*args,
     #print 'inside func, len(tods) is ',len(tods.tods),len(pars)
     for tod in tods.tods:
         #print 'type of tod is ',type(tod)
-        pred,derivs=func(pars,tod,*args,**kwargs)
+        derivs,pred=func(pars,tod,*args,**kwargs)
         if not(rotmat is None):
             derivs=np.dot(rotmat.transpose(),derivs)
         derivs=np.reshape(derivs,[derivs.shape[0],np.product(derivs.shape[1:])])
@@ -5011,9 +5018,10 @@ def update_lamda(lamda,success):
             return 1.0
         else:
             return 2.0*lamda
-        
+
 def invscale(mat,do_invsafe=False):
-    vec=1/np.sqrt(np.diag(mat))
+    vec=1/np.sqrt(abs(np.diag(mat)))
+    vec[np.where(vec == np.inf)[0]] = 1e-10
     mm=np.outer(vec,vec)
     mat=mm*mat
     #ee,vv=np.linalg.eig(mat)
@@ -5021,8 +5029,11 @@ def invscale(mat,do_invsafe=False):
     if do_invsafe:
         return mm*invsafe(mat)
     else:
-        return mm*np.linalg.inv(mat)
-
+        try:
+            return mm*np.linalg.inv(mat)
+        except:
+            return mm*np.linalg.pinv(mat)
+        
 def _par_step(grad,curve,to_fit,lamda,return_full=False):
     curve_use=curve+lamda*np.diag(np.diag(curve))
     if to_fit is None:
