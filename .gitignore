@@ -1,3 +1,6 @@
 jack_working_minkasi.py
-
+intel-jack/
+*.swp
+__pychache__/
+*.so
 
