@@ -1,7 +1,7 @@
 jack_working_minkasi.py
-intel-jack/
+intel-jax/
 *.swp
-__pychache__/
+__pycache__/
 *.so
 *.pyc
 *.cfg
