@@ -29,17 +29,11 @@ try:
 except:
     have_qp=False
 
-print('importing mpi4py')
-
 try:
-    import mpi4py.rc
-    mpi4py.rc.threads = False
     from mpi4py import MPI
-    print('mpi4py imported')
     comm=MPI.COMM_WORLD
     myrank = comm.Get_rank()
     nproc=comm.Get_size()
-    print('nproc:, ', nproc)
     if nproc>1:
         have_mpi=True
     else:
@@ -177,7 +171,6 @@ def tod2map_simple(map,dat,ipix):
     if not(ipix.dtype=='int32'):
         print("Warning - ipix is not int32 in tod2map_simple.  this is likely to produce garbage results.")
     tod2map_simple_c(map.ctypes.data,dat.ctypes.data,ndet,ndata,ipix.ctypes.data)
-
 def tod2map_everyone(map,dat,ipix,edges):
     assert(len(edges)==get_nthread()+1)
     tod2map_everyone_c(map.ctypes.data,dat.ctypes.data,dat.shape[0],dat.shape[1],ipix.ctypes.data,map.size,edges.ctypes.data,len(edges))
@@ -2314,4 +2307,3018 @@ class SkyMap:
             if nchunk==1:
                 self.map=comm.allreduce(self.map)
             else:
-                inds
+                inds=np.asarray(np.linspace(0,self.nx*self.ny,nchunk+1),dtype='int')
+                if len(self.map.shape)>1:
+                    tmp=np.zeros(self.map.size)
+                    tmp[:]=np.reshape(self.map,len(tmp))
+                else:
+                    tmp=self.map
+
+                for i in range(len(inds)-1):
+                    tmp[inds[i]:inds[i+1]]=comm.allreduce(tmp[inds[i]:inds[i+1]])
+                    #self.map[inds[i]:inds[i+1]]=comm.allreduce(self.map[inds[i]:inds[i+1]])
+                    #tmp=np.zeros(inds[i+1]-inds[i])
+                    #tmp[:]=self.map[inds[i]:inds[i+1]]
+                    #tmp=comm.allreduce(tmp)
+                    #self.map[inds[i]:inds[i+1]]=tmp
+                if len(self.map.shape)>1:
+                    self.map[:]=np.reshape(tmp,self.map.shape)
+            
+            #print("reduced")
+    def invert(self):
+        mask=np.abs(self.map)>0
+        self.map[mask]=1.0/self.map[mask]
+
+class MapNoiseWhite:
+    def __init__(self,ivar_map,isinv=True,nfac=1.0):
+        self.ivar=read_fits_map(ivar_map)
+        if not(isinv):
+            mask=self.ivar>0
+            self.ivar[mask]=1.0/self.ivar[mask]
+        self.ivar=self.ivar*nfac
+    def apply_noise(self,map):
+        return map*self.ivar
+    
+class SkyMapCoarse(SkyMap):
+    def __init__(self,map):
+        self.nx=map.shape[0]
+        try:
+            self.ny=map.shape[1]
+        except:
+            self.ny=1
+        self.map=map.copy()
+    def get_caches(self):
+        return
+    def clear_caches(self):
+        return
+    def copy(self):
+        cp=copy.copy(self)
+        cp.map=self.map.copy()
+        return cp
+    def get_pix(self):
+        return
+    def map2tod(self,*args,**kwargs):
+        return
+    def tod2map(self,*args,**kwargs):
+        return
+class SkyMapTwoRes:
+    """A pair of maps to serve as a prior for multi-experiment mapping.  This would e.g. be the ACT map that e.g. Mustang should agree
+    with on large scales."""
+    def __init__(self,map_lowres,lims,osamp=1,smooth_fac=0.0):
+        small_wcs,lims_use,map_corner=get_aligned_map_subregion_car(lims,map_lowres,osamp=osamp)
+        self.small_lims=lims_use
+        self.small_wcs=small_wcs
+        self.map=read_fits_map(map_lowres)
+        self.osamp=osamp
+        self.map_corner=map_corner
+        self.beamft=None
+        self.mask=None
+        self.map_deconvolved=None
+        self.noise=None
+        self.fine_prior=None
+        self.nx_coarse=None
+        self.ny_coarse=None
+        self.grid_facs=None
+        self.isglobal_prior=True
+        self.smooth_fac=smooth_fac
+    def copy(self):
+        return copy.copy(self)
+    def get_map_deconvolved(self,map_deconvolved):
+        self.map_deconvolved=read_fits_map(map_deconvolved)
+    def set_beam_gauss(self,fwhm_pix):
+        tmp=0*self.map
+        xvec=get_ft_vec(tmp.shape[0])
+        yvec=get_ft_vec(tmp.shape[1])
+        xx,yy=np.meshgrid(yvec,xvec)
+        rsqr=xx**2+yy**2
+        sig_pix=fwhm_pix/np.sqrt(8*np.log(2))
+        beam=np.exp(-0.5*rsqr/(sig_pix**2))
+        beam=beam/np.sum(beam)
+        self.beamft=np.fft.rfft2(beam)
+    def set_beam_1d(self,prof,pixsize):
+        tmp=0*self.map
+        xvec=get_ft_vec(tmp.shape[0])
+        yvec=get_ft_vec(tmp.shape[1])
+        xx,yy=np.meshgrid(yvec,xvec)
+        rsqr=xx**2+yy**2
+        rr=np.sqrt(rsqr)*pixsize
+        beam=np.interp(rr,prof[:,0],prof[:,1])
+        beam=beam/np.sum(beam)
+        self.beamft=np.fft.rfft2(beam)
+
+
+    def set_noise_white(self,ivar_map,isinv=True,nfac=1.0):
+        self.noise=MapNoiseWhite(ivar_map,isinv,nfac)
+    def maps2fine(self,fine,coarse):
+        out=fine.copy()
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                out[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=coarse[i+self.map_corner[0],j+self.map_corner[1]]
+        out[self.mask]=fine[self.mask]
+        return out
+    def maps2coarse(self,fine,coarse):
+        out=coarse.copy()
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                out[i+self.map_corner[0],j+self.map_corner[1]]=(1-self.grid_facs[i,j])*coarse[i+self.map_corner[0],j+self.map_corner[1]]+np.sum(fine[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)])/self.osamp**2
+        return out
+    def coarse2maps(self,inmap):
+        coarse=1.0*inmap
+        fine=np.zeros([self.nx_coarse*self.osamp,self.ny_coarse*self.osamp])
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                coarse[i+self.map_corner[0],j+self.map_corner[1]]=(1-self.grid_facs[i,j])*inmap[i+self.map_corner[0],j+self.map_corner[1]]
+                fine[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=inmap[i+self.map_corner[0],j+self.map_corner[1]]/self.osamp**2
+        fine=fine*self.mask
+        return coarse,fine
+    def set_mask(self,hits,thresh=0):
+        self.mask=hits>thresh
+        self.fine_prior=0*hits
+        self.nx_coarse=np.int(np.round(hits.shape[0]/self.osamp))
+        self.ny_coarse=np.int(np.round(hits.shape[1]/self.osamp))
+        self.grid_facs=np.zeros([self.nx_coarse,self.ny_coarse])
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                self.grid_facs[i,j]=np.mean(self.mask[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)])
+                self.fine_prior[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=self.map_deconvolved[self.map_corner[0]+i,self.map_corner[1]+j]
+    def apply_Qinv(self,map):
+        tmp=self.fine_prior.copy()
+        tmp[self.mask]=map[self.mask]
+        tmp2=0*self.map_deconvolved.copy()
+        for i in range(self.nx_coarse):
+            for j in range(self.nx_coarse):
+                tmp2[self.map_corner[0]+i,self.map_corner[1]+j]=np.mean(tmp[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)])
+        tmp2_conv=np.fft.irfft2(np.fft.rfft2(tmp2)*self.beamft)
+        tmp2_conv_filt=self.noise.apply_noise(tmp2_conv)
+        tmp2_reconv=np.fft.irfft2(np.fft.rfft2(tmp2_conv_filt)*self.beamft)
+        #tmp2_reconv=np.fft.irfft2(np.fft.rfft2(tmp2_conv)*self.beamft)
+        #tmp2_reconv=tmp2.copy()
+        fac=1.0/self.osamp**2
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                tmp[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=fac*tmp2_reconv[i+self.map_corner[0],j+self.map_corner[1]]
+        ans=0.0*tmp
+        ans[self.mask]=tmp[self.mask]
+        return ans
+    def apply_H(self,coarse,fine):
+        mm=self.maps2coarse(coarse,fine)
+        mm=self.beam_convolve(mm)
+        return mm
+    def apply_HT(self,mm):
+        mm=self.beam_convolve(mm)
+        coarse,fine=self.coarse2maps(mm)
+        return coarse,fine
+    def get_rhs(self,mapset):
+        #if map is None:
+        #    map=self.map
+        #map_filt=self.noise.apply_noise(map)
+        #map_filt_conv=np.fft.irfft2(np.fft.rfft2(map_filt)*self.beamft)
+        #tmp=0.0*self.mask
+        #fac=1.0/self.osamp**2
+        #for i in range(self.nx_coarse):
+        #    for j in range(self.ny_coarse):
+        #        tmp[(i*self.osamp):((i+1)*self.osamp),(j*self.osamp):((j+1)*self.osamp)]=fac*map_filt_conv[i+self.map_corner[0],j+self.map_corner[1]]
+
+        #ans=0*tmp
+        #ans[self.mask]=tmp[self.mask]
+        #return ans
+        
+
+        coarse_ind=None
+        fine_ind=None
+        for i in range(mapset.nmap):
+            if isinstance(mapset.maps[i],SkyMapCoarse):
+                coarse_ind=i
+            else:
+                if isinstance(mapset.maps[i],SkyMap):
+                    fine_ind=i
+        if (coarse_ind is None)|(fine_ind is None):
+            print("Errror in twolevel prior:  either fine or coarse skymap not found.")
+            return
+
+        
+        mm=self.noise.apply_noise(self.map)
+        if True:
+            coarse,fine=self.apply_HT(mm)
+            mapset.maps[coarse_ind].map[:]=mapset.maps[coarse_ind].map[:]+coarse
+            mapset.maps[fine_ind].map[:]=mapset.maps[fine_ind].map[:]+fine
+        else:
+            mm=self.beam_convolve(mm)
+            coarse,fine=self.coarse2maps(mm)
+            i1=self.map_corner[0]
+            i2=i1+self.nx_coarse
+            j1=self.map_corner[1]
+            j2=j1+self.ny_coarse
+            coarse[i1:i2,j1:j2]=coarse[i1:i2,j1:j2]*(1-self.grid_facs)
+            mapset.maps[coarse_ind].map[:]=mapset.maps[coarse_ind].map[:]+coarse
+            mapset.maps[fine_ind].map[self.mask]=mapset.maps[fine_ind].map[self.mask]+fine[self.mask]/self.osamp**2
+
+    def beam_convolve(self,map):
+        mapft=np.fft.rfft2(map)
+        mapft=mapft*self.beamft
+        return np.fft.irfft2(mapft)
+    def apply_prior(self,mapset,outmapset):
+        coarse_ind=None
+        fine_ind=None
+        for i in range(mapset.nmap):
+            if isinstance(mapset.maps[i],SkyMapCoarse):
+                coarse_ind=i
+            else:
+                if isinstance(mapset.maps[i],SkyMap):
+                    fine_ind=i
+        if (coarse_ind is None)|(fine_ind is None):
+            print("Errror in twolevel prior:  either fine or coarse skymap not found.")
+            return
+        if True:
+            mm=self.apply_H(mapset.maps[fine_ind].map,mapset.maps[coarse_ind].map)
+            mm_filt=self.noise.apply_noise(mm)
+            coarse,fine=self.apply_HT(mm_filt)
+            
+        else:
+            summed=self.maps2coarse(mapset.maps[fine_ind].map,mapset.maps[coarse_ind].map)
+            summed=self.beam_convolve(summed)
+            summed=self.noise.apply_noise(summed)
+            summed=self.beam_convolve(summed)
+            coarse,fine=self.coarse2maps(summed)
+
+        outmapset.maps[fine_ind].map[self.mask]=outmapset.maps[fine_ind].map[self.mask]+fine[self.mask]
+        outmapset.maps[coarse_ind].map[:]=outmapset.maps[coarse_ind].map[:]+coarse
+
+        if self.smooth_fac>0:
+            summed=self.maps2coarse(mapset.maps[fine_ind].map,mapset.maps[coarse_ind].map)
+            summed_smooth=self.beam_convolve(summed)
+            delt=summed-summed_smooth
+            delt_filt=self.noise.apply_noise(delt)*self.smooth_fac
+            delt_filt=delt_filt-self.beam_convolve(delt_filt)
+            coarse,fine=self.coarse2maps(delt_filt)
+            outmapset.maps[fine_ind].map[self.mask]=outmapset.maps[fine_ind].map[self.mask]+fine[self.mask]
+            outmapset.maps[coarse_ind].map[:]=outmapset.maps[coarse_ind].map[:]+coarse
+            
+
+
+
+    def __bust_apply_prior(self,map,outmap):
+        outmap.map[:]=outmap.map[:]+self.apply_Qinv(map.map)
+              
+
+
+def poltag2pols(poltag):
+    if poltag=='I':
+        return ['I']
+    if poltag=='IQU':
+        return ['I','Q','U']
+    if poltag=='QU':
+        return ['Q','U']
+    if poltag=='IQU_PRECON':
+        return ['I','Q','U','QQ','QU','UU']
+    if poltag=='QU_PRECON':
+        return ['QQ','UU','QU']
+
+    return None
+    
+class PolMap:
+    def __init__(self,lims,pixsize,poltag='I',proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
+        pols=poltag2pols(poltag)
+        if pols is None:
+            print('Unrecognized polarization state ' + poltag + ' in PolMap.__init__')
+            return
+        npol=len(pols)
+        if mywcs is None:
+            self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)
+        else:
+            self.wcs=mywcs
+        corners=np.zeros([4,2])
+        corners[0,:]=[lims[0],lims[2]]
+        corners[1,:]=[lims[0],lims[3]]
+        corners[2,:]=[lims[1],lims[2]]
+        corners[3,:]=[lims[1],lims[3]]
+        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)        
+        pix_corners=np.round(pix_corners)
+        #print pix_corners
+        #print type(pix_corners)
+        #if pix_corners.min()<0.5:
+        if pix_corners.min()<-0.5:
+            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
+        if True: #try a patch to fix the wcs xxx
+            if nx is None:
+                nx=(pix_corners[:,0].max()+pad)
+            if ny is None:
+                ny=(pix_corners[:,1].max()+pad)
+        else:
+            nx=(pix_corners[:,0].max()+pad)
+            ny=(pix_corners[:,1].max()+pad)
+        #print nx,ny
+        nx=int(nx)
+        ny=int(ny)
+        if not(primes is None):
+            lens=find_good_fft_lens(2*(nx+ny),primes)
+            #print 'nx and ny initially are ',nx,ny
+            nx=lens[lens>=nx].min()
+            ny=lens[lens>=ny].min()
+            #print 'small prime nx and ny are now ',nx,ny
+            self.primes=primes[:]
+        else:
+            self.primes=None
+        self.nx=nx
+        self.ny=ny
+        self.npol=npol
+        self.poltag=poltag
+        self.pols=pols
+        self.lims=lims
+        self.tag=tag
+        self.purge_pixellization=purge_pixellization
+        self.pixsize=pixsize
+        if npol>1:
+            self.map=np.zeros([nx,ny,npol])
+        else:
+            self.map=np.zeros([nx,ny])
+        self.proj=proj
+        self.pad=pad
+        self.caches=None
+        self.cosdec=cosdec
+    def get_caches(self):
+        npix=self.nx*self.ny*self.npol
+        nthread=get_nthread()
+        self.caches=np.zeros([nthread,npix])
+    def clear_caches(self):
+        self.map[:]=np.reshape(np.sum(self.caches,axis=0),self.map.shape)
+        self.caches=None
+    def copy(self):
+        if False:
+            newmap=PolMap(self.lims,self.pixsize,self.poltag,self.proj,self.pad,self.primes,cosdec=self.cosdec,nx=self.nx,ny=self.ny,mywcs=self.wcs)
+            newmap.map[:]=self.map[:]
+            return newmap
+        else:
+            return copy.deepcopy(self)
+    def clear(self):
+        self.map[:]=0
+    def axpy(self,map,a):
+        self.map[:]=self.map[:]+a*map.map[:]
+    def assign(self,arr):
+        assert(arr.shape[0]==self.nx)
+        assert(arr.shape[1]==self.ny)
+        if self.npol>1:
+            assert(arr.shape[2]==self.npol)
+        #self.map[:,:]=arr
+        self.map[:]=arr
+    def set_polstate(self,poltag):
+        pols=poltag2pols(poltag)
+        if pols is None:
+            print('Unrecognized polarization state ' + poltag + ' in PolMap.set_polstate.')
+            return
+        npol=len(pols)
+        self.npol=npol
+        self.poltag=poltag
+        self.pols=pols
+        if npol>1:
+            self.map=np.zeros([self.nx,self.ny,npol])
+        else:
+            self.map=np.zeros([self.nx,self.ny])
+    def invert(self,thresh=1e-6):
+        #We can use np.linalg.pinv to reasonably efficiently invert a bunch of tiny matrices with an
+        #eigenvalue cut.  It's more efficient to do this in C, but it only has to be done once per run
+        if self.npol>1: 
+            if self.poltag=='QU_PRECON':
+                tmp=np.zeros([self.nx*self.ny,2,2])
+                tmp[:,0,0]=np.ravel(self.map[:,:,0])
+                tmp[:,1,1]=np.ravel(self.map[:,:,1])
+                tmp[:,0,1]=np.ravel(self.map[:,:,2])
+                tmp[:,1,0]=np.ravel(self.map[:,:,2])
+                tmp=np.linalg.pinv(tmp,thresh)
+                self.map[:,:,0]=np.reshape(tmp[:,0,0],[self.map.shape[0],self.map.shape[1]])
+                self.map[:,:,1]=np.reshape(tmp[:,1,1],[self.map.shape[0],self.map.shape[1]])
+                self.map[:,:,2]=np.reshape(tmp[:,0,1],[self.map.shape[0],self.map.shape[1]])
+            if self.poltag=='IQU_PRECON':
+                #the mapping may seem a bit abstruse here.  The preconditioner matrix has entries
+                #  [I   Q   U ]
+                #  [Q  QQ  QU ]
+                #  [U  QU  UU ]
+                #so the unpacking needs to match the ordering in the C file before we can use pinv
+                n=self.nx*self.ny
+                nx=self.nx
+                ny=self.ny
+                tmp=np.zeros([self.nx*self.ny,3,3])
+                tmp[:,0,0]=np.reshape(self.map[:,:,0],n)
+                tmp[:,0,1]=np.reshape(self.map[:,:,1],n)
+                tmp[:,1,0]=tmp[:,0,1]
+                tmp[:,0,2]=np.reshape(self.map[:,:,2],n)
+                tmp[:,2,0]=tmp[:,0,2]
+                tmp[:,1,1]=np.reshape(self.map[:,:,3],n)
+                tmp[:,1,2]=np.reshape(self.map[:,:,4],n)
+                tmp[:,2,1]=tmp[:,1,2]
+                tmp[:,2,2]=np.reshape(self.map[:,:,5],n)
+                alldets=np.linalg.det(tmp)
+                isbad=alldets<thresh*alldets.max()
+                ispos=tmp[:,0,0]>0
+                inds=isbad&ispos
+                vec=tmp[inds,0,0]
+                print('determinant range is ' + repr(alldets.max())+ '  ' + repr(alldets.min()))
+                tmp=np.linalg.pinv(tmp,thresh)
+                if True:
+                    print('Warning!  zeroing out bits like this is super janky.  Be warned...')
+                    tmp[isbad,:,:]=0
+                    inds=isbad&ispos
+                    tmp[inds,0,0]=1.0/vec
+                alldets=np.linalg.det(tmp)                
+                print('determinant range is now ' + repr(alldets.max())+ '  ' + repr(alldets.min()))
+
+                self.map[:,:,0]=np.reshape(tmp[:,0,0],[nx,ny])
+                self.map[:,:,1]=np.reshape(tmp[:,0,1],[nx,ny])
+                self.map[:,:,2]=np.reshape(tmp[:,0,2],[nx,ny])
+                self.map[:,:,3]=np.reshape(tmp[:,1,1],[nx,ny])
+                self.map[:,:,4]=np.reshape(tmp[:,1,2],[nx,ny])
+                self.map[:,:,5]=np.reshape(tmp[:,2,2],[nx,ny])
+                
+        else:
+            mask=self.map!=0
+            self.map[mask]=1.0/self.map[mask]
+    def pix_from_radec(self,ra,dec):
+        ndet=ra.shape[0]
+        nsamp=ra.shape[1]
+        nn=ndet*nsamp
+        coords=np.zeros([nn,2])
+        coords[:,0]=np.reshape(ra*180/np.pi,nn)
+        coords[:,1]=np.reshape(dec*180/np.pi,nn)
+        #print coords.shape
+        pix=self.wcs.wcs_world2pix(coords,1)
+        #print pix.shape
+        xpix=np.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+        ypix=np.reshape(pix[:,1],[ndet,nsamp])-1  
+        xpix=np.round(xpix)
+        ypix=np.round(ypix)
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        return ipix
+    def get_pix(self,tod,savepix=True):
+        if not(self.tag is None):
+            ipix=tod.get_saved_pix(self.tag)
+            if not(ipix is None):
+                return ipix
+        if False:
+            ndet=tod.info['dx'].shape[0]
+            nsamp=tod.info['dx'].shape[1]
+            nn=ndet*nsamp
+            coords=np.zeros([nn,2])
+            coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
+            coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
+        #print coords.shape
+            pix=self.wcs.wcs_world2pix(coords,1)
+        #print pix.shape
+            xpix=np.reshape(pix[:,0],[ndet,nsamp])-1  #-1 is to go between unit offset in FITS and zero offset in python
+            ypix=np.reshape(pix[:,1],[ndet,nsamp])-1  
+            xpix=np.round(xpix)
+            ypix=np.round(ypix)
+            ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        else:
+            ra,dec=tod.get_radec()
+            ipix=self.pix_from_radec(ra,dec)
+        if savepix:
+            if not(self.tag is None):
+                tod.save_pixellization(self.tag,ipix)
+        return ipix
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        ipix=self.get_pix(tod)
+        if self.npol>1:
+            #polmap2tod(dat,self.map,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'],do_add,do_omp)
+            polmap2tod(dat,self.map,self.poltag,tod.info['twogamma_saved'],ipix,do_add,do_omp)
+        else:
+            #map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+            map2tod(dat,self.map,ipix,do_add,do_omp)
+
+        
+    def tod2map(self,tod,dat,do_add=True,do_omp=True):
+        if do_add==False:
+            self.clear()
+        ipix=self.get_pix(tod)
+        #print('ipix start is ',ipix[0,0:500:100])
+        if self.npol>1:
+            #tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],tod.info['ipix'])
+            tod2polmap(self.map,dat,self.poltag,tod.info['twogamma_saved'],ipix)
+            if self.purge_pixellization:
+                tod.clear_saved_pix(self.tag)
+            return
+        #print("working on nonpolarized bit")
+
+        if not(self.caches is None):
+            #tod2map_cached(self.caches,dat,tod.info['ipix'])
+            tod2map_cached(self.caches,dat,ipix)
+        else:
+            if do_omp:
+                #tod2map_omp(self.map,dat,tod.info['ipix'])
+                tod2map_omp(self.map,dat,ipix)
+            else:
+                #tod2map_simple(self.map,dat,tod.info['ipix'])
+                tod2map_simple(self.map,dat,ipix)
+        if self.purge_pixellization:
+            tod.clear_saved_pix(self.tag)
+
+    def r_th_maps(self):
+        xvec=np.arange(self.nx)
+        xvec=xvec-xvec.mean()        
+        yvec=np.arange(self.ny)
+        yvec=yvec-yvec.mean()
+        ymat,xmat=np.meshgrid(yvec,xvec)
+        rmat=np.sqrt(xmat**2+ymat**2)
+        th=np.arctan2(xmat,ymat)
+        return rmat,th
+    def dot(self,map):
+        tot=np.sum(self.map*map.map)
+        return tot
+        
+    def write(self,fname='map.fits'):
+        header=self.wcs.to_header()
+
+        if self.npol>1:
+            ind=fname.rfind('.')
+            if ind>0:
+                if fname[ind+1:]=='fits':
+                    head=fname[:ind]
+                    tail=fname[ind:]
+                else:
+                    head=fname
+                    tail='.fits'
+            else:
+                head=fname
+                tail='.fits'
+            tmp=np.zeros([self.ny,self.nx])
+            for i in range(self.npol):
+                tmp[:]=np.squeeze(self.map[:,:,i]).T
+                hdu=fits.PrimaryHDU(tmp,header=header)
+                try:
+                    hdu.writeto(head+'_'+self.pols[i]+tail,overwrite=True)
+                except:
+                    hdu.writeto(head+'_'+self.pols[i]+tail,clobber=True)
+            return
+
+        if True: #try a patch to fix the wcs xxx 
+            tmp=self.map.transpose().copy()
+            hdu=fits.PrimaryHDU(tmp,header=header)
+        else:
+            hdu=fits.PrimaryHDU(self.map,header=header)
+        try:
+            hdu.writeto(fname,overwrite=True)
+        except:
+            hdu.writeto(fname,clobber=True)
+    def __mul__(self,map):
+        if self.npol==1:
+            new_map=self.copy()
+            new_map.map[:]=self.map[:]*map.map[:]
+            return new_map
+        else:
+            assert(map.poltag+'_PRECON'==self.poltag)
+            new_map=map.copy()
+            if self.poltag=='QU_PRECON':
+                new_map.map[:,:,0]=self.map[:,:,0]*map.map[:,:,0]+self.map[:,:,2]*map.map[:,:,1]
+                new_map.map[:,:,1]=self.map[:,:,2]*map.map[:,:,0]+self.map[:,:,1]*map.map[:,:,1]
+                return new_map
+            if self.poltag=='IQU_PRECON':
+                #the indices are set such that the preconditioner matrix [I Q U; Q QQ QU; U QU UU] match the C code.  
+                #once we've inverted, the output should be the product of that matrix times [I Q U]
+                new_map.map[:,:,0]=self.map[:,:,0]*map.map[:,:,0]+self.map[:,:,1]*map.map[:,:,1]+self.map[:,:,2]*map.map[:,:,2]
+                new_map.map[:,:,1]=self.map[:,:,1]*map.map[:,:,0]+self.map[:,:,3]*map.map[:,:,1]+self.map[:,:,4]*map.map[:,:,2]
+                new_map.map[:,:,2]=self.map[:,:,2]*map.map[:,:,0]+self.map[:,:,4]*map.map[:,:,1]+self.map[:,:,5]*map.map[:,:,2]
+                return new_map
+
+            print('unrecognized tag in PolMap.__mul__:  ' + repr(self.poltag))
+            assert(1==0)
+    def mpi_reduce(self,chunksize=1e5):
+        #chunksize is added since at least on my laptop mpi4py barfs if it
+        #tries to reduce an nside=512 healpix map, so need to break it into pieces.
+        if have_mpi:
+            #print("reducing map")
+            if chunksize>0:
+                nchunk=(1.0*self.nx*self.ny*self.npol)/chunksize
+                nchunk=np.int(np.ceil(nchunk))
+            else:
+                nchunk=1
+            #print('nchunk is ',nchunk)
+            if nchunk==1:
+                self.map=comm.allreduce(self.map)
+            else:
+                inds=np.asarray(np.linspace(0,self.nx*self.ny*self.npol,nchunk+1),dtype='int')
+                if len(self.map.shape)>1:
+                    tmp=np.zeros(self.map.size)
+                    tmp[:]=np.reshape(self.map,len(tmp))
+                else:
+                    tmp=self.map
+
+                for i in range(len(inds)-1):
+                    tmp[inds[i]:inds[i+1]]=comm.allreduce(tmp[inds[i]:inds[i+1]])
+                    #self.map[inds[i]:inds[i+1]]=comm.allreduce(self.map[inds[i]:inds[i+1]])
+                    #tmp=np.zeros(inds[i+1]-inds[i])
+                    #tmp[:]=self.map[inds[i]:inds[i+1]]
+                    #tmp=comm.allreduce(tmp)
+                    #self.map[inds[i]:inds[i+1]]=tmp
+                if len(self.map.shape)>1:
+                    self.map[:]=np.reshape(tmp,self.map.shape)
+            
+            #print("reduced")
+class HealMap(SkyMap):
+    def __init__(self,proj='RING',nside=512,tag='ipix'):
+        if not(have_healpy):
+            printf("Healpix map requested, but healpy not found.")
+            return
+        self.proj=proj
+        self.nside=nside
+        self.nx=healpy.nside2npix(self.nside)
+        self.ny=1
+        self.caches=None
+        self.tag=tag
+        self.map=np.zeros([self.nx,self.ny])
+    def copy(self):
+        newmap=HealMap(self.proj,self.nside,self.tag)
+        newmap.map[:]=self.map[:]
+        return newmap
+    def pix_from_radec(self,ra,dec):
+        ipix=healpy.ang2pix(self.nside,np.pi/2-dec,ra,self.proj=='NEST')
+        return np.asarray(ipix,dtype='int32')
+    #def get_pix(self,tod,savepix=True):
+    #    if not(self.tag is None):
+    #        ipix=tod.get_saved_pix(self.tag)
+    #        if not(ipix is None):
+    #            return ipix
+    #    ra,dec=tod.get_radec()
+    #    #ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
+    #    ipix=healpy.ang2pix(self.nside,np.pi/2-dec,ra,self.proj=='NEST')
+    #    if savepix:
+    #        tod.save_pixellization(self.tag,ipix)            
+    #    return ipix
+    def write(self,fname='map.fits',overwrite=True):
+        if self.map.shape[1]<=1:
+            healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)        
+    
+
+class HealPolMap(PolMap):
+    def __init__(self,poltag='I',proj='RING',nside=512,tag='ipix',purge_pixellization=False):
+        if not(have_healpy):
+            printf("Healpix map requested, but healpy not found.")
+            return
+        pols=poltag2pols(poltag)
+        if pols is None:
+            print('Unrecognized polarization state ' + poltag + ' in PolMap.__init__')
+            return
+        npol=len(pols)
+        self.proj=proj
+        self.nside=nside
+        self.nx=healpy.nside2npix(self.nside)
+        self.ny=1
+        self.npol=npol
+        self.poltag=poltag
+        self.pols=pols
+        self.caches=None
+        self.tag=tag
+        self.purge_pixellization=purge_pixellization
+        if self.npol>1:
+            self.map=np.zeros([self.nx,self.ny,self.npol])
+        else:
+            self.map=np.zeros([self.nx,self.ny])
+    def copy(self):
+        if False:
+            newmap=HealPolMap(self.poltag,self.proj,self.nside,self.tag)
+            newmap.map[:]=self.map[:]
+            return newmap
+        else:
+            return copy.deepcopy(self)
+    #def get_pix(self,tod):
+    #    ipix=healpy.ang2pix(self.nside,np.pi/2-tod.info['dy'],tod.info['dx'],self.proj=='NEST')
+    #    return ipix
+    def pix_from_radec(self,ra,dec):
+        ipix=healpy.ang2pix(self.nside,np.pi/2-dec,ra,self.proj=='NEST')
+        return np.asarray(ipix,dtype='int32')
+    #def get_pix(self,tod,savepix=True):
+    #    if not(self.tag is None):
+    #        ipix=tod.get_saved_pix(self.tag)
+    #        if not(ipix is None):
+    #            return ipix
+    #    ra,dec=tod.get_radec()
+    #    ipix=self.pix_from_radec(ra,dec)
+    #    if savepix:
+    #        if not(self.tag is None):
+    #            tod.save_pixellization(self.tag,ipix)
+    #    return ipix
+
+    def write(self,fname='map.fits',overwrite=True):
+        if self.map.shape[1]<=1:
+            if self.npol==1:
+                healpy.write_map(fname,self.map[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)        
+            else:
+                    ind=fname.rfind('.')
+                    if ind>0:
+                        if fname[ind+1:]=='fits':
+                            head=fname[:ind]
+                            tail=fname[ind:]
+                        else:
+                            head=fname
+                            tail='.fits'
+                    else:
+                        head=fname
+                        tail='.fits'
+                    #tmp=np.zeros([self.ny,self.nx])
+                    tmp=np.zeros(self.nx)
+                    for i in range(self.npol):
+                        tmp[:]=np.squeeze(self.map[:,:,i]).T
+                        #print('tmp shape is ',tmp.shape)
+                        fname=head+'_'+self.pols[i]+tail
+                        healpy.write_map(fname,tmp,nest=(self.proj=='NEST'),overwrite=overwrite)
+                        #healpy.write_map(fname,tmp[:,0],nest=(self.proj=='NEST'),overwrite=overwrite)
+    
+
+class Cuts:
+    def __init__(self,tod,do_add=True):
+        #if class(tod)==Cuts: #for use in copy
+        if isinstance(tod,Cuts):
+            self.map=tod.map.copy()
+            self.bad_inds=tod.bad_inds.copy()
+            self.namps=tod.nsamp
+            self.do_add=tod.do_add
+            return
+        bad_inds=np.where(tod.info['bad_samples'])
+        #dims=tod.info['dat_calib'].shape
+        dims=tod.get_data_dims()
+        bad_inds=np.ravel_multi_index(bad_inds,dims)
+        self.nsamp=len(bad_inds)
+        self.inds=bad_inds
+        self.map=np.zeros(self.nsamp)
+        self.do_add=do_add
+    def clear(self):
+        self.map[:]=0
+    def axpy(self,cuts,a):
+        self.map[:]=self.map[:]+a*cuts.map[:]
+    def map2tod(self,tod,dat):
+        dd=np.ravel(dat)
+        if self.do_add:
+            dd[self.inds]=self.map
+        else:
+            dd[self.inds]+=self.map
+    def tod2map(self,tod,dat):
+        dd=np.ravel(dat)
+        self.map[:]=dd[self.inds]
+    def dot(self,cuts):
+        tot=np.dot(self.map,cuts.map)
+        return tot
+    def copy(self):
+        return Cuts(self)
+class CutsCompact:
+    def __init__(self,tod):
+        if isinstance(tod,CutsCompact):
+            self.ndet=tod.ndet
+            self.nseg=tod.nseg
+            self.istart=tod.istart
+            self.istop=tod.istop
+        else:
+            #ndet=tod.info['dat_calib'].shape[0]
+            ndet=tod.get_ndet()
+            self.ndet=ndet
+            self.nseg=np.zeros(ndet,dtype='int')
+            self.istart=[None]*ndet
+            self.istop=[None]*ndet
+            #self.imax=tod.info['dat_calib'].shape[1]
+            self.imax=tod.get_ndata()
+
+        self.imap=None
+        self.map=None
+        
+    def copy(self,deep=True):
+        copy=CutsCompact(self)
+        if deep:
+            if not(self.imap is None):
+                copy.imap=self.imap.copy()
+            if not(self.map is None):
+                copy.map=self.map.copy()
+        else:
+            copy.imap=self.imap
+            copy.map=self.map
+        return copy
+    def add_cut(self,det,istart,istop):
+        if istart>=self.imax:
+            #this is asking to add a cut past the end of the data.
+            return
+        if istop>self.imax: #don't have a cut run past the end of the timestream
+            istop=self.imax
+            
+        self.nseg[det]=self.nseg[det]+1
+        if self.istart[det] is None:
+            self.istart[det]=[istart]
+        else:
+            self.istart[det].append(istart)
+        if self.istop[det] is None:
+            self.istop[det]=[istop]
+        else:
+            self.istop[det].append(istop)
+    def get_imap(self):
+        ncut=0
+        for det in range(self.ndet):
+            for i in range(self.nseg[det]):
+                ncut=ncut+(self.istop[det][i]-self.istart[det][i])
+        print('ncut is ' + repr(ncut))
+        self.imap=np.zeros(ncut,dtype='int64')
+        icur=0
+        for det in range(self.ndet):
+            for i in range(self.nseg[det]):
+                istart=det*self.imax+self.istart[det][i]
+                istop=det*self.imax+self.istop[det][i]
+                nn=istop-istart
+                self.imap[icur:icur+nn]=np.arange(istart,istop)
+                icur=icur+nn
+        self.map=np.zeros(len(self.imap))
+    def cuts_from_array(self,cutmat):
+        for det in range(cutmat.shape[0]):
+            nseg,istart,istop=segs_from_vec(cutmat[det,:])
+            self.nseg[det]=nseg
+            self.istart[det]=istart
+            self.istop[det]=istop
+    def merge_cuts(self):
+        tmp=np.ones(self.imax+2,dtype='bool')
+        for det in range(self.ndet):
+            if self.nseg[det]>1:  #if we only have one segment, don't have to worry about strange overlaps
+                tmp[:]=True
+                for i in range(self.nseg[det]):
+                    tmp[(self.istart[det][i]+1):(self.istop[det][i]+1)]=False
+                nseg,istart,istop=segs_from_vec(tmp,pad=False)
+                self.nseg[det]=nseg
+                self.istart[det]=istart
+                self.istop[det]=istop
+    
+    def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
+        if mat is None:
+            #mat=tod.info['dat_calib']
+            mat=tod.get_data()
+        tod2cuts_c(self.map.ctypes.data,mat.ctypes.data,self.imap.ctypes.data,len(self.imap),do_add)
+
+    def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
+        if mat is None:
+            #mat=tod.info['dat_calib']
+            mat=tod.get_data()
+        #print('first element is ' + repr(mat[0,self.imap[0]]))
+        cuts2tod_c(mat.ctypes.data,self.map.ctypes.data,self.imap.ctypes.data,len(self.imap),do_add)
+        #print('first element is now ' + repr(mat[0,self.imap[0]]))
+        #return mat
+    def clear(self):
+        if not(self.map is None):
+            self.map[:]=0
+    def dot(self,other=None):
+        if self.map is None:
+            return None
+        if other is None:
+            return np.dot(self.map,self.map)
+        else:
+            if other.map is None:
+                return None
+            return np.dot(self.map,other.map)
+    def axpy(self,common,a):
+        self.map=self.map+a*common.map
+    def write(self,fname=None):
+        pass
+    def apply_prior(self,x,Ax):
+        Ax.map=Ax.map+self.map*x.map
+    def __mul__(self,to_mul):
+        tt=self.copy()
+        tt.map=self.map*to_mul.map
+        return tt
+
+#this class is pointless, as you can get the same functionality with the tsModel class, which will be 
+#consistent with other timestream model classes.  
+#class CutsVecs:
+#    def __init__(self,todvec,do_add=True):
+#        #if class(todvec)==CutsVecs: #for use in copy
+#        if isinstance(todvec,CutsVecs):
+#            self.cuts=[None]*todvec.ntod
+#            self.ntod=todvec.ntod
+#            for i in range(todvec.ntod):
+#                self.cuts[i]=todvec.cuts[i].copy()
+#            return
+#        #if class(todvec)!=TodVec:
+#        if not(isinstance(todvec,TodVec)):
+#            print('error in CutsVecs init, must pass in a todvec class.')
+#            return None
+#        self.cuts=[None]*todvec.ntod
+#        self.ntod=todvec.ntod
+#        for i in range(todvec.ntod):
+#            tod=todvec.tods[i]
+#            if tod.info['tag']!=i:
+#                print('warning, tag mismatch in CutsVecs.__init__')
+#                print('continuing, but you should be careful...')            
+#            if 'bad_samples' in tod.info:
+#                self.cuts[i]=Cuts(tod,do_add)
+#            elif 'mask' in tod.info:
+#                self.cuts[i]=CutsCompact(tod)
+#                self.cuts[i].cuts_from_array(tod.info['mask'])
+#                self.cuts[i].get_imap()
+#    def copy(self):
+#        return CutsVecs(self)
+#    def clear(self):
+#        for cuts in self.cuts:
+#            cuts.clear()
+#    def axpy(self,cutsvec,a):
+#        assert(self.ntod==cutsvec.ntod)
+#        for i in range(ntod):
+#            self.cuts[i].axpy(cutsvec.cuts[i],a)
+#    def map2tod(self,todvec):
+#        assert(self.ntod==todvec.ntod)
+#        for i in range(self.ntod):
+#            self.cuts[i].map2tod(todvec.tods[i])
+#    def tod2map(self,todvec,dat):
+#        assert(self.ntod==todvec.ntod)
+#        assert(self.ntod==dat.ntod)
+#        for i in range(self.ntod):
+#            self.cuts[i].tod2map(todvec.tods[i],dat.tods[i])
+#    def dot(self,cutsvec):
+#        tot=0.0
+#        assert(self.ntod==cutsvec.ntod)
+#        for i in range(self.ntod):
+#            tot+=self.cuts[i].dot(cutsvec.cuts[i])
+#        return tot
+        
+                                 
+            
+class SkyMapCar(SkyMap):
+    def pix_from_radec(self,ra,dec):
+        xpix=np.round((ra-self.lims[0])*self.cosdec/self.pixsize)
+        #ypix=np.round((dec-self.lims[2])/self.pixsize)
+        ypix=((dec-self.lims[2])/self.pixsize)+0.5
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        return ipix
+        
+class SkyMapCarOld:
+    def __init__(self,lims,pixsize):
+        try:
+            self.lims=lims.copy()
+        except:
+            self.lims=lims[:]
+        self.pixsize=pixsize
+        self.cosdec=np.cos(0.5*(lims[2]+lims[3]))
+        nx=np.int(np.ceil((lims[1]-lims[0])/pixsize*self.cosdec))
+        ny=np.int(np.ceil((lims[3]-lims[2])/pixsize))
+        self.nx=nx
+        self.ny=ny
+        self.npix=nx*ny
+        self.map=np.zeros([nx,ny])
+    def copy(self):
+        mycopy=SkyMapCar(self.lims,self.pixsize)
+        mycopy.map[:]=self.map[:]
+        return mycopy
+    def clear(self):
+        self.map[:,:]=0
+
+    def axpy(self,map,a):
+        self.map[:]=self.map[:]+a*map.map[:]
+        
+    def assign(self,arr):
+        assert(arr.shape[0]==self.nx)
+        assert(arr.shape[1]==self.ny)
+        self.map[:,:]=arr
+    def get_pix(self,tod):
+        xpix=np.round((tod.info['dx']-self.lims[0])*self.cosdec/self.pixsize)
+        ypix=np.round((tod.info['dy']-self.lims[2])/self.pixsize)
+        #ipix=np.asarray(ypix*self.nx+xpix,dtype='int32')
+        ipix=np.asarray(xpix*self.ny+ypix,dtype='int32')
+        return ipix
+    def map2tod(self,tod,dat,do_add=True,do_omp=True):
+        map2tod(dat,self.map,tod.info['ipix'],do_add,do_omp)
+
+    def tod2map(self,tod,dat,do_add=True,do_omp=True):
+        if do_add==False:
+            self.clear()
+        if do_omp:
+            tod2map_omp(self.map,dat,tod.info['ipix'])
+        else:
+            tod2map_simple(self.map,dat,tod.info['ipix'])
+
+    def r_th_maps(self):
+        xvec=np.arange(self.nx)
+        xvec=xvec-xvec.mean()        
+        yvec=np.arange(self.ny)
+        yvec=yvec-yvec.mean()
+        ymat,xmat=np.meshgrid(yvec,xvec)
+        rmat=np.sqrt(xmat**2+ymat**2)
+        th=np.arctan2(xmat,ymat)
+        return rmat,th
+    def dot(self,map):
+        tot=np.sum(self.map*map.map)
+        return tot
+def find_bad_skew_kurt(dat,skew_thresh=6.0,kurt_thresh=5.0):
+    ndet=dat.shape[0]
+    isgood=np.ones(ndet,dtype='bool')
+    skew=np.mean(dat**3,axis=1)
+    mystd=np.std(dat,axis=1)
+    skew=skew/mystd**1.5
+    mykurt=np.mean(dat**4,axis=1)
+    kurt=mykurt/mystd**4-3
+    
+    isgood[np.abs(skew)>skew_thresh*np.median(np.abs(skew))]=False
+    isgood[np.abs(kurt)>kurt_thresh*np.median(np.abs(kurt))]=False
+    
+
+
+    return skew,kurt,isgood
+
+def timestreams_from_gauss(ra,dec,fwhm,tod,pred=None):
+    if pred is None:
+        #pred=np.zeros(tod.info['dat_calib'].shape)
+        pred=tod.get_empty(True)
+    #n=tod.info['dat_calib'].size
+    n=np.product(tod.get_data_dims())
+    assert(pred.size==n)
+    npar_src=4 #x,y,sig,amp
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    pp=np.zeros(npar_src)
+    pp[0]=ra
+    pp[1]=dec
+    pp[2]=fwhm/np.sqrt(8*np.log(2))*np.pi/180/3600 
+    pp[3]=1
+    fill_gauss_src_c(pp.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)    
+    return pred
+
+def timestreams_from_isobeta_c(params,tod,pred=None):
+    if pred is None:
+        #pred=np.zeros(tod.info['dat_calib'].shape)
+        pred=tod.get_empty(True)
+    #n=tod.info['dat_calib'].size
+    n=np.product(tod.get_data_dims())
+    assert(pred.size==n)
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    fill_isobeta_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)
+
+    npar_beta=5 #x,y,theta,beta,amp
+    npar_src=4 #x,y,sig,amp
+    nsrc=(params.size-npar_beta)//npar_src
+    for i in range(nsrc):
+        pp=np.zeros(npar_src)
+        ioff=i*npar_src+npar_beta
+        pp[:]=params[ioff:(ioff+npar_src)]
+        fill_gauss_src_c(pp.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,n)
+
+
+    return pred
+
+def derivs_from_elliptical_isobeta(params,tod,*args,**kwargs):
+    npar=len(params)
+    assert(npar==7)
+    pred=tod.get_empty()
+    dims=np.hstack([npar,pred.shape])
+    derivs=np.empty(dims)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    minkasi_nb.fill_elliptical_isobeta_derivs(params,dx,dy,pred,derivs)
+    return derivs,pred
+
+def derivs_from_elliptical_gauss(params,tod,*args,**kwargs):
+    npar=len(params)
+    assert(npar==6)
+    pred=tod.get_empty()
+    dims=np.hstack([npar,pred.shape])
+    derivs=np.empty(dims)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    minkasi_nb.fill_elliptical_gauss_derivs(params,dx,dy,pred,derivs)
+    return derivs,pred
+
+
+def derivs_from_isobeta_c(params,tod,*args,**kwargs):
+    npar=5;
+    #n=tod.info['dat_calib'].size
+    dims=tod.get_data_dims()
+    n=np.product(dims)
+    #sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    sz_deriv=np.append(npar,dims)
+    #pred=np.zeros(tod.info['dat_calib'].shape)
+    pred=tod.get_empty(True)
+    derivs=np.zeros(sz_deriv)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    fill_isobeta_derivs_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,derivs.ctypes.data,n)
+
+    return derivs,pred
+
+def derivs_from_gauss_c(params,tod,*args,**kwargs):
+    npar=4
+    #n=tod.info['dat_calib'].size
+    n=tod.get_nsamp()
+    #sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    sz_deriv=np.append(npar,tod.get_data_dims())
+    
+    #pred=np.zeros(tod.info['dat_calib'].shape)
+    pred=tod.get_empty(True)
+
+    derivs=np.zeros(sz_deriv)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    fill_gauss_derivs_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,derivs.ctypes.data,n)
+
+    return derivs,pred
+
+def derivs_from_map(pars,tod,fun,map,dpar,do_symm=False,*args,**kwargs):
+    #print('do_symm is ',do_symm)
+    pred=tod.get_empty()
+    fun(map,pars,*args,**kwargs)
+    map.map2tod(tod,pred,False)
+    npar=len(pars)
+    tmp=tod.get_empty()
+    if do_symm:
+        tmp2=tod.get_empty()
+    derivs=np.empty([npar,pred.shape[0],pred.shape[1]])
+    for i in range(npar):
+        pp=pars.copy()
+        pp[i]=pp[i]+dpar[i]
+        fun(map,pp,*args,**kwargs)
+        tmp[:]=0 #strictly speaking, we shouldn't need this, but it makes us more robust to bugs elsewhere
+        map.map2tod(tod,tmp,False)
+        if do_symm:
+            pp=pars.copy()
+            pp[i]=pp[i]-dpar[i]
+            fun(map,pp,*args,**kwargs)
+            tmp2[:]=0
+            map.map2tod(tod,tmp2,False)
+            derivs[i,:,:]=(tmp-tmp2)/(2*dpar[i])
+        else:
+            derivs[i,:,:]=(tmp-pred)/(dpar[i])
+    #pred=np.reshape(pred,pred.size)
+    #derivs=np.reshape(derivs,[derivs.shape[0],derivs.shape[1]*derivs.shape[2]])
+    return pred,derivs
+
+def timestreams_from_isobeta(params,tod):
+    npar_beta=5 #x,y,theta,beta,amp
+    npar_src=4 #x,y,sig,amp
+    nsrc=(params.size-npar_beta)//npar_src
+    assert(params.size==nsrc*npar_src+npar_beta)
+    x0=params[0]
+    y0=params[1]
+    theta=params[2]
+    beta=params[3]
+    amp=params[4]
+    cosdec=np.cos(y0)
+
+
+    dx=(tod.info['dx']-x0)*cosdec
+    dy=tod.info['dy']-y0
+    rsqr=dx*dx+dy*dy
+    rsqr=rsqr/theta**2
+    #print rsqr.max()
+    pred=amp*(1+rsqr)**(0.5-1.5*beta)
+    for i in range(nsrc):
+        src_x=params[i*npar_src+npar_beta+0]
+        src_y=params[i*npar_src+npar_beta+1]
+        src_sig=params[i*npar_src+npar_beta+2]
+        src_amp=params[i*npar_src+npar_beta+3]
+        
+        dx=tod.info['dx']-src_x
+        dy=tod.info['dy']-src_y
+        rsqr=( (dx*np.cos(src_y))**2+dy**2)
+        pred=pred+src_amp*np.exp(-0.5*rsqr/src_sig**2)
+
+    return pred
+
+    
+
+def isobeta_src_chisq(params,tods):
+    chisq=0.0
+    for tod in tods.tods:
+        pred=timestreams_from_isobeta_c(params,tod)
+        #chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+        chisq=chisq+tod.timestream_chisq(tod.get_data()-pred)
+        
+    return chisq
+    npar_beta=5 #x,y,theta,beta,amp
+    npar_src=4 #x,y,sig,amp
+    nsrc=(params.size-npar_beta)//npar_src
+    assert(params.size==nsrc*npar_src+npar_beta)
+    x0=params[0]
+    y0=params[1]
+    theta=params[2]
+    beta=params[3]
+    amp=params[4]
+    cosdec=np.cos(y0)
+    chisq=0.0
+    for tod in tods.tods:
+        dx=tod.info['dx']-x0
+        dy=tod.info['dy']-y0
+        rsqr=(dx*cosdec)**2+dy**2
+        pred=amp*(1+rsqr/theta**2)**(0.5-1.5*beta)
+        for i in range(nsrc):
+            src_x=params[i*npar_src+npar_beta+0]
+            src_y=params[i*npar_src+npar_beta+1]
+            src_sig=params[i*npar_src+npar_beta+2]
+            src_amp=params[i*npar_src+npar_beta+3]
+
+            dx=tod.info['dx']-src_x
+            dy=tod.info['dy']-src_y
+            rsqr=( (dx*np.cos(src_y))**2+dy**2)
+            pred=pred+src_amp*np.exp(-0.5*rsqr/src_sig**2)
+        #chisq=chisq+tod.timestream_chisq(tod.info['dat_calib']-pred)
+        chisq=chisq+tod.timestream_chisq(tod.get_data()-pred)
+    return chisq
+
+
+
+class NoiseBinnedDet:
+    def __init__(self,dat,dt,freqs=None,scale_facs=None):
+        ndet=dat.shape[0]
+        ndata=dat.shape[1]
+        nn=2*(ndata-1)
+        dnu=1/(nn*dt)
+        bins=np.asarray(freqs/dnu,dtype='int')
+        bins=bins[bins<ndata]
+        bins=np.hstack([bins,ndata])
+        if bins[0]>0:
+            bins=np.hstack([0,bins])
+        if bins[0]<0:
+            bins[0]=0
+        self.bins=bins
+        nbin=len(bins)-1
+        self.nbin=nbin
+        det_ps=np.zeros([ndet,nbin])
+        datft=mkfftw.fft_r2r(dat)
+        for i in range(nbin):
+            det_ps[:,i]=1.0/np.mean(datft[:,bins[i]:bins[i+1]]**2,axis=1)
+        self.det_ps=det_ps
+        self.ndata=ndata
+        self.ndet=ndet
+        self.nn=nn
+    def apply_noise(self,dat):
+        datft=mkfftw.fft_r2r(dat)
+        for i in range(self.nbin):
+            #datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],self.bins[i+1]-self.bins[i])
+            datft[:,self.bins[i]:self.bins[i+1]]=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],np.ones(self.bins[i+1]-self.bins[i]))
+        dd=mkfftw.fft_r2r(datft)
+        dd[:,0]=0.5*dd[:,0]
+        dd[:,-1]=0.5*dd[:,-1]
+        return dd
+
+class NoiseWhite:
+    def __init__(self,dat):
+        #this is the ratio between the median absolute
+        #deviation of the diff and sigma
+        fac=scipy.special.erfinv(0.5)*2
+        sigs=np.median(np.abs(np.diff(dat,axis=1)),axis=1)/fac
+        self.sigs=sigs
+        self.weights=1/sigs**2
+    def apply_noise(self,dat):
+        assert(dat.shape[0]==len(self.weights))
+        ndet=dat.shape[0]
+        for i in range(ndet):
+            dat[i,:]=dat[i,:]*self.weights[i]
+        return dat
+class NoiseWhiteNotch:
+    def __init__(self,dat,numin,numax,tod):
+        fac=scipy.special.erfinv(0.5)*2
+        sigs=np.median(np.abs(np.diff(dat,axis=1)),axis=1)/fac
+        self.sigs=sigs
+        self.weights=1/sigs**2
+        self.weights=self.weights/(2*(dat.shape[1]-1)) #fold in fft normalization to the weights
+        tvec=tod.get_tvec()
+        dt=np.median(np.diff(tvec))
+        tlen=tvec[-1]-tvec[0]
+        dnu=1.0/(2*tlen-dt)
+        self.istart=np.int(np.floor(numin/dnu))
+        self.istop=np.int(np.ceil(numax/dnu))+1
+
+    def apply_noise(self,dat):
+        assert(dat.shape[0]==len(self.weights))
+        datft=mkfftw.fft_r2r(dat)
+        datft[:,self.istart:self.istop]=0
+        dat=mkfftw.fft_r2r(datft)
+
+        ndet=dat.shape[0]
+        for i in range(ndet):
+            dat[i,:]=dat[i,:]*self.weights[i]
+        return dat
+        
+class NoiseBinnedEig:
+    def __init__(self,dat,dt,freqs=None,scale_facs=None,thresh=5.0):
+
+        ndet=dat.shape[0]
+        ndata=dat.shape[1]
+        nn=2*(ndata-1)
+
+        mycov=np.dot(dat,dat.T)
+        mycov=0.5*(mycov+mycov.T)
+        ee,vv=np.linalg.eig(mycov)
+        mask=ee>thresh*thresh*np.median(ee)
+        vecs=vv[:,mask]
+        ts=np.dot(vecs.T,dat)
+        resid=dat-np.dot(vv[:,mask],ts)
+        dnu=1/(nn*dt)
+        print('dnu is ' + repr(dnu))
+        bins=np.asarray(freqs/dnu,dtype='int')
+        bins=bins[bins<ndata]
+        bins=np.hstack([bins,ndata])
+        if bins[0]>0:
+            bins=np.hstack([0,bins])
+        if bins[0]<0:
+            bins[0]=0
+        self.bins=bins
+        nbin=len(bins)-1
+        self.nbin=nbin
+
+        nmode=ts.shape[0]
+        det_ps=np.zeros([ndet,nbin])
+        mode_ps=np.zeros([nmode,nbin])
+        residft=mkfftw.fft_r2r(resid)
+        modeft=mkfftw.fft_r2r(ts)
+        
+        for i in range(nbin):
+            det_ps[:,i]=1.0/np.mean(residft[:,bins[i]:bins[i+1]]**2,axis=1)
+            mode_ps[:,i]=1.0/np.mean(modeft[:,bins[i]:bins[i+1]]**2,axis=1)
+        self.modes=vecs.copy()
+        if not(np.all(np.isfinite(det_ps))):
+            print("warning - have non-finite numbers in noise model.  This should not be unexpected.")
+            det_ps[~np.isfinite(det_ps)]=0.0
+        self.det_ps=det_ps
+        self.mode_ps=mode_ps
+        self.ndata=ndata
+        self.ndet=ndet
+        self.nn=nn
+    def apply_noise(self,dat):
+        assert(dat.shape[0]==self.ndet)
+        assert(dat.shape[1]==self.ndata)
+        datft=mkfftw.fft_r2r(dat)
+        for i in range(self.nbin):
+            n=self.bins[i+1]-self.bins[i]
+            #print('bins are ',self.bins[i],self.bins[i+1],n,datft.shape[1])
+            tmp=self.modes*np.outer(self.det_ps[:,i],np.ones(self.modes.shape[1]))
+            mat=np.dot(self.modes.T,tmp)
+            mat=mat+np.diag(self.mode_ps[:,i])
+            mat_inv=np.linalg.inv(mat)
+            Ax=datft[:,self.bins[i]:self.bins[i+1]]*np.outer(self.det_ps[:,i],np.ones(n))
+            tmp=np.dot(self.modes.T,Ax)
+            tmp=np.dot(mat_inv,tmp)
+            tmp=np.dot(self.modes,tmp)
+            tmp=Ax-tmp*np.outer(self.det_ps[:,i],np.ones(n))
+            datft[:,self.bins[i]:self.bins[i+1]]=tmp
+            #print(tmp.shape,mat.shape)
+        dd=mkfftw.fft_r2r(datft)
+        dd[:,0]=0.5*dd[:,0]
+        dd[:,-1]=0.5*dd[:,-1]
+        return dd
+class NoiseCMWhite:
+    def __init__(self,dat):
+        print('setting up noise cm white')
+        u,s,v=np.linalg.svd(dat,0)
+        self.ndet=len(s)
+        ind=np.argmax(s)
+        self.v=np.zeros(self.ndet)
+        self.v[:]=u[:,ind]
+        pred=np.outer(self.v*s[ind],v[ind,:])
+        dat_clean=dat-pred
+        myvar=np.std(dat_clean,1)**2
+        self.mywt=1.0/myvar
+    def apply_noise(self,dat,dd=None):
+        t1=time.time()
+        mat=np.dot(self.v,np.diag(self.mywt))
+        lhs=np.dot(self.v,mat.T)
+        rhs=np.dot(mat,dat)
+        if isinstance(lhs,np.ndarray):
+            cm=np.dot(np.linalg.inv(lhs),rhs)
+        else:
+            cm=rhs/lhs
+        t2=time.time()
+        if dd is None:
+            dd=np.empty(dat.shape)
+        if have_numba:
+            np.outer(-self.v,cm,dd)
+            t3=time.time()
+            #dd[:]=dd[:]+dat
+            minkasi_nb.axpy_in_place(dd,dat)
+            minkasi_nb.scale_matrix_by_vector(dd,self.mywt)
+        else:
+            dd=dat-np.outer(self.v,cm)
+            #print(dd[:4,:4])
+            t3=time.time()
+            tmp=np.repeat([self.mywt],len(cm),axis=0).T
+            dd=dd*tmp
+        t4=time.time()
+        #print(t2-t1,t3-t2,t4-t3)
+        return dd
+    def get_det_weights(self):
+        return self.mywt.copy()
+
+class NoiseSmoothedSVD:
+    def __init__(self,dat_use,fwhm=50,prewhiten=False,fit_powlaw=False,u_in=None):
+        if prewhiten:
+            noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
+            dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
+        if u_in is None:
+            u,s,v=np.linalg.svd(dat_use,0)
+            ndet=s.size
+        else:
+            u=u_in
+            assert(u.shape[0]==u.shape[1])
+            ndet=u.shape[0]
+
+        #print(u.shape,s.shape,v.shape)
+        print('got svd')
+
+        n=dat_use.shape[1]
+        self.v=np.zeros([ndet,ndet])
+        self.v[:]=u.transpose()
+        if u_in is None:
+            self.vT=self.v.T
+        else:
+            self.vT=np.linalg.inv(self.v)
+        dat_rot=np.dot(self.v,dat_use)
+        if fit_powlaw:
+            spec_smooth=0*dat_rot
+            for ind in range(ndet):
+                fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
+                spec_smooth[ind,1:]=C
+        else:
+            dat_trans=mkfftw.fft_r2r(dat_rot)
+            spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
+        spec_smooth[:,1:]=1.0/spec_smooth[:,1:]
+        spec_smooth[:,0]=0
+        if prewhiten:
+            self.noisevec=noisevec.copy()
+        else:
+            self.noisevec=None
+        self.mywt=spec_smooth
+    def apply_noise(self,dat):
+        if not(self.noisevec is None):
+            noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
+        dat_rot=np.dot(self.v,dat)
+        datft=mkfftw.fft_r2r(dat_rot)
+        nn=datft.shape[1]
+        datft=datft*self.mywt[:,:nn]
+        dat_rot=mkfftw.fft_r2r(datft)
+        #dat=np.dot(self.v.T,dat_rot)
+        dat=np.dot(self.vT,dat_rot)
+        dat[:,0]=0.5*dat[:,0]
+        dat[:,-1]=0.5*dat[:,-1]
+        if not(self.noisevec is None):
+            #noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat        
+        return dat
+
+    def apply_noise_wscratch(self,dat,tmp,tmp2):
+        if not(self.noisevec is None):
+            noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
+        dat_rot=tmp
+        dat_rot=np.dot(self.v,dat,dat_rot)
+        dat=tmp2
+        datft=dat
+        datft=mkfftw.fft_r2r(dat_rot,datft)
+        nn=datft.shape[1]
+        datft[:]=datft*self.mywt[:,:nn]
+        dat_rot=tmp
+        dat_rot=mkfftw.fft_r2r(datft,dat_rot)
+        #dat=np.dot(self.v.T,dat_rot)
+        dat=np.dot(self.vT,dat_rot,dat)
+        dat[:,0]=0.5*dat[:,0]
+        dat[:,-1]=0.5*dat[:,-1]
+        if not(self.noisevec is None):
+            #noisemat=np.repeat([self.noisevec],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat        
+        return dat
+
+    def get_det_weights(self):
+        """Find the per-detector weights for use in making actual noise maps."""
+        mode_wt=np.sum(self.mywt,axis=1)
+        #tmp=np.dot(self.v.T,np.dot(np.diag(mode_wt),self.v))
+        tmp=np.dot(self.vT,np.dot(np.diag(mode_wt),self.v))
+        return np.diag(tmp).copy()*2.0
+
+class Tod:
+    def __init__(self,info):
+        self.info=info.copy()
+        self.jumps=None
+        self.cuts=None
+        self.noise=None
+        self.noise_delayed=False
+    def lims(self):
+        xmin=self.info['dx'].min()
+        xmax=self.info['dx'].max()
+        ymin=self.info['dy'].min()
+        ymax=self.info['dy'].max()
+        return xmin,xmax,ymin,ymax
+    def set_apix(self):
+        '''calculates dxel normalized to +-1 from elevation'''
+        #TBD pass in and calculate scan center's elevation vs time
+        elev=np.mean(self.info['elev'],axis=0)
+        x=np.arange(elev.shape[0])/elev.shape[0] 
+        a=np.polyfit(x,elev,2)
+        ndet=self.info['elev'].shape[0]
+        track_elev,xel=np.meshgrid(a[2]+a[1]*x+a[0]*x**2,np.ones(ndet))
+        delev=self.info['elev'] - track_elev
+        ml=np.max(np.abs(delev))
+        self.info['apix']=delev/ml
+    def get_ndet(self):
+        return self.info['dat_calib'].shape[0]
+    def get_ndata(self):
+        return self.info['dat_calib'].shape[1]
+    def get_nsamp(self):
+        #get total number of timestream samples, not samples per detector
+        #return np.product(self.info['dat_calib'].shape)
+        return self.get_ndet()*self.get_ndata()
+
+    def get_saved_pix(self,tag=None):
+        if tag is None:
+            return None
+        if tag in self.info.keys():
+            return self.info[tag]
+        else:
+            return None
+    def clear_saved_pix(self,tag=None):
+        if tag is None:
+            return
+        if tag in self.info.keys():
+            del(self.info[tag])
+    def save_pixellization(self,tag,ipix):
+        if tag in self.info.keys():
+            print('warning - overwriting key ',tag,' in tod.save_pixellization.')
+        self.info[tag]=ipix
+    
+
+    def get_data_dims(self):
+        return (self.get_ndet(),self.get_ndata())
+        #dims=self.info['dat_calib'].shape
+        #if len(dims)==1:
+        #    dims=np.asarray([1,dims[0]],dtype='int')
+        #return dims
+        #return self.info['dat_calib'].shape
+
+    def get_data(self):
+        return self.info['dat_calib']
+    def get_tvec(self):
+        return self.info['ctime']
+
+    def get_radec(self):
+        return self.info['dx'],self.info['dy']
+    def get_empty(self,clear=False):
+        if 'dtype' in self.info.keys():
+            dtype=self.info['dtype']
+        elif 'dat_calib' in self.info.keys():
+            dtype=self.info['dat_calib'].dtype
+        else:            
+            dtype='float'
+        if clear:
+            #return np.zeros(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)            
+            return np.zeros([self.get_ndet(),self.get_ndata()],dtype=dtype)
+        else:
+            #return np.empty(self.info['dat_calib'].shape,dtype=self.info['dat_calib'].dtype)
+            return np.empty([self.get_ndet(),self.get_ndata()],dtype=dtype)
+    def set_tag(self,tag):
+        self.info['tag']=tag
+    def set_pix(self,map):
+        ipix=map.get_pix(self)
+        #self.info['ipix']=ipix
+        self.info[map.tag]=ipix
+    def copy(self,copy_info=False):
+        if copy_info:
+            myinfo=self.info.copy()
+            for key in myinfo.keys():
+                try:
+                    myinfo[key]=self.info[key].copy()
+                except:
+                    pass
+            tod=Tod(myinfo)
+        else:
+            tod=Tod(self.info)
+        if not(self.jumps is None):
+            try:
+                tod.jumps=self.jumps.copy()
+            except:
+                tod.jumps=self.jumps[:]
+        if not(self.cuts is None):
+            try:
+                tod.cuts=self.cuts.copy()
+            except:
+                tod.cuts=self.cuts[:]
+            tod.cuts=self.cuts[:]
+        tod.noise=self.noise
+            
+        return tod
+    def set_noise(self,modelclass=NoiseSmoothedSVD,dat=None,delayed=False,*args,**kwargs):
+        if delayed:
+            self.noise_args=copy.deepcopy(args)
+            self.noise_kwargs=copy.deepcopy(kwargs)
+            self.noise_delayed=True
+            self.noise_modelclass=modelclass
+        else:
+            self.noise_delayed=False
+            if dat is None:
+                dat=self.info['dat_calib']
+            self.noise=modelclass(dat,*args,**kwargs)
+    def get_det_weights(self):
+        if self.noise is None:
+            print("noise model not set in get_det_weights.")
+            return None
+        try:
+            return self.noise.get_det_weights()
+        except:
+            print("noise model does not support detector weights in get_det_weights.")
+            return None
+    def set_noise_white_masked(self):
+        self.info['noise']='white_masked'
+        self.info['mywt']=np.ones(self.info['dat_calib'].shape[0])
+    def apply_noise_white_masked(self,dat=None):
+        if dat is None:
+            dat=self.info['dat_calib']
+        dd=self.info['mask']*dat*np.repeat([self.info['mywt']],self.info['dat_calib'].shape[1],axis=0).transpose()
+        return dd
+    def set_noise_cm_white(self):
+        print('deprecated usage - please switch to tod.set_noise(minkasi.NoiseCMWhite)')
+        self.set_noise(NoiseCMWhite)
+        return
+
+        u,s,v=np.linalg.svd(self.info['dat_calib'],0)
+        ndet=len(s)
+        ind=np.argmax(s)
+        mode=np.zeros(ndet)
+        #mode[:]=u[:,0]  #bug fixes pointed out by Fernando Zago.  19 Nov 2019
+        #pred=np.outer(mode,v[0,:])
+        mode[:]=u[:,ind]
+        pred=np.outer(mode*s[ind],v[ind,:])
+
+        dat_clean=self.info['dat_calib']-pred
+        myvar=np.std(dat_clean,1)**2
+        self.info['v']=mode
+        self.info['mywt']=1.0/myvar
+        self.info['noise']='cm_white'
+        
+    def apply_noise_cm_white(self,dat=None):
+        print("I'm not sure how you got here (tod.apply_noise_cm_white), but you should not have been able to.  Please complain to someone.")
+        if dat is None:
+            dat=self.info['dat_calib']
+
+        mat=np.dot(self.info['v'],np.diag(self.info['mywt']))
+        lhs=np.dot(self.info['v'],mat.transpose())
+        rhs=np.dot(mat,dat)
+        #if len(lhs)>1:
+        if isinstance(lhs,np.ndarray):
+            cm=np.dot(np.linalg.inv(lhs),rhs)
+        else:
+            cm=rhs/lhs
+        dd=dat-np.outer(self.info['v'],cm)
+        tmp=np.repeat([self.info['mywt']],len(cm),axis=0).transpose()
+        dd=dd*tmp
+        return dd
+    def set_noise_binned_eig(self,dat=None,freqs=None,scale_facs=None,thresh=5.0):
+        if dat is None:
+            dat=self.info['dat_calib']
+        mycov=np.dot(dat,dat.T)
+        mycov=0.5*(mycov+mycov.T)
+        ee,vv=np.linalg.eig(mycov)
+        mask=ee>thresh*thresh*np.median(ee)
+        vecs=vv[:,mask]
+        ts=np.dot(vecs.T,dat)
+        resid=dat-np.dot(vv[:,mask],ts)
+        
+        return resid
+    def set_noise_smoothed_svd(self,fwhm=50,func=None,pars=None,prewhiten=False,fit_powlaw=False):
+        '''If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
+        we subtract off before estimating the noise.'''
+
+        
+        print('deprecated usage - please switch to tod.set_noise(minkasi.NoiseSmoothedSVD)')
+
+        if func is None:
+            self.set_noise(NoiseSmoothedSVD,self.info['dat_calib'])
+        else:
+            dat_use=func(pars,self)
+            dat_use=self.info['dat_calib']-dat_use
+            self.set_noise(NoiseSmoothedSVD,dat_use)
+        return
+
+
+        if func is None:
+            dat_use=self.info['dat_calib']
+        else:
+            dat_use=func(pars,self)
+            dat_use=self.info['dat_calib']-dat_use
+            #u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
+        if prewhiten:
+            noisevec=np.median(np.abs(np.diff(dat_use,axis=1)),axis=1)
+            dat_use=dat_use/(np.repeat([noisevec],dat_use.shape[1],axis=0).transpose())
+        u,s,v=np.linalg.svd(dat_use,0)
+        print('got svd')
+        ndet=s.size
+        n=self.info['dat_calib'].shape[1]
+        self.info['v']=np.zeros([ndet,ndet])
+        self.info['v'][:]=u.transpose()
+        dat_rot=np.dot(self.info['v'],self.info['dat_calib'])
+        if fit_powlaw:
+            spec_smooth=0*dat_rot
+            for ind in range(ndet):
+                fitp,datsqr,C=fit_ts_ps(dat_rot[ind,:]);
+                spec_smooth[ind,1:]=C
+        else:
+            dat_trans=mkfftw.fft_r2r(dat_rot)
+            spec_smooth=smooth_many_vecs(dat_trans**2,fwhm)
+        spec_smooth[:,1:]=1.0/spec_smooth[:,1:]
+        spec_smooth[:,0]=0
+        if prewhiten:
+            self.info['noisevec']=noisevec.copy()
+        self.info['mywt']=spec_smooth
+        self.info['noise']='smoothed_svd'
+        #return dat_rot
+        
+    def apply_noise(self,dat=None):
+        if dat is None:
+            #dat=self.info['dat_calib']
+            dat=self.get_data().copy() #the .copy() is here so you don't
+                                       #overwrite data stored in the TOD.
+        if self.noise_delayed:
+            self.noise=self.noise_modelclass(dat,*(self.noise_args), **(self.noise_kwargs))
+            self.noise_delayed=False
+        try:
+            return self.noise.apply_noise(dat)
+        except:
+            print("unable to use class-based noised, falling back onto hardwired.")
+            
+        if self.info['noise']=='cm_white':
+            #print 'calling cm_white'
+            return self.apply_noise_cm_white(dat)
+        if self.info['noise']=='white_masked':
+            return self.apply_noise_white_masked(dat)
+        #if self.info.has_key('noisevec'):
+        if 'noisevec' in self.info:
+            noisemat=np.repeat([self.info['noisevec']],dat.shape[1],axis=0).transpose()
+            dat=dat/noisemat
+        dat_rot=np.dot(self.info['v'],dat)
+
+        datft=mkfftw.fft_r2r(dat_rot)
+        nn=datft.shape[1]
+        datft=datft*self.info['mywt'][:,0:nn]
+        dat_rot=mkfftw.fft_r2r(datft)
+        dat=np.dot(self.info['v'].transpose(),dat_rot)
+        #if self.info.has_key('noisevec'):
+        if 'noisevec' in self.info:
+            dat=dat/noisemat
+        dat[:,0]=0.5*dat[:,0]
+        dat[:,-1]=0.5*dat[:,-1]
+
+        return dat
+    def mapset2tod(self,mapset,dat=None):
+        if dat is None:
+            #dat=0*self.info['dat_calib']
+            dat=self.get_empty(True)
+        for map in mapset.maps:
+            map.map2tod(self,dat)
+        return dat
+    def tod2mapset(self,mapset,dat=None):                     
+        if dat is None:
+            #dat=self.info['dat_calib']
+            dat=self.get_data()
+        for map in mapset.maps:
+            map.tod2map(self,dat)
+    def dot(self,mapset,mapset_out,times=False):
+        #tmp=0.0*self.info['dat_calib']
+        #for map in mapset.maps:
+        #    map.map2tod(self,tmp)
+        t1=time.time()
+        tmp=self.mapset2tod(mapset)
+        t2=time.time()
+        tmp=self.apply_noise(tmp)
+        t3=time.time()
+        self.tod2mapset(mapset_out,tmp)
+        t4=time.time()
+        #for map in mapset_out.maps:
+        #    map.tod2map(self,tmp)
+        if times:
+            return(np.asarray([t2-t1,t3-t2,t4-t3]))
+    def set_jumps(self,jumps):
+        self.jumps=jumps
+    def cut_detectors(self,isgood):
+        #cut all detectors not in boolean array isgood
+        isbad=np.asarray(1-isgood,dtype='bool')
+        bad_inds=np.where(isbad)
+        bad_inds=np.fliplr(bad_inds)
+        bad_inds=bad_inds[0]
+        print(bad_inds)
+        nkeep=np.sum(isgood)
+        for key in self.info.keys():
+            if isinstance(self.info[key],np.ndarray):
+                self.info[key]=slice_with_copy(self.info[key],isgood)
+        if not(self.jumps is None):
+            for i in bad_inds:
+                print('i in bad_inds is ',i)
+                del(self.jumps[i])
+        if not(self.cuts is None):
+            for i in bad_inds:
+                del(self.cuts[i])
+                
+    def timestream_chisq(self,dat=None):
+        if dat is None:
+            dat=self.info['dat_calib']
+        dat_filt=self.apply_noise(dat)
+        chisq=np.sum(dat_filt*dat)
+        return chisq
+    def prior_from_skymap(self,skymap):
+        """stuff.
+        prior_from_skymap(self,skymap):
+        Given e.g. the gradient of a map that has been zeroed under some threshold,
+        return a CutsCompact object that can be used as a prior for solving for per-sample deviations
+        due to strong map gradients.  This is to reduce X's around bright sources.  The input map
+        should be a SkyMap that is non-zero where one wishes to solve for the per-sample deviations, and 
+        the non-zero values should be the standard deviations expected in those pixel.  The returned CutsCompact 
+        object will have the weight (i.e. 1/input squared) in its map.        
+        """
+        tmp=np.zeros(self.info['dat_calib'].shape)
+        skymap.map2tod(self,tmp)
+        mask=(tmp==0)
+        prior=CutsCompact(self)
+        prior.cuts_from_array(mask)
+        prior.get_imap()
+        prior.tod2map(self,tmp)
+        prior.map=1.0/prior.map**2
+        return prior
+
+def slice_with_copy(arr,ind):
+    if isinstance(arr,np.ndarray):
+        myshape=arr.shape
+
+        if len(myshape)==1:
+            ans=np.zeros(ind.sum(),dtype=arr.dtype)
+            print(ans.shape)
+            print(ind.sum())
+            ans[:]=arr[ind]
+        else:   
+            mydims=np.append(np.sum(ind),myshape[1:])
+            print(mydims,mydims.dtype)
+            ans=np.zeros(mydims,dtype=arr.dtype)
+            ans[:,:]=arr[ind,:].copy()
+        return ans
+    return None #should not get here
+class TodVec:
+    def __init__(self):
+        self.tods=[]
+        self.ntod=0
+    def add_tod(self,tod):
+
+        self.tods.append(tod.copy())
+        self.tods[-1].set_tag(self.ntod)
+        self.ntod=self.ntod+1
+    def lims(self):
+        if self.ntod==0:
+            return None
+        xmin,xmax,ymin,ymax=self.tods[0].lims()
+        for i in range(1,self.ntod):
+            x1,x2,y1,y2=self.tods[i].lims()
+            xmin=min(x1,xmin)
+            xmax=max(x2,xmax)
+            ymin=min(y1,ymin)
+            ymax=max(y2,ymax)
+        if have_mpi:
+            print('before reduction lims are ',[xmin,xmax,ymin,ymax])
+            xmin=comm.allreduce(xmin,op=MPI.MIN)
+            xmax=comm.allreduce(xmax,op=MPI.MAX)
+            ymin=comm.allreduce(ymin,op=MPI.MIN)
+            ymax=comm.allreduce(ymax,op=MPI.MAX)
+            print('after reduction lims are ',[xmin,xmax,ymin,ymax])
+        return [xmin,xmax,ymin,ymax]
+    def set_pix(self,map):
+        for tod in self.tods:
+            #ipix=map.get_pix(tod)
+            #tod.info['ipix']=ipix
+            tod.set_pix(map)
+    def set_apix(self):
+        for tod in self.tods:
+            tod.set_apix()
+    def dot_cached(self,mapset,mapset2=None):
+        nthread=get_nthread()
+        mapset2.get_caches()
+        for i in range(self.ntod):
+            tod=self.tods[i]
+            tod.dot(mapset,mapset2)
+        mapset2.clear_caches()
+        if have_mpi:
+            mapset2.mpi_reduce()
+
+        return mapset2
+
+    def get_nsamp(self,reduce=True):
+        tot=0
+        for tod in self.tods:
+            tot=tot+tod.get_nsamp()
+        if reduce:
+            if have_mpi:
+                tot=comm.allreduce(tot)
+        return tot
+
+    def dot(self,mapset,mapset2=None,report_times=False,cache_maps=False):
+        if mapset2 is None:
+            mapset2=mapset.copy()
+            mapset2.clear()
+
+        if cache_maps:
+            mapset2=self.dot_cached(mapset,mapset2)
+            return mapset2
+            
+
+        times=np.zeros(self.ntod)
+        tot_times=0
+        #for tod in self.tods:
+        for i in range(self.ntod):
+            tod=self.tods[i]
+            t1=time.time()
+            mytimes=tod.dot(mapset,mapset2,True)
+            t2=time.time()
+            tot_times=tot_times+mytimes
+            times[i]=t2-t1
+        if have_mpi:
+            mapset2.mpi_reduce()
+        print(tot_times)
+        if report_times:
+            return mapset2,times
+        else:
+            return mapset2
+    def make_rhs(self,mapset,do_clear=False):
+        if do_clear:
+            mapset.clear()
+        for tod in self.tods:
+            dat_filt=tod.apply_noise()
+            for map in mapset.maps:
+                map.tod2map(tod,dat_filt)
+        
+        if have_mpi:
+            mapset.mpi_reduce()
+
+def read_tod_from_fits_cbass(fname,dopol=False,lat=37.2314,lon=-118.2941,v34=True,nm20=False):
+    f=pyfits.open(fname)
+    raw=f[1].data
+    ra=raw['RA']
+    dec=raw['DEC']
+    flag=raw['FLAG']
+    I=0.5*(raw['I1']+raw['I2'])
+
+
+    mjd=raw['MJD']
+    tvec=(mjd-2455977.5+2400000.5)*86400+1329696000
+    #(mjd-2455977.5)*86400+1329696000;
+    dt=np.median(np.diff(tvec))
+
+    dat={}
+    dat['dx']=np.reshape(np.asarray(ra,dtype='float64'),[1,len(ra)])
+    dat['dy']=np.reshape(np.asarray(dec,dtype='float64'),[1,len(dec)])
+    dat['dt']=dt
+    dat['ctime']=tvec
+    if dopol:
+        dat['dx']=np.vstack([dat['dx'],dat['dx']])
+        dat['dy']=np.vstack([dat['dy'],dat['dy']])
+        Q=0.5*(raw['Q1']+raw['Q2'])
+        U=0.5*(raw['U1']+raw['U2'])
+        dat['dat_calib']=np.zeros([2,len(Q)])
+        if v34:  #We believe this is the correct sign convention for V34
+            dat['dat_calib'][0,:]=-U
+            dat['dat_calib'][1,:]=Q
+        else:
+            dat['dat_calib'][0,:]=Q
+            dat['dat_calib'][1,:]=U            
+        az=raw['AZ']
+        el=raw['EL']
+        #JLS- changing default az/el to radians and not degrees in TOD
+        dat['az']=az*np.pi/180
+        dat['el']=el*np.pi/180
+        
+        #dat['AZ']=az
+        #dat['EL']=el
+        #dat['ctime']=tvec
+        dat['mask']=np.zeros([2,len(Q)],dtype='int8')
+        dat['mask'][0,:]=1-raw['FLAG']
+        dat['mask'][1,:]=1-raw['FLAG']
+        if have_qp:
+            Q = qp.QPoint(accuracy='low', fast_math=True, mean_aber=True,num_threads=4)
+            #q_bore = Q.azel2bore(dat['AZ'], dat['EL'], 0*dat['AZ'], 0*dat['AZ'], lon*np.pi/180, lat*np.pi/180, dat['ctime'])
+            q_bore = Q.azel2bore(az,el, 0*az, 0*az, lon, lat, dat['ctime'])
+            q_off = Q.det_offset(0.0,0.0,0.0)
+            #ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, ctime, q_bore)
+            ra, dec, sin2psi, cos2psi = Q.bore2radec(q_off, tvec, q_bore)
+            tmp=np.arctan2(sin2psi,cos2psi) 
+            tmp=tmp-np.pi/2 #this seems to be needed to get these coordinates to line up with 
+                            #the expected, in IAU convention I believe.  JLS Nov 12 2020
+            #dat['twogamma_saved']=np.arctan2(sin2psi,cos2psi)
+            dat['twogamma_saved']=np.vstack([tmp,tmp+np.pi/2])
+            #print('pointing rms is ',np.std(ra*np.pi/180-dat['dx']),np.std(dec*np.pi/180-dat['dy']))
+            dat['ra']=ra*np.pi/180
+            dat['dec']=dec*np.pi/180
+    else:
+        dat['dat_calib']=np.zeros([1,len(I)])
+        dat['dat_calib'][:]=I
+        dat['mask']=np.zeros([1,len(I)],dtype='int8')
+        dat['mask'][:]=1-raw['FLAG']
+
+
+    dat['pixid']=[0]
+    dat['fname']=fname
+
+    if nm20:
+        try:
+        #kludget to read in bonus cuts, which should be in f[3]
+            raw=f[3].data 
+            dat['nm20_start']=raw['START']
+            dat['nm20_stop']=raw['END']
+            #nm20=0*dat['flag']
+            print(dat.keys())
+            nm20=0*dat['mask']
+            start=dat['nm20_start']
+            stop=dat['nm20_stop']
+            for i in range(len(start)):
+                nm20[:,start[i]:stop[i]]=1
+                #nm20[:,start[i]:stop[i]]=0
+            dat['mask']=dat['mask']*nm20
+        except:
+            print('missing nm20 for ',fname)
+
+    f.close()
+    return dat
+
+def read_tod_from_fits(fname,hdu=1,branch=None):
+    f=pyfits.open(fname)
+    raw=f[hdu].data
+    #print 'sum of cut elements is ',np.sum(raw['UFNU']<9e5)
+    try : #read in calinfo (per-scan beam volumes etc) if present
+        calinfo={'calinfo':True}
+        kwds=('scan','bunit','azimuth','elevatio','beameff','apereff','antgain','gainunc','bmaj','bmin','bpa','parang','beamvol','beamvunc')#for now just hardwired ones we want
+        for kwd in kwds:
+            calinfo[kwd]=f[hdu].header[kwd]
+    except KeyError : 
+        print('WARNING - calinfo information not found in fits file header - to track JytoK etc you may need to reprocess the fits files using mustangidl > revision 932') 
+        calinfo['calinfo']=False
+
+    pixid=raw['PIXID']
+    dets=np.unique(pixid)
+    ndet=len(dets)
+    nsamp=len(pixid)/len(dets)
+    if True:
+        ff=180/np.pi
+        xmin=raw['DX'].min()*ff
+        xmax=raw['DX'].max()*ff
+        ymin=raw['DY'].min()*ff
+        ymax=raw['DY'].max()*ff
+        print('nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname, 'with lims ',xmin,xmax,ymin,ymax)
+    else:
+        print('nsamp and ndet are ',ndet,nsamp,len(pixid),' on ',fname)
+    #print raw.names
+    dat={}
+    #this bit of odd gymnastics is because a straightforward reshape doesn't seem to leave the data in
+    #memory-contiguous order, which causes problems down the road
+    #also, float32 is a bit on the edge for pointing, so cast to float64
+    dx=raw['DX']
+    if not(branch is None):
+        bb=branch*np.pi/180.0
+        dx[dx>bb]=dx[dx>bb]-2*np.pi
+    #dat['dx']=np.zeros([ndet,nsamp],dtype=type(dx[0]))
+    ndet=np.int(ndet)
+    nsamp=np.int(nsamp)
+    dat['dx']=np.zeros([ndet,nsamp],dtype='float64')
+    dat['dx'][:]=np.reshape(dx,[ndet,nsamp])[:]
+    dy=raw['DY']
+    #dat['dy']=np.zeros([ndet,nsamp],dtype=type(dy[0]))
+    dat['dy']=np.zeros([ndet,nsamp],dtype='float64')
+    dat['dy'][:]=np.reshape(dy,[ndet,nsamp])[:]
+    if 'ELEV' in raw.names:
+        elev=raw['ELEV']*np.pi/180
+        dat['elev']=np.zeros([ndet,nsamp],dtype='float64')
+        dat['elev'][:]=np.reshape(elev,[ndet,nsamp])[:]
+
+    tt=np.reshape(raw['TIME'],[ndet,nsamp])
+    tt=tt[0,:]
+    dt=np.median(np.diff(tt))
+    dat['dt']=dt
+    pixid=np.reshape(pixid,[ndet,nsamp])
+    pixid=pixid[:,0]
+    dat['pixid']=pixid
+    dat_calib=raw['FNU']
+    #print 'shapes are ',raw['FNU'].shape,raw['UFNU'].shape,np.mean(raw['UFNU']>9e5)
+    #dat_calib[raw['UFNU']>9e5]=0.0
+
+    #dat['dat_calib']=np.zeros([ndet,nsamp],dtype=type(dat_calib[0]))
+    dat['dat_calib']=np.zeros([ndet,nsamp],dtype='float64') #go to double because why not
+    dat_calib=np.reshape(dat_calib,[ndet,nsamp])
+
+    dat['dat_calib'][:]=dat_calib[:]
+    if np.sum(raw['UFNU']>9e5)>0:
+        dat['mask']=np.reshape(raw['UFNU']<9e5,dat['dat_calib'].shape)
+        dat['mask_sum']=np.sum(dat['mask'],axis=0)
+    #print 'cut frac is now ',np.mean(dat_calib==0)
+    #print 'cut frac is now ',np.mean(dat['dat_calib']==0),dat['dat_calib'][0,0]
+    dat['fname']=fname
+    dat['calinfo']=calinfo
+    f.close()
+    return dat
+
+
+def downsample_array_r2r(arr,fac):
+
+    n=arr.shape[1]
+    nn=int(n/fac)
+    arr_ft=mkfftw.fft_r2r(arr)
+    arr_ft=arr_ft[:,0:nn].copy()
+    arr=mkfftw.fft_r2r(arr_ft)/(2*(n-1))
+    return arr
+
+def downsample_vec_r2r(vec,fac):
+
+    n=len(vec)
+    nn=int(n/fac)
+    vec_ft=mkfftw.fft_r2r(vec)
+    vec_ft=vec_ft[0:nn].copy()
+    vec=mkfftw.fft_r2r(vec_ft)/(2*(n-1))
+    return vec
+
+def downsample_tod(dat,fac=10):
+    ndata=dat['dat_calib'].shape[1]
+    keys=dat.keys()
+    for key in dat.keys():
+        try:
+            if len(dat[key].shape)==1:
+                #print('working on downsampling ' + key)
+                #print('shape is ' + repr(dat[key].shape[0])+'  '+repr(n))
+                if len(dat[key]):
+                    #print('working on downsampling ' + key)
+                    dat[key]=downsample_vec_r2r(dat[key],fac)
+            else:
+                if dat[key].shape[1]==ndata:
+                #print 'downsampling ' + key
+                    dat[key]=downsample_array_r2r(dat[key],fac)
+        except:
+            #print 'not downsampling ' + key
+            pass
+    
+
+def truncate_tod(dat,primes=[2,3,5,7,11]):
+    n=dat['dat_calib'].shape[1]
+    lens=find_good_fft_lens(n-1,primes)
+    n_new=lens.max()+1
+    if n_new<n:
+        print('truncating from ',n,' to ',n_new)
+        for key in dat.keys():
+            try:
+                #print('working on key ' + key)
+                if len(dat[key].shape)==1:
+                    if dat[key].shape[0]==n:
+                        dat[key]=dat[key][:n_new].copy()
+                else:
+                    if dat[key].shape[1]==n:
+                        dat[key]=dat[key][:,0:n_new].copy()
+            except:
+                #print('skipping key ' + key)
+                pass
+
+
+
+
+def todvec_from_files_octave(fnames):
+    todvec=TodVec()
+    for fname in fnames:
+        info=read_octave_struct(fname)
+        tod=Tod(info)
+        todvec.add_tod(tod)
+    return todvec
+        
+def make_hits(todvec,map,do_weights=False):
+    hits=map.copy()
+    try:
+        if map.npol>1:
+            hits.set_polstate(map.poltag+'_PRECON')
+    except:
+        pass
+    hits.clear()
+    for tod in todvec.tods:
+        if do_weights:
+            try:
+                weights=tod.get_det_weights()
+                #sz=tod.info['dat_calib'].shape
+                sz=tod.get_data_dims()
+                tmp=np.outer(weights,np.ones(sz[1]))
+                #tmp=np.outer(weights,np.ones(tod.info['dat_calb'].shape[1]))
+            except:
+                print("error in making weight map.  Detector weights requested, but do not appear to be present.  Do you have a noise model?")
+                             
+        else:
+            #tmp=np.ones(tod.info['dat_calib'].shape)
+            tmp=np.ones(tod.get_data_dims())
+        #if tod.info.has_key('mask'):
+        if 'mask' in tod.info:
+            tmp=tmp*tod.info['mask']
+        hits.tod2map(tod,tmp)
+    if have_mpi:
+        print('reducing hits')
+        tot=hits.map.sum()
+        print('starting with total hitcount ' + repr(tot))
+        hits.mpi_reduce()
+        tot=hits.map.sum()
+        print('ending with total hitcount ' + repr(tot))
+    return hits
+
+
+def decimate(vec,nrep=1):
+    for i in range(nrep):
+        if len(vec)%2:
+            vec=vec[:-1]
+        vec=0.5*(vec[0::2]+vec[1::2])
+    return vec
+def plot_ps(vec,downsamp=0):
+    vecft=mkfftw.fft_r2r(vec)
+    
+def get_wcs(lims,pixsize,proj='CAR',cosdec=None,ref_equ=False):
+    w=wcs.WCS(naxis=2)    
+    dec=0.5*(lims[2]+lims[3])
+    if cosdec is None:
+        cosdec=np.cos(dec)
+    if proj=='CAR':
+        #CAR in FITS seems to already correct for cosin(dec), which has me confused, but whatever...
+        cosdec=1.0
+        if ref_equ:
+            w.wcs.crval=[0.0,0.0]
+            #this seems to be a needed hack if you want the position sent
+            #in for the corner to actually be the corner.
+            w.wcs.crpix=[lims[1]/pixsize+1,-lims[2]/pixsize+1]
+            #w.wcs.crpix=[lims[1]/pixsize,-lims[2]/pixsize]
+            #print 'crpix is ',w.wcs.crpix
+        else:
+            w.wcs.crpix=[1.0,1.0]
+            w.wcs.crval=[lims[1]*180/np.pi,lims[2]*180/np.pi]
+        w.wcs.cdelt=[-pixsize/cosdec*180/np.pi,pixsize*180/np.pi]
+        w.wcs.ctype=['RA---CAR','DEC--CAR']
+        return w
+    print('unknown projection type ',proj,' in get_wcs.')
+    return None
+
+
+
+def get_aligned_map_subregion_car(lims,fname=None,big_wcs=None,osamp=1):
+    """Get a wcs for a subregion of a map, with optionally finer pixellization.  
+    Designed for use in e.g. combining ACT maps and Mustang data.  Input arguments
+    are RA/Dec limits for the subregion (which will be tweaked as-needed) and either a 
+    WCS structure or the name of a FITS file containing the WCS info the sub-region
+    will be aligned with."""
+    
+    if big_wcs is None:
+        if fname is None:
+            print("Error in get_aligned_map_subregion_car.  Must send in either a file or a WCS.")
+        big_wcs=wcs.WCS(fname)
+    ll=np.asarray(lims)
+    ll=ll*180/np.pi 
+    
+    #get the ra/dec limits in big pixel coordinates
+    corner1=big_wcs.wcs_world2pix(ll[0],ll[2],0)
+    corner2=big_wcs.wcs_world2pix(ll[1],ll[3],0)
+
+    #get the pixel edges for the corners.  FITS works in
+    #pixel centers, so edges are a half-pixel off
+    corner1[0]=np.ceil(corner1[0])+0.5
+    corner1[1]=np.floor(corner1[1])-0.5
+    corner2[0]=np.floor(corner2[0])-0.5
+    corner2[1]=np.ceil(corner2[1])+0.5
+    
+    corner1_radec=big_wcs.wcs_pix2world(corner1[0],corner1[1],0)
+    corner2_radec=big_wcs.wcs_pix2world(corner2[0],corner2[1],0)
+
+    dra=(corner1_radec[0]-corner2_radec[0])/(corner1[0]-corner2[0])
+    ddec=(corner1_radec[1]-corner2_radec[1])/(corner1[1]-corner2[1])
+    assert(np.abs(dra/ddec)-1<1e-5)  #we are not currently smart enough to deal with rectangular pixels
+    
+    lims_use=np.asarray([corner1_radec[0],corner2_radec[0],corner1_radec[1],corner2_radec[1]])
+    pixsize=ddec/osamp
+    lims_use=lims_use+np.asarray([0.5,-0.5,0.5,-0.5])*pixsize
+    
+    small_wcs=get_wcs(lims_use*np.pi/180,pixsize*np.pi/180,ref_equ=True)
+    imin=np.int(np.round(corner2[0]+0.5))
+    jmin=np.int(np.round(corner1[1]+0.5))
+    map_corner=np.asarray([imin,jmin],dtype='int')
+    lims_use=lims_use*np.pi/180
+
+    return small_wcs,lims_use,map_corner
+
+
+
+
+
+
+def fit_linear_ps_uncorr(dat,vecs,tol=1e-3,guess=None,max_iter=15):
+    if guess is None:
+        lhs=np.dot(vecs,vecs.transpose())
+        rhs=np.dot(vecs,dat**2)
+        guess=np.dot(np.linalg.inv(lhs),rhs) 
+        guess=0.5*guess #scale down since we're less likely to run into convergence issues if we start low
+        #print guess
+    fitp=guess.copy()
+    converged=False
+    npp=len(fitp)
+    iter=0
+    
+    grad_tr=np.zeros(npp)
+    grad_chi=np.zeros(npp)
+    curve=np.zeros([npp,npp])
+    datsqr=dat*dat
+    while (converged==False):
+        iter=iter+1
+        C=np.dot(fitp,vecs)
+        Cinv=1.0/C
+        for i in range(npp):
+            grad_chi[i]=0.5*np.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+            grad_tr[i]=-0.5*np.sum(vecs[i,:]*Cinv)
+            for j in range(i,npp):
+                #curve[i,j]=-0.5*np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #data-only curvature
+                #curve[i,j]=-0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:]) #Fisher curvature
+                curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:]) #exact
+                curve[j,i]=curve[i,j]
+        grad=grad_chi+grad_tr
+        curve_inv=np.linalg.inv(curve)
+        errs=np.diag(curve_inv)
+        dp=np.dot(grad,curve_inv)
+        fitp=fitp-dp
+        frac_shift=dp/errs
+        #print dp,errs,frac_shift
+        if np.max(np.abs(frac_shift))<tol:
+            print('successful convergence after ',iter,' iterations with error estimate ',np.max(np.abs(frac_shift)))
+            converged=True
+            print(C[0],C[-1])
+        if iter==max_iter:
+            print('not converging after ',iter,' iterations in fit_linear_ps_uncorr with current convergence parameter ',np.max(np.abs(frac_shift)))
+            converged=True
+            
+    return fitp
+
+def get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs):
+    vec=nu_scale**fitp[2]
+    C=fitp[0]+fitp[1]*vec
+    Cinv=1.0/C
+    vecs[1,:]=vec
+    vecs[2,:]=fitp[1]*lognu*vec
+    grad_chi=0.5*np.dot(vecs,datsqr*Cinv*Cinv)
+    grad_tr=-0.5*np.dot(vecs,Cinv)
+    grad=grad_chi+grad_tr
+    np=len(grad_chi)
+    curve=np.zeros([np,np])
+    for i in range(np):
+        for j in range(i,np):
+            curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+            curve[j,i]=curve[i,j]
+    like=-0.5*sum(datsqr*Cinv)-0.5*sum(np.log(C))
+    return like,grad,curve,C
+
+def fit_ts_ps(dat,dt=1.0,ind=-1.5,nu_min=0.0,nu_max=np.inf,scale_fac=1.0,tol=0.01):
+
+    datft=mkfftw.fft_r2r(dat)
+    n=len(datft)
+
+    dnu=0.5/(len(dat)*dt) #coefficient should reflect the type of fft you did...
+    nu=dnu*np.arange(n)
+    isgood=(nu>nu_min)&(nu<nu_max)
+    datft=datft[isgood]
+    nu=nu[isgood]
+    n=len(nu)
+    vecs=np.zeros([2,n])
+    vecs[0,:]=1.0 #white noise
+    vecs[1,:]=nu**ind
+    guess=fit_linear_ps_uncorr(datft,vecs)
+    pred=np.dot(guess,vecs)
+    #pred=guess[0]*vecs[0]+guess[1]*vecs[1]
+    #return pred
+
+    rat=vecs[1,:]*guess[1]/(vecs[0,:]*guess[0])
+    #print 'rat lims are ',rat.max(),rat.min()
+    my_ind=np.max(np.where(rat>1)[0])
+    nu_ref=np.sqrt(nu[my_ind]*nu[0]) #WAG as to a sensible frequency pivot point
+
+    #nu_ref=0.2*nu[my_ind] #WAG as to a sensible frequency pivot point
+    #print 'knee is roughly at ',nu[my_ind],nu_ref
+
+    #model = guess[1]*nu^ind+guess[0]
+    #      = guess[1]*(nu/nu_ref*nu_ref)^ind+guess[0]
+    #      = guess[1]*(nu_ref)^in*(nu/nu_ref)^ind+guess[0]
+
+    nu_scale=nu/nu_ref
+    guess_scale=guess.copy()
+    guess_scale[1]=guess[1]*(nu_ref**ind)
+    #print 'guess is ',guess
+    #print 'guess_scale is ',guess_scale
+    C_scale=guess_scale[0]+guess_scale[1]*(nu_scale**ind)
+    
+
+    fitp=np.zeros(3)
+    fitp[0:2]=guess_scale
+    fitp[2]=ind
+
+    npp=3
+    vecs=np.zeros([npp,n])
+    vecs[0,:]=1.0
+    lognu=np.log(nu_scale)
+    curve=np.zeros([npp,npp])
+    grad_chi=np.zeros(npp)
+    grad_tr=np.zeros(npp)
+    datsqr=datft**2
+    #for robustness, start with downscaling 1/f part
+    fitp[1]=0.5*fitp[1]
+    like,grad,curve,C=get_curve_deriv_powspec(fitp,nu_scale,lognu,datsqr,vecs)
+    lamda=0.0
+    #print 'starting likelihood is',like
+    for iter in range(50):
+        tmp=curve+lamda*np.diag(np.diag(curve))
+        curve_inv=np.linalg.inv(tmp)
+        dp=np.dot(grad,curve_inv)
+        trial_fitp=fitp-dp
+        errs=np.sqrt(-np.diag(curve_inv))
+        frac=dp/errs
+        new_like,new_grad,new_curve,C=get_curve_deriv_powspec(trial_fitp,nu_scale,lognu,datsqr,vecs)
+
+        if (new_like>like):
+        #if True:
+            like=new_like
+            grad=new_grad
+            curve=new_curve
+            fitp=trial_fitp
+            lamda=update_lamda(lamda,True)
+        else:
+            lamda=update_lamda(lamda,False)
+        if (lamda==0)&(np.max(np.abs(frac))<tol):
+            converged=True
+        else:
+            converged=False
+        if False:
+            vec=nu_scale**fitp[2]
+            C=fitp[0]+fitp[1]*vec
+            Cinv=1.0/C
+            vecs[1,:]=vec
+            vecs[2,:]=fitp[1]*lognu*vec
+            like=-0.5*np.sum(datsqr*Cinv)-0.5*np.sum(np.log(C))
+            for i in range(np):
+                grad_chi[i]=0.5*np.sum(datsqr*vecs[i,:]*Cinv*Cinv)
+                grad_tr[i]=-0.5*np.sum(vecs[i,:]*Cinv)
+                for j in range(i,np):
+                    curve[i,j]=0.5*np.sum(Cinv*Cinv*vecs[i,:]*vecs[j,:])-np.sum(datsqr*Cinv*Cinv*Cinv*vecs[i,:]*vecs[j,:])
+                    curve[j,i]=curve[i,j]
+            grad=grad_chi+grad_tr
+            curve_inv=np.linalg.inv(curve)
+            errs=np.diag(curve_inv)
+            dp=np.dot(grad,curve_inv)
+            fitp=fitp-dp*scale_fac
+            frac_shift=dp/errs
+
+        #print fitp,errs,frac_shift,np.mean(np.abs(new_grad-grad))
+        #print fitp,grad,frac,lamda
+        if converged:
+            print('converged after ',iter,' iterations')
+            break
+
+
+
+    #C=np.dot(guess,vecs)
+    print('mean diff is ',np.mean(np.abs(C_scale-C)))
+    #return datft,vecs,nu,C
+    return fitp,datsqr,C
+    
+def get_derivs_tod_isosrc(pars,tod,niso=None):
+    np_src=4
+    np_iso=5
+    #nsrc=(len(pars)-np_iso)/np_src
+    npp=len(pars)
+    if niso is None:
+        niso=(npp%np_src)/(np_iso-np_src)
+    nsrc=(npp-niso*np_iso)/np_src
+    #print nsrc,niso
+    
+
+    fitp_iso=np.zeros(np_iso)
+    fitp_iso[:]=pars[:np_iso]
+    #print 'fitp_iso is ',fitp_iso
+    derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
+
+    #nn=tod.info['dat_calib'].size
+    nn=tod.get_nsamp()
+    derivs=np.reshape(derivs_iso,[np_iso,nn])
+    pred=f_iso
+
+    for ii in range(nsrc):
+        fitp_src=np.zeros(np_src)
+        istart=np_iso+ii*np_src
+        fitp_src[:]=pars[istart:istart+np_src]
+        derivs_src,f_src=derivs_from_gauss_c(fitp_src,tod)
+        pred=pred+f_src
+        derivs_src_tmp=np.reshape(derivs_src,[np_src,nn])
+        derivs=np.append(derivs,derivs_src_tmp,axis=0)
+    return pred,derivs
+
+def get_curve_deriv_tod_manygauss(pars,tod,return_vecs=False):
+    npp=4
+    nsrc=len(pars)//npp
+    fitp_gauss=np.zeros(npp)
+    #dat=tod.info['dat_calib']
+    dat=tod.get_data()
+    big_derivs=np.zeros([npp*nsrc,dat.shape[0],dat.shape[1]])
+    pred=0
+    curve=np.zeros([npp*nsrc,npp*nsrc])
+    deriv=np.zeros([npp*nsrc])
+    for i in range(nsrc):
+        fitp_gauss[:]=pars[i*npp:(i+1)*npp]
+        derivs,src_pred=derivs_from_gauss_c(fitp_gauss,tod)
+        pred=pred+src_pred
+        big_derivs[i*npp:(i+1)*npp,:,:]=derivs
+    delt=dat-pred
+    delt_filt=tod.apply_noise(delt)
+    chisq=0.5*np.sum(delt[:,0]*delt_filt[:,0])
+    chisq=chisq+0.5*np.sum(delt[:,-1]*delt_filt[:,-1])
+    chisq=chisq+np.sum(delt[:,1:-1]*delt_filt[:,1:-1])
+    for i in range(npp*nsrc):
+        deriv_filt=tod.apply_noise(big_derivs[i,:,:])
+        for j in range(i,npp*nsrc):
+            curve[i,j]=curve[i,j]+0.5*np.sum(deriv_filt[:,0]*big_derivs[j,:,0])
+            curve[i,j]=curve[i,j]+0.5*np.sum(deriv_filt[:,-1]*big_derivs[j,:,-1])
+            curve[i,j]=curve[i,j]+np.sum(deriv_filt[:,1:-1]*big_derivs[j,:,1:-1])
+            curve[j,i]=curve[i,j]
+            #print i,j,curve[i,j]
+        deriv[i]=deriv[i]+0.5*np.sum(deriv_filt[:,0]*delt[:,0])
+        deriv[i]=deriv[i]+0.5*np.sum(deriv_filt[:,-1]*delt[:,-1])
+        deriv[i]=deriv[i]+np.sum(deriv_filt[:,1:-1]*delt[:,1:-1])
+    return curve,deriv,chisq
+def get_curve_deriv_tod_isosrc(pars,tod,return_vecs=False):
+    np_src=4
+    np_iso=5
+    nsrc=(len(pars)-np_iso)/np_src
+    #print 'nsrc is ',nsrc
+    fitp_iso=np.zeros(np_iso)
+    fitp_iso[:]=pars[:np_iso]
+    #print 'fitp_iso is ',fitp_iso
+    derivs_iso,f_iso=derivs_from_isobeta_c(fitp_iso,tod)
+    derivs_iso_filt=0*derivs_iso
+    #tmp=0*tod.info['dat_calib']
+    tmp=tod.get_empty(True)
+    #nn=tod.info['dat_calib'].size
+    nn=tod.get_nsamp
+    for i in range(np_iso):
+        tmp[:,:]=derivs_iso[i,:,:]
+        derivs_iso_filt[i,:,:]=tod.apply_noise(tmp)
+    derivs=np.reshape(derivs_iso,[np_iso,nn])
+    derivs_filt=np.reshape(derivs_iso_filt,[np_iso,nn])
+    pred=f_iso
+
+    for ii in range(nsrc):
+        fitp_src=np.zeros(np_src)
+        istart=np_iso+ii*np_src
+        fitp_src[:]=pars[istart:istart+np_src]
+        #print 'fitp_src is ',fitp_src
+        derivs_src,f_src=derivs_from_gauss_c(fitp_src,tod)
+        pred=pred+f_src
+        derivs_src_filt=0*derivs_src
+        for i in range(np_src):
+            tmp[:,:]=derivs_src[i,:,:]
+            derivs_src_filt[i,:,:]=tod.apply_noise(tmp)
+        derivs_src_tmp=np.reshape(derivs_src,[np_src,nn])
+        derivs=np.append(derivs,derivs_src_tmp,axis=0)
+        derivs_src_tmp=np.reshape(derivs_src_filt,[np_src,nn])
+        derivs_filt=np.append(derivs_filt,derivs_src_tmp,axis=0)
+
+    #delt_filt=tod.apply_noise(tod.info['dat_calib']-pred)
+    delt_filt=tod.apply_noise(tod.get_data()-pred)
+    delt_filt=np.reshape(delt_filt,nn)
+
+    #dvec=np.reshape(tod.info['dat_calib'],nn)
+    dvec=np.ravel(tod.get_data())
+    #predvec=np.reshape(pred,nn)
+    predvec=np.ravel(pred)
+    delt=dvec-predvec
+    
+
+
+
+    grad=np.dot(derivs_filt,delt)
+    grad2=np.dot(derivs,delt_filt)
+    curve=np.dot(derivs_filt,derivs.transpose())
+    #return pred
+    if return_vecs:
+        return grad,grad2,curve,derivs,derivs_filt,delt,delt_filt
+    else:
+        return grad,grad2,curve
+
+    
+
+def get_timestream_chisq_from_func(func,pars,tods):
+    chisq=0.0
+    for tod in tods.tods:
+        pred,derivs=func(pars,tod)
+        #delt=tod.info['dat_calib']-pred
+        delt=tod.get_data()-pred
+        delt_filt=tod.apply_noise(delt)
+        delt_filt[:,0]=delt_filt[:,0]*0.5
+        delt_filt[:,-1]=delt_filt[:,-1]*0.5
+        chisq=chisq+np.sum(delt*delt_filt)
+    return chisq
+
+def get_timestream_chisq_curve_deriv_from_func(func,pars,tods,rotmat=None,*args,**kwargs):
+    chisq=0.0
+    grad=0.0
+    curve=0.0
+    #print 'inside func, len(tods) is ',len(tods.tods),len(pars)
+    for tod in tods.tods:
+        #print 'type of tod is ',type(tod)
+        pred,derivs=func(pars,tod,*args,**kwargs)
+        if not(rotmat is None):
+            derivs=np.dot(rotmat.transpose(),derivs)
+        derivs=np.reshape(derivs,[derivs.shape[0],np.product(derivs.shape[1:])])
+        derivs_filt=0*derivs
+        #print('derivs_filt shape is ',derivs_filt.shape)
+        #derivs_filt=np.reshape(derivs_filt,[derivs_filt.shape[0],np.product(derivs_filt.shape[1:])])
+        #sz=tod.info['dat_calib'].shape
+        sz=tod.get_data_dims()
+        tmp=np.zeros(sz)
+        npp=derivs.shape[0]
+        nn=np.product(derivs.shape[1:])
+        #delt=tod.info['dat_calib']-pred
+        delt=tod.get_data()-pred
+        delt_filt=tod.apply_noise(delt)
+
+        for i in range(npp):
+            tmp[:,:]=np.reshape(derivs[i,:],sz)
+            tmp_filt=tod.apply_noise(tmp)
+            #tmp_filt[:,1:-1]=tmp_filt[:,1:-1]*2
+            tmp_filt[:,0]=tmp_filt[:,0]*0.5
+            tmp_filt[:,-1]=tmp_filt[:,-1]*0.5
+            derivs_filt[i,:]=np.reshape(tmp_filt,nn)
+        delt=np.reshape(delt,nn)
+        delt_filt=np.reshape(delt_filt,nn)
+        grad1=np.dot(derivs,delt_filt)
+        grad2=np.dot(derivs_filt,delt)
+        #print 'grad error is ',np.mean(np.abs((grad1-grad2)/(0.5*(np.abs(grad1)+np.abs(grad2)))))
+        grad=grad+0.5*(grad1+grad2)
+        curve=curve+np.dot(derivs,derivs_filt.transpose())
+        chisq=chisq+np.dot(delt,delt_filt)
+    curve=0.5*(curve+curve.transpose())
+    if have_mpi:
+        curve=comm.allreduce(curve)
+        grad=comm.allreduce(grad)
+        chisq=comm.allreduce(chisq)
+    return chisq,grad,curve
+
+def get_ts_derivs_many_funcs(tod,pars,npar_fun,funcs,func_args=None,*args,**kwargs):
+    #ndet=tod.info['dat_calib'].shape[0]
+    #ndat=tod.info['dat_calib'].shape[1]
+    ndet=tod.get_ndet()
+    ndat=tod.get_ndata()
+    npar=np.sum(np.asarray(npar_fun),dtype='int')
+    #vals=np.zeros([ndet,ndat])
+    
+    pred=0
+    derivs=np.zeros([npar,ndet,ndat])
+    icur=0
+    for i in range(len(funcs)):
+        tmp=pars[icur:icur+npar_fun[i]].copy()
+        myderivs,mypred=funcs[i](tmp,tod,*args,**kwargs)
+        pred=pred+mypred
+        derivs[icur:icur+npar_fun[i],:,:]=myderivs
+        icur=icur+npar_fun[i]
+    return derivs,pred
+    #derivs,pred=funcs[i](pars,tod)
+def get_ts_curve_derivs_many_funcs(todvec,pars,npar_fun,funcs,driver=get_ts_derivs_many_funcs,*args,**kwargs):
+    curve=0
+    grad=0
+    chisq=0
+    for tod in todvec.tods:
+        derivs,pred=driver(tod,pars,npar_fun,funcs,*args,**kwargs)
+        npar=derivs.shape[0]
+        ndet=derivs.shape[1]
+        ndat=derivs.shape[2]
+
+        #pred_filt=tod.apply_noise(pred)
+        derivs_filt=np.empty(derivs.shape)
+        for i in range(npar):
+            derivs_filt[i,:,:]=tod.apply_noise(derivs[i,:,:])        
+
+        derivs=np.reshape(derivs,[npar,ndet*ndat])
+        derivs_filt=np.reshape(derivs_filt,[npar,ndet*ndat])
+        #delt=tod.info['dat_calib']-pred
+        delt=tod.get_data()-pred
+        delt_filt=tod.apply_noise(delt)
+        chisq=chisq+np.sum(delt*delt_filt)
+        delt=np.reshape(delt,ndet*ndat)
+        #delt_filt=np.reshape(delt_filt,[1,ndet*ndat])
+        grad=grad+np.dot(derivs_filt,delt.T)
+        #grad2=grad2+np.dot(derivs,delt_filt.T)
+        curve=curve+np.dot(derivs_filt,derivs.T)
+    if have_mpi:
+        chisq=comm.allreduce(chisq)
+        grad=comm.allreduce(grad)
+        curve=comm.allreduce(curve)
+    return chisq,grad,curve
+
+
+
+def update_lamda(lamda,success):
+    if success:
+        if lamda<0.2:
+            return 0
+        else:
+            return lamda/np.sqrt(2)
+    else:
+        if lamda==0.0:
+            return 1.0
+        else:
+            return 2.0*lamda
+        
+def invscale(mat,do_invsafe=False):
+    vec=1/np.sqrt(np.diag(mat))
+    vec[np.where(vec == np.inf)[0]] = 1e-10
+    mm=np.outer(vec,vec)
+    mat=mm*mat
+    #ee,vv=np.linalg.eig(mat)
+    #print 'rcond is ',ee.max()/ee.min(),vv[:,np.argmin(ee)]
+    if do_invsafe:
+        return mm*invsafe(mat)
+    else:
+        return mm*np.linalg.inv(mat)
+
+def _par_step(grad,curve,to_fit,lamda,flat_priors=None,return_full=False):
+    curve_use=curve+lamda*np.diag(np.diag(curve))
+    if to_fit is None:
+        step=np.dot(invscale(curve_use,True),grad)
+        errs=np.sqrt(np.diag(invscale(curve_use,True)))
+    else:
+        curve_use=curve_use[to_fit,:]
+        curve_use=curve_use[:,to_fit]
+        grad_use=grad[to_fit]
+        step=np.dot(invscale(curve_use),grad_use)
+        step_use=np.zeros(len(to_fit))
+        step_use[to_fit]=step
+        errs_tmp=np.sqrt(np.diag(invscale(curve_use,True)))
+        errs=np.zeros(len(to_fit))
+        errs[to_fit]=errs_tmp
+        step=step_use
+    #print('step shape ',step.shape,step)
+    if return_full:
+        return step,errs
+    else:
+        return step
+
+def fit_timestreams_with_derivs_manyfun(funcs,pars,npar_fun,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None,driver=get_ts_derivs_many_funcs, priors=None, prior_vals=None):
+    lamda=0
+    t1=time.time()
+    chisq,grad,curve=get_ts_curve_derivs_many_funcs(tods,pars,npar_fun,funcs,driver=driver)
+    t2=time.time()
+    if myrank==0:
+        print('starting chisq is ',chisq,' with ',t2-t1,' seconds to get curvature')
+    if to_fit is None:
+        #If to_fit is not already defined, define it an intialize it to true
+        #we're going to use it to handle not stepping for flat priors
+        to_fit = np.ones(len(pars),dtype='bool')
+
+    for iter in range(maxiter):
+        temp_to_fit = np.copy(to_fit) #Make a copy of to fit, so we can temporarily set values to false 
+        if np.any(priors):
+            #first build a mask that will identify parameters with flat priors
+            flat_mask = np.where((priors == 'flat'))[0]
+
+            for flat_id in flat_mask:
+                print(pars[flat_id])
+                if (pars[flat_id] == prior_vals[flat_id][0]) or (pars[flat_id] == prior_vals[flat_id][1]):
+                    #Check to see if we're at the boundry values, if so don't fit for this iter
+                    temp_to_fit[flat_id] = False
+                 
+            #Make the new step
+            pars_new = pars + _par_step(grad, curve, temp_to_fit, lamda)
+            #check to see if we're outside the range for the flat priors: if so, peg them
+            print('old gamma: ', pars_new[flat_id])
+            for flat_id in flat_mask:
+                if (pars_new[flat_id] < prior_vals[flat_id][0]): pars_new[flat_id] = prior_vals[flat_id][0]
+                elif (pars_new[flat_id] > prior_vals[flat_id][1]): pars_new[flat_id] = prior_vals[flat_id][1]
+            print('new gamma: ',pars_new[flat_id])
+        else:
+            pars_new=pars+_par_step(grad,curve,to_fit,lamda)
+        chisq_new,grad_new,curve_new=get_ts_curve_derivs_many_funcs(tods,pars_new,npar_fun,funcs,driver=driver)
+        if chisq_new<chisq:
+            if myrank==0:
+                print('accepting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda,pars_new.shape)
+                print(repr(pars_new))
+            pars=pars_new
+            curve=curve_new
+            grad=grad_new
+            lamda=update_lamda(lamda,True)
+            if (chisq-chisq_new<chitol)&(lamda==0):
+                step,errs=_par_step(grad,curve,temp_to_fit,lamda,return_full=True)
+                return pars,chisq_new,curve_new,errs
+            else:
+                chisq=chisq_new
+        else:
+            if myrank==0:
+                print('rejecting with delta_chisq ',chisq_new-chisq,' and lamda ',lamda)
+            lamda=update_lamda(lamda,False)
+        sys.stdout.flush()
+    if myrank==0:
+        print("fit_timestreams_with_derivs_manyfun failed to converge after ",maxiter," iterations.")    
+    step,errs=_par_step(grad,curve,temp_to_fit,lamda,return_full=True)
+    return pars,chisq,curve,errs
+        
+def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,chitol=1e-4,maxiter=10,scale_facs=None):
+    if not(to_fit is None):
+        #print 'working on creating rotmat'
+        to_fit=np.asarray(to_fit,dtype='int64')
+        inds=np.unique(to_fit)
+        nfloat=np.sum(to_fit==1)
+        ncovary=np.sum(inds>1)
+        nfit=nfloat+ncovary
+        rotmat=np.zeros([len(pars),nfit])
+        
+        solo_inds=np.where(to_fit==1)[0]
+        icur=0
+        for ind in solo_inds:
+            rotmat[ind,icur]=1.0
+            icur=icur+1
+        if ncovary>0:
+            group_inds=inds[inds>1]
+            for ind in group_inds:
+                ii=np.where(to_fit==ind)[0]
+                rotmat[ii,icur]=1.0
+                icur=icur+1
+    else:
+        rotmat=None
+        
+    iter=0
+    converged=False
+    pp=pars.copy()
+    lamda=0.0
+    chi_ref,grad,curve=get_timestream_chisq_curve_deriv_from_func(func,pp,tods,rotmat)
+    chi_cur=chi_ref
+    iter=0
+    while (converged==False) and (iter<maxiter):
+        iter=iter+1
+        curve_tmp=curve+lamda*np.diag(np.diag(curve))
+        #curve_inv=np.linalg.inv(curve_tmp)
+        curve_inv=invscale(curve_tmp)
+        shifts=np.dot(curve_inv,grad)
+        if not(rotmat is None):
+            shifts_use=np.dot(rotmat,shifts)
+        else:
+            shifts_use=shifts
+        pp_tmp=pp+shifts_use
+        chi_new=get_timestream_chisq_from_func(func,pp_tmp,tods)
+        if chi_new<=chi_cur+chitol: #add in a bit of extra tolerance in chi^2 in case we're bopping about the minimum
+            success=True
+        else:
+            success=False
+        if success:
+            pp=pp_tmp
+            chi_cur=chi_new
+            chi_tmp,grad,curve=get_timestream_chisq_curve_deriv_from_func(func,pp,tods,rotmat)
+        lamda=update_lamda(lamda,success)
+        if (lamda==0)&success:
+            errs=np.sqrt(np.diag(curve_inv))
+            conv_fac=np.max(np.abs(shifts/errs))
+            if (conv_fac<tol):
+                print('we have converged')
+                converged=True
+        else:
+            conv_fac=None
+        to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
+        print('iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new)
+    return pp,chi_cur
+def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
+    '''Fit a model to timestreams.  func should return the model and the derivatives evaluated at 
+    the parameter values in pars.  to_fit says which parameters to float.  0 to fix, 1 to float, and anything
+    larger than 1 is expected to vary together (e.g. shifting a TOD pointing mode you could put in a 2 for all RA offsets 
+    and a 3 for all dec offsets.).  to_scale will normalize
+    by the input value, so one can do things like keep relative fluxes locked together.'''
+    
+
+    if not(to_fit is None):
+        #print 'working on creating rotmat'
+        to_fit=np.asarray(to_fit,dtype='int64')
+        inds=np.unique(to_fit)
+        nfloat=np.sum(to_fit==1)
+        ncovary=np.sum(inds>1)
+        nfit=nfloat+ncovary
+        rotmat=np.zeros([len(pars),nfit])
+
+        solo_inds=np.where(to_fit==1)[0]
+        icur=0
+        for ind in solo_inds:
+            rotmat[ind,icur]=1.0
+            icur=icur+1
+        if ncovary>0:
+            group_inds=inds[inds>1]
+            for ind in group_inds:
+                ii=np.where(to_fit==ind)[0]
+                rotmat[ii,icur]=1.0
+                icur=icur+1
+
+        
+    iter=0
+    converged=False
+    pp=pars.copy()
+    while (converged==False) and (iter<maxiter):
+        curve=0.0
+        grad=0.0
+        chisq=0.0
+        
+        for tod in tods.tods:
+            #sz=tod.info['dat_calib'].shape
+            sz=tod.get_data_dims()
+            pred,derivs=func(pp,tod)
+            if not (to_fit is None):
+                derivs=np.dot(rotmat.transpose(),derivs)
+            derivs_filt=0*derivs
+            tmp=np.zeros(sz)
+            npp=derivs.shape[0]
+            nn=derivs.shape[1]
+            #delt=tod.info['dat_calib']-pred
+            delt=tod.get_data()-pred
+            delt_filt=tod.apply_noise(delt)
+            for i in range(npp):
+                tmp[:,:]=np.reshape(derivs[i,:],sz)
+                tmp_filt=tod.apply_noise(tmp)
+                derivs_filt[i,:]=np.reshape(tmp_filt,nn)
+            delt=np.reshape(delt,nn)
+            delt_filt=np.reshape(delt_filt,nn)
+            grad1=np.dot(derivs,delt_filt)
+            grad2=np.dot(derivs_filt,delt)
+            grad=grad+0.5*(grad1+grad2)
+            curve=curve+np.dot(derivs,derivs_filt.transpose())
+            chisq=chisq+np.dot(delt,delt_filt)
+        if iter==0:
+            chi_ref=chisq
+        curve=0.5*(curve+curve.transpose())
+        curve=curve+2.0*np.diag(np.diag(curve)) #double the diagonal for testing purposes
+        curve_inv=np.linalg.inv(curve)
+        errs=np.sqrt(np.diag(curve_inv))
+        shifts=np.dot(curve_inv,grad)
+        #print errs,shifts
+        conv_fac=np.max(np.abs(shifts/errs))
+        if conv_fac<tol:
+            print('We have converged.')
+            converged=True
+        if not (to_fit is None):
+            shifts=np.dot(rotmat,shifts)
+        if not(scale_facs is None):
+            if iter<len(scale_facs):
+                print('rescaling shift by ',scale_facs[iter])
+                shifts=shifts*scale_facs[iter]
+        to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
+        print('iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,to_print) #converged,pp,shifts
+        pp=pp+shifts
+
+        iter=iter+1
+    return pp,chisq
+
+
+def split_dict(mydict,vec,thresh):
+    #split a dictionary into sub-dictionaries wherever a gap in vec is larger than thresh.
+    #useful for e.g. splitting TODs where there's a large time gap due to cuts.
+    inds=np.where(np.diff(vec)>thresh)[0]
+    #print(inds,len(inds))
+    if len(inds)==0:
+        return [mydict]
+    ndict=len(inds)+1
+    inds=np.hstack([[0],inds+1,[len(vec)]])
+    #print(inds)
+
+    out=[None]*ndict
+    for i in range(ndict):
+        out[i]={}
+    for key in mydict.keys():
+        tmp=mydict[key]
+        for i in range(ndict):
+            out[i][key]=tmp
+        try:
+            dims=tmp.shape
+            ndim=len(dims)
+            if ndim==1:
+                if dims[0]==len(vec):
+                    for i in range(ndict):
+                        out[i][key]=tmp[inds[i]:inds[i+1]].copy()
+            if ndim==2:
+                if dims[1]==len(vec):
+                    for i in range(ndict):
+                        out[i][key]=tmp[:,inds[i]:inds[i+1]].copy()
+                elif dims[0]==len(vec):
+                    for i in range(ndict):
+                        out[i][key]=tmp[inds[i]:inds[i+1],:].copy()
+        except:
+            continue
+            #print('copying ',key,' unchanged')
+            #don't need below as it's already copied by default
+            #for i in range(ndict):
+            #    out[i][key]=mydict[key]
+
+    return out
+
+def mask_dict(mydict,mask):
+    for key in mydict.keys():
+        tmp=mydict[key]
+        try:
+            dims=tmp.shape
+            ndim=len(dims)
+            if ndim==1:
+                if dims[0]==len(mask):
+                    tmp=tmp[mask]
+                    mydict[key]=tmp
+            if ndim==2:
+                if dims[0]==len(mask):
+                    tmp=tmp[mask,:]
+                if dims[1]==len(mask):
+                    tmp=tmp[:,mask]
+                mydict[key]=tmp
+            if ndim==3:
+                if dims[0]==len(mask):
+                    tmp=tmp[mask,:,:]
+                if dims[1]==len(mask):
+                    tmp=tmp[:,mask,:]
+                if dims[2]==len(maks):
+                    tmp=tmp[:,:,mask]
+                mydict[key]=tmp
+        except:
+            continue
