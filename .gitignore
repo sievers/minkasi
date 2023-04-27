@@ -1,0 +1,8 @@
+jack_working_minkasi.py
+intel-jax/
+*.swp
+__pycache__/
+*.so
+*.pyc
+*.cfg
+
