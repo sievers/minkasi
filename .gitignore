@@ -5,4 +5,7 @@ __pycache__/
 *.so
 *.pyc
 *.cfg
+old_minkasi.py
+
+
 
