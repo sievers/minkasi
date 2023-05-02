@@ -1,4 +1,4 @@
-prefix = $(HOME)/.local/lib/minkasi
+prefix = $(HOME)/.local/lib
 
 build:
 	@mkdir -p $(prefix)
