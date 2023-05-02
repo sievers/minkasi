@@ -1,7 +1,8 @@
+import os
 import numpy as np
 import ctypes
 import time
-import mkfftw
+from . import mkfftw
 #import pyfits
 from astropy.io import fits as pyfits
 import astropy
@@ -18,7 +19,7 @@ except:
     have_healpy=False
 try: 
     import numba as nb
-    import minkasi_nb
+    from . import minkasi_nb
     have_numba=True
 except:
     have_numba=False
@@ -55,7 +56,10 @@ except:
 #    have_numba=False
 
 
-mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
+try:
+    mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
+except OSError:
+    mylib=ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(os.path.abspath(__file__)), "libminkasi.so"))
 
 tod2map_simple_c=mylib.tod2map_simple
 tod2map_simple_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p]

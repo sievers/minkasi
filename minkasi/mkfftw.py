@@ -1,8 +1,12 @@
+import os
 import numpy 
 import ctypes
 import time
 
-mylib=ctypes.cdll.LoadLibrary("libmkfftw.so")
+try:
+    mylib=ctypes.cdll.LoadLibrary("libmkfftw.so")
+except OSError:
+    mylib=ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(os.path.abspath(__file__)), "libmkfftw.so"))
 
 many_fft_r2c_1d_c=mylib.many_fft_r2c_1d
 many_fft_r2c_1d_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int]
