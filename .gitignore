@@ -6,6 +6,5 @@ __pycache__/
 *.pyc
 *.cfg
 old_minkasi.py
-
-
-
+*.egg-info
+build/
