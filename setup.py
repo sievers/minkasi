@@ -7,12 +7,12 @@ try:
     mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
 except OSError:
     os.environ["prefix"] = "minkasi"
-    subprocess.call(["make", "-e", "libminkasi"])
+    subprocess.check_call(["make", "-e", "libminkasi"])
 try:
     mylib=ctypes.cdll.LoadLibrary("libmkfftw.so")
 except OSError:
     os.environ["prefix"] = "minkasi"
-    subprocess.call(["make", "-e", "libmkfftw"])
+    subprocess.check_call(["make", "-e", "libmkfftw"])
 
 setup(
     name='minkasi',
