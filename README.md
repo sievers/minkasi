@@ -37,3 +37,58 @@ pip install -e .
 
 Note that this will not make changes to the C libraries automatically propagate.
 If you will be editing those files it is recommended to follow the instructions in the **C Library Installation** first and rerun the build process whenever you make a change. 
+
+### Troubleshooting
+
+#### Missing Libraries
+If you are missing one of the libraries required for the C libraries the compilation will fail.
+This is most commonly due to a missing `fftw3` install in which case the compilation will produce an error message like:
+```
+minkasi/mkfftw.c:4:10: fatal error: fftw3.h: No such file or directory
+ #include <fftw3.h>
+           ^~~~~~~~~
+```
+
+To resolve this first make sure that you have `fftw3` on your system.
+If you are on a cluster you may have to load the correct module to make it available.
+
+If you still are getting an error message like above make sure that the file its looking for is in a place where `gcc` can find it.
+To do this set `CPATH` to include the directory with the header file.
+Do this with:
+```
+export CPATH=$CPATH:PATH_TO_DIR
+```
+
+#### Linked Library Problems
+Sometime `gcc` can't find the linked libraries needed for compilation.
+In this case you will get an error message like:
+```
+ld: cannot find -lfftw3f: No such file or directory
+```
+
+To resolve this first make sure you actually have these libraries, similar to above this will
+involve either installing or loading the correct modules.
+
+If you do have these libraries somewhere on disk but still get these error messaged you need to let `gcc` know where to look for them.
+To do this set `LIBRARY_PATH` to include the directories with the appropriate files (on Linux they will be `.so` files).
+Do this with:
+```
+export LIBRARY_PATH=$LIBRARY_PATH:PATH_TO_DIR
+```
+
+### Cluster Instructions
+
+#### Niagara
+```
+module load gcc fftw
+```
+
+#### NERSC
+```
+module load craype-CRAY_CPU_TARGET
+module load cray-fftw
+export CPATH=$CPATH:$FFTW_INC
+export LIBRARY_PATH=$LIBRARY_PATH:$FFTW_DIR
+```
+Where `CRAY_CPU_TARGET` is your target CPU (ie: `x86-milan)`.
+Run `module spider cray-fftw/VERSION` for more information.
