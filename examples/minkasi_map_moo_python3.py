@@ -19,13 +19,14 @@ def smooth_map(map,npix=3):
     mapft=np.fft.rfft2(map)
     kft=np.fft.rfft2(kernel)
     return np.fft.irfft2(mapft*kft/kft[0,0])
-assert(1==0)
+#assert(1==0)
     
 
 #find tod files we want to map
 #dir='../data/moo1110/'
-dir='/Users/sievers/mustang/data/moo1110/'
+#dir='/Users/sievers/mustang/data/moo1110/'
 #dir='../data/moo1046/'
+dir = '/scratch/s/sievers/skh/tods/MOO1142/TS_EaCMS0f0_51_16_Feb_2022/'
 tod_names=glob.glob(dir+'Sig*.fits')  
 
 #if running MPI, you would want to split up files between processes
@@ -147,7 +148,7 @@ plot_iters=[1,2,3,5,10,15,20,25,30,35,40,45,49]
 
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50,plot_iters=plot_iters,plot_info=plot_info)
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('first_map_precon_mpi_py3.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/first_map_precon_mpi_py3.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 

@@ -8,3 +8,5 @@ __pycache__/
 old_minkasi.py
 *.egg-info
 build/
+configs/
+
