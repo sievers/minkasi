@@ -876,7 +876,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
         x0: The initial guess. Generally set to for the first itteration and then to the output
         of the previous itteration.
         
-        tods: the input tods we want to make into maps.
+        tods: the input tods we want to make into maps. Note the noise has already been estimated        and is within the tod object. 
 
         precon: The preconditioner. A matrix applied to A to ensure faster convergence. 1/hitsmap
         is a frequent selection.
@@ -906,19 +906,25 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
     Ax=tods.dot(x0)
 
     try:
+        #compute the remainder r_0
         r=b.copy()
         r.axpy(Ax,-1)
     except:
         r=b-Ax
     if not(precon is None):
         #print('applying precon')
+        # z_0 = M*r_0
         z=precon*r
     else:
         z=r.copy()
+
+    #Initial p_0 = z_0 = M*r_0
     p=z.copy()
     k=0.0
 
+    #compute z*r, which is used for computing alpha
     zr=r.dot(z)
+    #make a copy of our initial guess
     x=x0.copy()
     t2=time.time()
     nsamp=tods.get_nsamp()
@@ -930,18 +936,22 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
             else:
                 print(iter,zr,t2-t1)
         t1=time.time()
+        #Compute pAp
         Ap=tods.dot(p)
         t2=time.time()
         pAp=p.dot(Ap)
+        #Compute alpha_k
         alpha=zr/pAp
         #print('alpha,pAp, and zr  are ' + repr(alpha) + '  ' + repr(pAp) + '  ' + repr(zr))
         try:
+            #Update guess using alpha
             x_new=x.copy()
             x_new.axpy(p,alpha)
         except:
             x_new=x+p*alpha
 
         try:
+            #Write down next remainder r_k+1
             r_new=r.copy()
             r_new.axpy(Ap,-alpha)
         except:
@@ -951,14 +961,17 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
             z_new=precon*r_new
         else:
             z_new=r_new.copy()
+        #compute new z_k+1
         zr_new=r_new.dot(z_new)
+        #compute beta_k, which is used to compute p_k+1
         beta=zr_new/zr
         try:
+            #compute new p_k+1
             p_new=z_new.copy()
             p_new.axpy(p,beta)
         except:
             p_new=z_new+p*beta
-        
+        #Update values
         p=p_new
         z=z_new
         r=r_new
