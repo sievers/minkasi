@@ -863,7 +863,45 @@ def fit_cm_plus_poly(dat,ord=2,cm_ord=1,niter=2,medsub=False,full_out=False):
     return dd
 
 def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_ind=0,save_tail='.fits',plot_iters=[],plot_info=None,plot_ind=0):
-    
+    """
+    Function which runs preconditioned conjugate gradient on a bundle of tods to generate a map.
+    PCG itteratively approximates the solution to the linear equation Ax = b for A a matrix, x
+    and b vectors. In the map making equation,  A = P'N"P and b = P'N"d for d the vector of TODs,
+    N the noise matrix,  P the tod to map pointing matrix, i.e. a matrix that specifies which 
+    pixel in the map was observed by each TOD data point. Futher x is the map. 
+    Arguments:
+        b: The rhs of the equation. In our case this is P'N''d. The tod class has a built in 
+        method for computing this. 
+
+        x0: The initial guess. Generally set to for the first itteration and then to the output
+        of the previous itteration.
+        
+        tods: the input tods we want to make into maps.
+
+        precon: The preconditioner. A matrix applied to A to ensure faster convergence. 1/hitsmap
+        is a frequent selection.
+
+        maxiter: Maximum number of iterations to perform. 
+ 
+        outroot: location at which to save the output map
+
+        save_iters: The iterations at which to save the result map. Default is to save only the 
+        last
+
+        save_ind:
+
+        save_tail: Extention for saving the output maps
+
+        plot_iters: Which iterations to plot
+
+        plot_info: 
+
+        plot_ind: 
+
+    Outputs:
+        x: best guess for x after the conversion criteria has been reached (either max iter or
+        Ax = b close enough to 0
+    """
     t1=time.time()
     Ax=tods.dot(x0)
 
