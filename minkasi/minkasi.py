@@ -1746,19 +1746,7 @@ class Mapset:
         if have_mpi:
             for map in self.maps:
                 map.mpi_reduce()
-#class Cuts:
-#    def __init__(self,tod):
-#        self.tag=tod.info['tag']
-#        self.ndet=tod.info['dat_calib'].shape[0]
-#        self.cuts=[None]*self.ndet
-#
-#class CutsVec:
-#    def __init__(self,todvec):
-#        self.ntod=todvec.ntod
-#        self.cuts=[None]*self.ntod
-#        for tod in todvec.tods:
-#            self.cuts[tod.info['tag']]=Cuts(tod)
-            
+           
 class SkyMap:
     def __init__(self,lims,pixsize=0,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
         if mywcs is None:
@@ -2913,62 +2901,7 @@ class CutsCompact:
     def __mul__(self,to_mul):
         tt=self.copy()
         tt.map=self.map*to_mul.map
-        return tt
-
-#this class is pointless, as you can get the same functionality with the tsModel class, which will be 
-#consistent with other timestream model classes.  
-#class CutsVecs:
-#    def __init__(self,todvec,do_add=True):
-#        #if class(todvec)==CutsVecs: #for use in copy
-#        if isinstance(todvec,CutsVecs):
-#            self.cuts=[None]*todvec.ntod
-#            self.ntod=todvec.ntod
-#            for i in range(todvec.ntod):
-#                self.cuts[i]=todvec.cuts[i].copy()
-#            return
-#        #if class(todvec)!=TodVec:
-#        if not(isinstance(todvec,TodVec)):
-#            print('error in CutsVecs init, must pass in a todvec class.')
-#            return None
-#        self.cuts=[None]*todvec.ntod
-#        self.ntod=todvec.ntod
-#        for i in range(todvec.ntod):
-#            tod=todvec.tods[i]
-#            if tod.info['tag']!=i:
-#                print('warning, tag mismatch in CutsVecs.__init__')
-#                print('continuing, but you should be careful...')            
-#            if 'bad_samples' in tod.info:
-#                self.cuts[i]=Cuts(tod,do_add)
-#            elif 'mask' in tod.info:
-#                self.cuts[i]=CutsCompact(tod)
-#                self.cuts[i].cuts_from_array(tod.info['mask'])
-#                self.cuts[i].get_imap()
-#    def copy(self):
-#        return CutsVecs(self)
-#    def clear(self):
-#        for cuts in self.cuts:
-#            cuts.clear()
-#    def axpy(self,cutsvec,a):
-#        assert(self.ntod==cutsvec.ntod)
-#        for i in range(ntod):
-#            self.cuts[i].axpy(cutsvec.cuts[i],a)
-#    def map2tod(self,todvec):
-#        assert(self.ntod==todvec.ntod)
-#        for i in range(self.ntod):
-#            self.cuts[i].map2tod(todvec.tods[i])
-#    def tod2map(self,todvec,dat):
-#        assert(self.ntod==todvec.ntod)
-#        assert(self.ntod==dat.ntod)
-#        for i in range(self.ntod):
-#            self.cuts[i].tod2map(todvec.tods[i],dat.tods[i])
-#    def dot(self,cutsvec):
-#        tot=0.0
-#        assert(self.ntod==cutsvec.ntod)
-#        for i in range(self.ntod):
-#            tot+=self.cuts[i].dot(cutsvec.cuts[i])
-#        return tot
-        
-                                 
+        return tt                
             
 class SkyMapCar(SkyMap):
     def pix_from_radec(self,ra,dec):
@@ -4910,93 +4843,6 @@ def fit_timestreams_with_derivs(func,pars,tods,to_fit=None,to_scale=None,tol=1e-
         to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
         print('iter',iter,' max_shift is ',conv_fac,' with lamda ',lamda,chi_ref-chi_cur,chi_ref-chi_new)
     return pp,chi_cur
-def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,tol=1e-2,maxiter=10,scale_facs=None):
-    '''Fit a model to timestreams.  func should return the model and the derivatives evaluated at 
-    the parameter values in pars.  to_fit says which parameters to float.  0 to fix, 1 to float, and anything
-    larger than 1 is expected to vary together (e.g. shifting a TOD pointing mode you could put in a 2 for all RA offsets 
-    and a 3 for all dec offsets.).  to_scale will normalize
-    by the input value, so one can do things like keep relative fluxes locked together.'''
-    
-
-    if not(to_fit is None):
-        #print 'working on creating rotmat'
-        to_fit=np.asarray(to_fit,dtype='int64')
-        inds=np.unique(to_fit)
-        nfloat=np.sum(to_fit==1)
-        ncovary=np.sum(inds>1)
-        nfit=nfloat+ncovary
-        rotmat=np.zeros([len(pars),nfit])
-
-        solo_inds=np.where(to_fit==1)[0]
-        icur=0
-        for ind in solo_inds:
-            rotmat[ind,icur]=1.0
-            icur=icur+1
-        if ncovary>0:
-            group_inds=inds[inds>1]
-            for ind in group_inds:
-                ii=np.where(to_fit==ind)[0]
-                rotmat[ii,icur]=1.0
-                icur=icur+1
-
-        
-    iter=0
-    converged=False
-    pp=pars.copy()
-    while (converged==False) and (iter<maxiter):
-        curve=0.0
-        grad=0.0
-        chisq=0.0
-        
-        for tod in tods.tods:
-            #sz=tod.info['dat_calib'].shape
-            sz=tod.get_data_dims()
-            derivs,pred=func(pp,tod)
-            if not (to_fit is None):
-                derivs=np.dot(rotmat.transpose(),derivs)
-            derivs_filt=0*derivs
-            tmp=np.zeros(sz)
-            npp=derivs.shape[0]
-            nn=derivs.shape[1]
-            #delt=tod.info['dat_calib']-pred
-            delt=tod.get_data()-pred
-            delt_filt=tod.apply_noise(delt)
-            for i in range(npp):
-                tmp[:,:]=np.reshape(derivs[i,:],sz)
-                tmp_filt=tod.apply_noise(tmp)
-                derivs_filt[i,:]=np.reshape(tmp_filt,nn)
-            delt=np.reshape(delt,nn)
-            delt_filt=np.reshape(delt_filt,nn)
-            grad1=np.dot(derivs,delt_filt)
-            grad2=np.dot(derivs_filt,delt)
-            grad=grad+0.5*(grad1+grad2)
-            curve=curve+np.dot(derivs,derivs_filt.transpose())
-            chisq=chisq+np.dot(delt,delt_filt)
-        if iter==0:
-            chi_ref=chisq
-        curve=0.5*(curve+curve.transpose())
-        curve=curve+2.0*np.diag(np.diag(curve)) #double the diagonal for testing purposes
-        curve_inv=np.linalg.inv(curve)
-        errs=np.sqrt(np.diag(curve_inv))
-        shifts=np.dot(curve_inv,grad)
-        #print errs,shifts
-        conv_fac=np.max(np.abs(shifts/errs))
-        if conv_fac<tol:
-            print('We have converged.')
-            converged=True
-        if not (to_fit is None):
-            shifts=np.dot(rotmat,shifts)
-        if not(scale_facs is None):
-            if iter<len(scale_facs):
-                print('rescaling shift by ',scale_facs[iter])
-                shifts=shifts*scale_facs[iter]
-        to_print=np.asarray([3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi,1.0,1.0,3600*180.0/np.pi,3600*180.0/np.pi,3600*180.0/np.pi*np.sqrt(8*np.log(2)),1.0])*(pp-pars)
-        print('iter ',iter,' max shift is ',conv_fac,' with chisq improvement ',chi_ref-chisq,to_print) #converged,pp,shifts
-        pp=pp+shifts
-
-        iter=iter+1
-    return pp,chisq
-
 
 def split_dict(mydict,vec,thresh):
     #split a dictionary into sub-dictionaries wherever a gap in vec is larger than thresh.
