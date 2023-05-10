@@ -9,4 +9,7 @@ old_minkasi.py
 *.egg-info
 build/
 configs/
+*.swo
+
+
 
