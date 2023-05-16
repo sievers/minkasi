@@ -1135,23 +1135,32 @@ def scaled_airmass_from_el(mat):
     return airmass
 
 class tsGeneric:
+    """
+    Generic timestream model class. Used as a parent for other timestream/map classes. Defines multiple common methods
+    """
     def __init__(self,tod=None):
+        #Set file name if tod specified
         self.fname=tod.info['fname']
     def __mul__(self,to_mul):
         #print('calling mul')
+        #multiplies two timeseries. Returns a a new ts class with the multiplied parameters
         tt=self.copy()
         tt.params=self.params*to_mul.params
         return tt
     def clear(self):
+        #clears parameters
         self.params[:]=0
     def dot(self,common=None):
+        #Returns the dot product of a ts class. If common is not specified, returns the self dot product, else returns the dot product with common
         if common is None:
             return np.sum(self.params*self.params)
         else:
             return np.sum(self.params*common.params)
     def axpy(self,common,a):
+        #returns ts + a*common
         self.params=self.params+a*common.params
     def apply_prior(self,x,Ax):
+        
         Ax.params=Ax.params+self.params*x.params
     def copy(self):
         return copy.deepcopy(self)
