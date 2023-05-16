@@ -1176,6 +1176,8 @@ class tsVecs(tsGeneric):
     
     Attributes
     ----------
+    fname: str
+        name of the tod
     tod: tod object
         tods corresponding to the timestream
     vecs: n_data x nvec matrix
@@ -1320,6 +1322,8 @@ class tsPoly(tsVecs):
     
     Attributes
     ----------
+    fname: str
+        name of the tod
     tod: tod object
         tods corresponding to the timestream
     vecs: n_data x nvec matrix
@@ -1356,6 +1360,54 @@ class tsPoly(tsVecs):
         self.vecs=(np.polynomial.legendre.legvander(xvec,order).T).copy()
         self.nvec=self.vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
+
+class tsBowl(tsVecs):
+    """
+    Class for fitting legandre polynomials to tod elevation.
+
+    Mustang 2 has observed a consistent problem with gradients in its maps, refered to as bowling. Current thinking is that the ultimate source of the bowling is elevation depended gradients due to the atmosphere. As the sky revolves around a target thru the course of a night, this elevation gradient becomes a radial one. Previous attempts to remove this have fit polynomials to the telescope elevation and subtracted them from the tods, which has been moderately successful. This was done outside the minkasi framework; this class implements that method within the framework.
+
+    Attributes
+    ----------
+    fname: str
+        name of the tod
+    tod: tod object
+        tods corresponding to the timestream
+    vecs: n_data x nvec matrix
+        Legandre polynomials to which fit parameters are applied.    
+    ndet: int
+        number of detectors in timestream
+    nvec: int
+        number of fit polynomials
+    params: np.array, float, nvec x ndet
+        fit parameters for the vecs.  
+"""
+
+    def __init__(self, tod, order=3):
+    """Inherits directly from tsVecs. Methods and arguments are the same, the changes are only to how vecs is defined.
+
+        Parameters
+        ----------
+        tod: tod object
+             tod corresponding to the timestream
+        order: int
+             order of the legandre polynomial to fit to the tod elevation
+        """
+
+        self.fname=tod.info['fname']
+        self.order = order
+        
+        dims=tod.get_data_dims()
+        self.ndet=dims[0]
+        self.ndata=dims[1]
+
+        try:
+            #Apix is the telescope elevation. Try to just load it first incase its already computed, otherwise compute it then set it
+            self.apix  = tod.info['apix']
+        except KeyError:
+            tod.set_apix()
+            self.apix = tod.info['apix']
+        
 
 
 def partition_interval(start,stop,seg_len=100,round_up=False):
