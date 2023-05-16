@@ -1135,30 +1135,70 @@ def scaled_airmass_from_el(mat):
     return airmass
 
 class tsGeneric:
+    """
+    Generic timestream model class. Used as a parent for other timestream/map classes. Defines multiple common methods
+    """
+
     def __init__(self,tod=None):
+        #Set file name if tod specified
         self.fname=tod.info['fname']
     def __mul__(self,to_mul):
         #print('calling mul')
+        #multiplies two timeseries. Returns a a new ts class with the multiplied parameters
         tt=self.copy()
         tt.params=self.params*to_mul.params
         return tt
     def clear(self):
+        #clears parameters
         self.params[:]=0
     def dot(self,common=None):
+        #Returns the dot product of a ts class. If common is not specified, returns the self dot product, else returns the dot product with common
         if common is None:
             return np.sum(self.params*self.params)
         else:
             return np.sum(self.params*common.params)
     def axpy(self,common,a):
+        #returns ts + a*common
         self.params=self.params+a*common.params
     def apply_prior(self,x,Ax):
+        
         Ax.params=Ax.params+self.params*x.params
     def copy(self):
         return copy.deepcopy(self)
     def write(self,fname=None):
         pass
+
 class tsVecs(tsGeneric):
+    """
+    Generic class for timestreams involving vectors, including tools to go from parameters (maps) to tods and back.
+
+     Example would be fitting polynomials to timestreams. In this case the self.vecs would be the fit polynomials, self.params are the fit parameters of that polynomial. Then map2tod returns the tods predicted by the polynomials and fit parameters, i.e. self.vec@self.params, while tod2map returns the fit parameters that would generate a given tod.  
+    
+    Attributes
+    ----------
+    tod: tod object
+        tods corresponding to the timestream
+    vecs: n_data x nvec matrix
+        vectors to which fit parameters are applied.    
+    ndet: int
+        number of detectors in timestream
+    nvec: int
+        number of fit vectors
+    params: np.array, float, nvec x ndet
+        fit parameters for the vecs. 
+
+    """
+
     def __init__(self,tod,vecs):
+        """
+        Parameters
+        ----------
+        tod: tod object
+             tod corresponding to the timestream
+        vecs: n_data x n_predictors matrix
+            vectors to which fit parameters are applied.
+        """
+
         self.vecs=vecs
         #self.ndet=tod.info['dat_calib'].shape[0]
         self.ndet=tod.get_data_dims()[0]
@@ -1166,6 +1206,31 @@ class tsVecs(tsGeneric):
         self.nvec=vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
     def tod2map(self,tod,mat=None,do_add=True,do_omp=False):
+        """
+        Computes the parameters of vecs which yield the given tod.
+
+        In general Am = d for A the vecs, m the parameters, and d the tod. tod2map returns m given A and d. Essentially the inverse of map2tod.
+
+        Parameters
+        ----------
+        tod: tod object
+            The tod to convert to parameters
+        mat: tod data object, optional
+            d, the data corresponding to the tod we wish to convert to parameters. If not speicified the data is taken from tod
+        do_add: bool, optional, default = True
+            If true, adds the resulting parameters matrix to the existing parameters matrix. If false, overwrites the existing parameters
+        do_omp: bool, optional, default = False
+            Defines whether to use omp parallelization. Currently not implemented (?)
+        
+        Returns
+        -------
+        No returns
+
+        Side effects
+        ------------
+        Updates params with the values infered from tod or mat.
+        """
+    
         if mat is None:
             #mat=tod.info['dat_calib']
             mat=tod.get_data()
@@ -1174,6 +1239,30 @@ class tsVecs(tsGeneric):
         else:
             self.params[:]=np.dot(self.vecs,mat.T)
     def map2tod(self,tod,mat=None,do_add=True,do_omp=False):
+        """
+        Given parameters and vecs, compute the corresponding tod.
+
+        Given Am = for A the vecs, m the parameters, and d the tod data, return the d corresponding to the specified A and m. Essentially the inverse of tod2map.
+
+        Parameters
+        ----------
+        tod: tod object
+            The tod, needed for getting the data if to_add is True
+        mat: tod data object, optional
+            d, the data corresponding to the tod, only used if to_add is True. If not speicified the data is taken from tod
+        do_add: bool, optional, default = True
+            If true, adds the resulting tod data to the existing tod data. If false, overwrites the tod data.
+        do_omp: bool, optional, default = False
+            Defines whether to use omp parallelization. Currently not implemented (?)
+        
+        Returns
+        -------
+        No returns
+
+        Side effects
+        ------------
+        Updates tod data with the values infered from params and vecs.
+        """
         if mat is None:
             #mat=tod.info['dat_calib']
             mat=tod.get_data()
@@ -1226,7 +1315,35 @@ class tsNotch(tsGeneric):
 
 
 class tsPoly(tsVecs):
+    """
+    Class for fitting legandre polynomials to tods. Inheritted from tsVecs.
+    
+    Attributes
+    ----------
+    tod: tod object
+        tods corresponding to the timestream
+    vecs: n_data x nvec matrix
+        Legandre polynomials to which fit parameters are applied.    
+    ndet: int
+        number of detectors in timestream
+    nvec: int
+        number of fit polynomials
+    params: np.array, float, nvec x ndet
+        fit parameters for the vecs.  
+
+    """
+    
     def __init__(self,tod,order=10):
+        """Inherits directly from tsVecs. Methods and arguments are the same, the changes are only to how vecs is defined.
+
+        Parameters
+        ----------
+        tod: tod object
+             tod corresponding to the timestream
+        order: int
+             order of the legandre polynomial to fit to the tod
+        """
+
         self.fname=tod.info['fname']
 
         #self.ndata=tod.info['dat_calib'].shape[1]
