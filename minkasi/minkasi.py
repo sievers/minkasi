@@ -1381,10 +1381,11 @@ class tsBowl(tsVecs):
         number of fit polynomials
     params: np.array, float, nvec x ndet
         fit parameters for the vecs.  
-"""
+    """
 
     def __init__(self, tod, order=3):
-    """Inherits directly from tsVecs. Methods and arguments are the same, the changes are only to how vecs is defined.
+        """
+        Inherits directly from tsVecs. Methods and arguments are the same, the changes are only to how vecs is defined.
 
         Parameters
         ----------
