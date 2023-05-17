@@ -1403,13 +1403,28 @@ class tsBowl(tsVecs):
         self.ndata=dims[1]
 
         try:
-            #Apix is the telescope elevation. Try to just load it first incase its already computed, otherwise compute it then set it
+            #Apix is the elevation relative to the source. Try to just load it first incase its already computed, otherwise compute it then set it
             self.apix  = tod.info['apix']
         except KeyError:
             tod.set_apix()
             self.apix = tod.info['apix']
-        
 
+        try:
+            #pred2 is essentially the detector drift
+            self.drift = tod.info['pred2']
+        except KeyError:
+            dd, pred2, cm = fit_cm_plus_poly(tod.info["dat_calib"], cm_ord=3, full_out=True)
+            self.drift = pred2
+
+        self.vecs=(np.polynomial.legendre.legvander(self.apix,order).T).copy()
+        self.nvec=self.vecs.shape[0]
+        self.params=np.zeros([self.nvec,self.ndet])
+    def fit_apix(self, tod):
+        if tod.info['fname'] != self.fname:
+            print('Error: bowling fitting can only be performed with the tod used to initialize this timestream; {}'.format(tod.info['fname']))
+            return
+        for i in range(self.ndet):
+            self.params[...,i] = np.polynomial.legendre.legfit(self.apix[i], tod.info['dat_calib'][i] - self.drift[i], self.order) 
 
 def partition_interval(start,stop,seg_len=100,round_up=False):
     #print('partitioning ',start,stop,seg_len)
