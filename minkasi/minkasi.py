@@ -245,6 +245,27 @@ def polmap2tod(dat,map,poltag,twogamma,ipix,do_add=False,do_omp=True):
         return
     #print('calling ' + repr(fun))
     fun(dat.ctypes.data,map.ctypes.data,twogamma.ctypes.data,ndet,ndata,ipix.ctypes.data,do_add)
+
+@jit(nopython=True)
+def map2todbowl(vecs, params):
+    """
+    Converts parameters to tods for the tsBowl class.
+
+    Parameters
+    ----------
+    vecs: np.array(order, ndata, ndet)
+        pseudo-Vandermonde matrix
+    params: np.array(order, ndet)
+        corresponding weights for pseudo-Vandermonde matrix
+    """
+    
+    #Return tod should have shape ndet x ndata
+    to_return = np.zeros((vecs.shape[-1], vecs.shape[-2]))
+    for i in range(vecs.shape[-1]):
+        to_return[i] = np.dot(vecs[...,i].T, params[...,i])
+    
+    return to_return       
+ 
     
 def read_fits_map(fname,hdu=0,do_trans=True):
     f=fits.open(fname)
@@ -1415,10 +1436,47 @@ class tsBowl(tsVecs):
         except KeyError:
             dd, pred2, cm = fit_cm_plus_poly(tod.info["dat_calib"], cm_ord=3, full_out=True)
             self.drift = pred2
-
+        #TODO speedup
+        self.apix -= np.amin(self.apix)
+        self.apix /= np.amax(self.apix)
+        self.apix *= 2
+        self.apix -= 1
         self.vecs=(np.polynomial.legendre.legvander(self.apix,order).T).copy()
         self.nvec=self.vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
+    
+    def tod2map(self, tod, mat = None, to_add = True):
+     
+        """
+        Given parameters and vecs, compute the corresponding tod.
+
+        Given Am = for A the vecs, m the parameters, and d the tod data, return the d corresponding to the specified A and m. Essentially the inverse of tod2map. This will try to use the jit compiled map2todbowl if it is available, else it will fall back to a slower routine.
+
+        Parameters
+        ----------
+        tod: tod object
+            The tod, needed for getting the data if to_add is True
+        mat: tod data object, optional
+            d, the data corresponding to the tod, only used if to_add is True. If not speicified the data is taken from tod
+        do_add: bool, optional, default = True
+            If true, adds the resulting tod data to the existing tod data. If false, overwrites the tod data. 
+        
+        Returns
+        -------
+        No returns
+
+        Side effects
+        ------------
+        Updates tod data with the values infered from params and vecs.
+        """
+        if mat is None: 
+            mat=tod.get_data()
+        if do_add:
+            mat[:]=mat[:] + map2todbowl(self.vecs, self.params)
+        else:
+            mat[:]=map2todbowl(self.vecs, self.params)
+        
+
     def fit_apix(self, tod):
         if tod.info['fname'] != self.fname:
             print('Error: bowling fitting can only be performed with the tod used to initialize this timestream; {}'.format(tod.info['fname']))
