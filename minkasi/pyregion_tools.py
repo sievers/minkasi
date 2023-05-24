@@ -9,7 +9,7 @@ import copy
 
 __all__ = ["anulizer"]
 
-def anulizer(epanda_region, hdu, plot = False):
+def anulizer(shapeList, hdu, plot = False):
     """
     Helper function for making binned profiles from pyregion and map.
 
@@ -19,7 +19,7 @@ def anulizer(epanda_region, hdu, plot = False):
 
     Parameters
     ----------
-    epanda_region : 'pyregion.core.ShapeList'
+    shapeList : 'pyregion.core.ShapeList'
         pyregion ShapeList specifying the regions overwhich to compute the profile bins. 
     hdu : 'astropy.io.fits.hdu.hdulist.HDUList'
         astropy HDUList containing the relevant map at index 0. Must contain the map data at hdu[0].data
@@ -33,33 +33,63 @@ def anulizer(epanda_region, hdu, plot = False):
     var : np.array(float)
         variance within the same regions as computed by bootstrapping the pixels
     """
+    if len(shapeList) > 1:
+        #Handles multiple explicitly defined regions of any type. Since they are explicitly defined one function can handle all
+        return _aunulizer_nregions(shapeList, hdu, plot = plot)
 
-    if len(epanda_region) == 1 and (r2[0].coord_list[9]):
+    elif shapeList[0].name == 'epanda':
         #Handles epanda ShapeLists where n radial bins has been specified
-        return _anulizer_rbins(epanda_region, hdu, plot = plot)
-    elif len(epanda_region) > 1:
-        #Handles multiple explicitly defined epanda regions
-        return _aunulizer_nregions(epanda_region, hdu, plot = plot)
+        return _anulizer_rbins(shapeList, hdu, plot = plot)
+       
+    else:
+        print('Error: region type {} not currently supported'.format(shapeList[0].name))
+        return
 
-def _aunulizer_nregions(epanda_region, hdu, plot = False):
-    #                    0   1       2        3          4         5        6         7       8            9                10
-    #Epanda has format (ra, dec, ang_start, ang_end, n_ang_bins, inner a, Inner b, outer a, outer b, number of radial bins, PA)
- 
-    means = np.zeros(len(epanda_region))
-    var = np.zeros(len(epanda_region))
-    filters = epanda_region.get_filter()
+def _aunulizer_nregions(shapeList, hdu, plot = False):
+    """
+    Anulizing function for shapeList where each region has been explicilty defined.
+
+    This function takes a list of regions and compute the average and variance within each of those regions.
+    It assumes that each region is explicitly defined, meaning there are no radial bins, angular bins, etc. within a region. 
+    Further this function assumes that you know what youre doing. For example you can hand it a list of overlapping regions and
+    it will return their means/vars without warning. Currently only supported method for computing variance is bootstrapping of
+    pixels but TODO add more methods. Since the regions are all explicitly defined we don't need to compute any bins/regions
+    ourselves and this function can handle all types of regions. 
+
+    Parameters
+    ----------
+    shapeList : 'pyregion.core.ShapeList'
+        pyregion ShapeList specifying the regions overwhich to compute the profile bins.
+    hdu : 'astropy.io.fits.hdu.hdulist.HDUList'
+        astropy HDUList containing the relevant map at index 0. Must contain the map data at hdu[0].data
+    plot : Bool, optional
+        specifies whether to plot the bin regions
+
+    Returns
+    -------
+    means : np.array(float)
+        simple average of data within each binning region
+    var : np.array(float)
+        variance within the same regions as computed by bootstrapping the pixels
+    """
+
+    means = np.zeros(len(shapeList))
+    var = np.zeros(len(shapeList))
+    filters = shapeList.get_filter()
     
     for i in range(len(var)):
         cur_filter = filters[i]
         tempmask = cur_filter.mask(hdu[0].data.shape)
+        #Sets values in the map outside the mask to zero. This may be cleaner with masked arrays
         masked_data = hdu[0].data*tempmask
         if plot:
             plt.imshow(masked_data,origin = 'lower')
             plt.show()
             plt.close()
 
-        
-        vals = masked_data[np.abs(masked_data)>1e-8]
+        #Since the masked data points are still in the map just set to zero, we have to extract those with non-zero value
+        #to compute the mean/var. This is the part that would be cleaner with masked arrays.
+        vals = masked_data[np.abs(masked_data)>1e-10]
         
         means[i] = np.mean(vals)
         var[i] = np.var(bootstrap(vals))
