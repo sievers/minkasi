@@ -70,7 +70,7 @@ def region_binner(shapeList, hdu, plot = False, return_rs = True):
 
     elif shapeList[0].name == 'epanda':
         #Handles epanda ShapeLists where n radial bins has been specified
-        return (shapeList, hdu, plot = plot)
+        return _region_binner_epanda_rbins(shapeList, hdu, plot = plot)
        
     else:
         print('Error: region type {} not currently supported'.format(shapeList[0].name))
@@ -135,16 +135,16 @@ def _region_binner_explicit_regions(shapeList, hdu, plot = False, return_rs = Tr
     if return_rs:
         rs = np.zeros(len(means))
    
-        header = hdu_data[0].header
+        header = hdu[0].header
         cdelt = header.get('CDELT2', 1.0)
 
         for i in range(len(rs)):
             if shapeList[i].name == 'epanda':
                 #If region is epanda, return the average of r_semimajor at the endpoints of the region
-                rs[i] = np.mean([r2_data[i].coord_list[5], 2_data[i].coord_list[7]])*cdelt*3600 
+                rs[i] = np.mean([shapeList[i].coord_list[5], shapeList[i].coord_list[7]])*cdelt*3600 
             elif shapeList[i].name == 'panda':
                 #If region is  panda, return average of r at endpoints of region
-                rs[i] = np.mean(r2_data[i].coord_list[4:5])*cdelt*3600
+                rs[i] = np.mean(shapeList[i].coord_list[4:5])*cdelt*3600
             else:
                 print("Error: region type {} not supported for automatic radii generation".format(shapeList[i].name))
                 return means, var
