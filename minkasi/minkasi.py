@@ -12,6 +12,8 @@ from astropy.cosmology import WMAP9 as cosmo #choose your cosmology here
 import scipy
 import copy
 import sys
+from numba import jit
+
 try:
     import healpy
     have_healpy=True
@@ -260,12 +262,31 @@ def map2todbowl(vecs, params):
     """
     
     #Return tod should have shape ndet x ndata
-    to_return = np.zeros((vecs.shape[-1], vecs.shape[-2]))
-    for i in range(vecs.shape[-1]):
-        to_return[i] = np.dot(vecs[...,i].T, params[...,i])
+    to_return = np.zeros((vecs.shape[0], vecs.shape[-2]))
+    for i in range(vecs.shape[0]):
+        to_return[i] = np.dot(vecs[i,...], params[i,...])
     
     return to_return       
+
+@jit(nopython=True)
+def tod2mapbowl(vecs, mat):
+    """
+    transpose of map2tod for bowling 
  
+    Parameters
+    ----------
+    vecs: np.array(ndet, ndata, order)
+        pseudo-Vandermonde matrix
+    mat: np.array(ndet, ndata)
+        tod data 
+    """
+     
+    #Return tod should have shape ndet x ndata
+    to_return = np.zeros((vecs.shape[0], vecs.shape[-1]))
+    for i in range(vecs.shape[0]):
+         to_return[i] = np.dot(vecs[i,...].T, mat[i,...])
+  
+    return to_return 
     
 def read_fits_map(fname,hdu=0,do_trans=True):
     f=fits.open(fname)
@@ -1293,6 +1314,7 @@ class tsVecs(tsGeneric):
             mat[:]=mat[:]+np.dot(self.params.T,self.vecs)
         else:
             mat[:]=np.dot(self.params.T,self.vecs)    
+        
 
 class tsNotch(tsGeneric):
     def __init__(self,tod,numin,numax):
@@ -1429,23 +1451,25 @@ class tsBowl(tsVecs):
         except KeyError:
             tod.set_apix()
             self.apix = tod.info['apix']
-
+        
         try:
             #pred2 is essentially the detector drift
             self.drift = tod.info['pred2']
         except KeyError:
             dd, pred2, cm = fit_cm_plus_poly(tod.info["dat_calib"], cm_ord=3, full_out=True)
             self.drift = pred2
+        
         #TODO speedup
         self.apix -= np.amin(self.apix)
         self.apix /= np.amax(self.apix)
         self.apix *= 2
         self.apix -= 1
-        self.vecs=(np.polynomial.legendre.legvander(self.apix,order).T).copy()
-        self.nvec=self.vecs.shape[0]
-        self.params=np.zeros([self.nvec,self.ndet])
-    
-    def tod2map(self, tod, mat = None, to_add = True):
+        #self.vecs=(np.polynomial.legendre.legvander(self.apix,order).T).copy()
+        self.vecs=(np.polynomial.legendre.legvander(self.apix,order)).copy()
+        self.nvec=self.vecs.shape[-1]
+        #self.params=np.zeros([self.nvec,self.ndet])
+        self.params=np.zeros([self.ndet,self.nvec])
+    def map2tod(self, tod, mat = None, do_add = True):
      
         """
         Given parameters and vecs, compute the corresponding tod.
@@ -1476,13 +1500,25 @@ class tsBowl(tsVecs):
         else:
             mat[:]=map2todbowl(self.vecs, self.params)
         
+    def tod2map(self, tod, mat = None, do_add = True):
+    """
+    TODO: write doc
+    """
+
+    if mat is None:
+        mat = tod.get_data()
+    if do_add:
+        self.params = self.params + tod2mapbowl(self.vecs, mat)
+    else:
+        self.paras = tod2mapbowl(self.vecs, mat)
+ 
 
     def fit_apix(self, tod):
         if tod.info['fname'] != self.fname:
             print('Error: bowling fitting can only be performed with the tod used to initialize this timestream; {}'.format(tod.info['fname']))
             return
         for i in range(self.ndet):
-            self.params[...,i] = np.polynomial.legendre.legfit(self.apix[i], tod.info['dat_calib'][i] - self.drift[i], self.order) 
+            self.params[i,...] = np.polynomial.legendre.legfit(self.apix[i], tod.info['dat_calib'][i] - self.drift[i], self.order) 
 
 def partition_interval(start,stop,seg_len=100,round_up=False):
     #print('partitioning ',start,stop,seg_len)
