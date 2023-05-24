@@ -10,6 +10,7 @@ old_minkasi.py
 build/
 configs/
 *.swo
+tod_plotter.py
 
 
 

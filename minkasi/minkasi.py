@@ -12,6 +12,8 @@ from astropy.cosmology import WMAP9 as cosmo #choose your cosmology here
 import scipy
 import copy
 import sys
+from numba import jit
+
 try:
     import healpy
     have_healpy=True
@@ -245,6 +247,46 @@ def polmap2tod(dat,map,poltag,twogamma,ipix,do_add=False,do_omp=True):
         return
     #print('calling ' + repr(fun))
     fun(dat.ctypes.data,map.ctypes.data,twogamma.ctypes.data,ndet,ndata,ipix.ctypes.data,do_add)
+
+@jit(nopython=True)
+def map2todbowl(vecs, params):
+    """
+    Converts parameters to tods for the tsBowl class.
+
+    Parameters
+    ----------
+    vecs: np.array(order, ndata, ndet)
+        pseudo-Vandermonde matrix
+    params: np.array(order, ndet)
+        corresponding weights for pseudo-Vandermonde matrix
+    """
+    
+    #Return tod should have shape ndet x ndata
+    to_return = np.zeros((vecs.shape[0], vecs.shape[-2]))
+    for i in range(vecs.shape[0]):
+        to_return[i] = np.dot(vecs[i,...], params[i,...])
+    
+    return to_return       
+
+@jit(nopython=True)
+def tod2mapbowl(vecs, mat):
+    """
+    transpose of map2tod for bowling 
+ 
+    Parameters
+    ----------
+    vecs: np.array(ndet, ndata, order)
+        pseudo-Vandermonde matrix
+    mat: np.array(ndet, ndata)
+        tod data 
+    """
+     
+    #Return tod should have shape ndet x ndata
+    to_return = np.zeros((vecs.shape[0], vecs.shape[-1]))
+    for i in range(vecs.shape[0]):
+         to_return[i] = np.dot(vecs[i,...].T, mat[i,...])
+  
+    return to_return 
     
 def read_fits_map(fname,hdu=0,do_trans=True):
     f=fits.open(fname)
@@ -1176,6 +1218,8 @@ class tsVecs(tsGeneric):
     
     Attributes
     ----------
+    fname: str
+        name of the tod
     tod: tod object
         tods corresponding to the timestream
     vecs: n_data x nvec matrix
@@ -1270,6 +1314,7 @@ class tsVecs(tsGeneric):
             mat[:]=mat[:]+np.dot(self.params.T,self.vecs)
         else:
             mat[:]=np.dot(self.params.T,self.vecs)    
+        
 
 class tsNotch(tsGeneric):
     def __init__(self,tod,numin,numax):
@@ -1320,6 +1365,8 @@ class tsPoly(tsVecs):
     
     Attributes
     ----------
+    fname: str
+        name of the tod
     tod: tod object
         tods corresponding to the timestream
     vecs: n_data x nvec matrix
@@ -1357,6 +1404,121 @@ class tsPoly(tsVecs):
         self.nvec=self.vecs.shape[0]
         self.params=np.zeros([self.nvec,self.ndet])
 
+class tsBowl(tsVecs):
+    """
+    Class for fitting legandre polynomials to tod elevation.
+
+    Mustang 2 has observed a consistent problem with gradients in its maps, refered to as bowling. Current thinking is that the ultimate source of the bowling is elevation depended gradients due to the atmosphere. As the sky revolves around a target thru the course of a night, this elevation gradient becomes a radial one. Previous attempts to remove this have fit polynomials to the telescope elevation and subtracted them from the tods, which has been moderately successful. This was done outside the minkasi framework; this class implements that method within the framework.
+
+    Attributes
+    ----------
+    fname: str
+        name of the tod
+    tod: tod object
+        tods corresponding to the timestream
+    vecs: n_data x nvec matrix
+        Legandre polynomials to which fit parameters are applied.    
+    ndet: int
+        number of detectors in timestream
+    nvec: int
+        number of fit polynomials
+    params: np.array, float, nvec x ndet
+        fit parameters for the vecs.  
+    """
+
+    def __init__(self, tod, order=3):
+        """
+        Inherits directly from tsVecs. Methods and arguments are the same, the changes are only to how vecs is defined.
+
+        Parameters
+        ----------
+        tod: tod object
+             tod corresponding to the timestream
+        order: int
+             order of the legandre polynomial to fit to the tod elevation
+        """
+
+        self.fname=tod.info['fname']
+        self.order = order
+        
+        dims=tod.get_data_dims()
+        self.ndet=dims[0]
+        self.ndata=dims[1]
+
+        try:
+            #Apix is the elevation relative to the source. Try to just load it first incase its already computed, otherwise compute it then set it
+            self.apix  = tod.info['apix']
+        except KeyError:
+            tod.set_apix()
+            self.apix = tod.info['apix']
+        
+        try:
+            #pred2 is essentially the detector drift
+            self.drift = tod.info['pred2']
+        except KeyError:
+            dd, pred2, cm = fit_cm_plus_poly(tod.info["dat_calib"], cm_ord=3, full_out=True)
+            self.drift = pred2
+        
+        #TODO speedup
+        self.apix -= np.amin(self.apix)
+        self.apix /= np.amax(self.apix)
+        self.apix *= 2
+        self.apix -= 1
+        #self.vecs=(np.polynomial.legendre.legvander(self.apix,order).T).copy()
+        self.vecs=(np.polynomial.legendre.legvander(self.apix,order)).copy()
+        self.nvec=self.vecs.shape[-1]
+        #self.params=np.zeros([self.nvec,self.ndet])
+        self.params=np.zeros([self.ndet,self.nvec])
+    def map2tod(self, tod, mat = None, do_add = True):
+     
+        """
+        Given parameters and vecs, compute the corresponding tod.
+
+        Given Am = for A the vecs, m the parameters, and d the tod data, return the d corresponding to the specified A and m. Essentially the inverse of tod2map. This will try to use the jit compiled map2todbowl if it is available, else it will fall back to a slower routine.
+
+        Parameters
+        ----------
+        tod: tod object
+            The tod, needed for getting the data if to_add is True
+        mat: tod data object, optional
+            d, the data corresponding to the tod, only used if to_add is True. If not speicified the data is taken from tod
+        do_add: bool, optional, default = True
+            If true, adds the resulting tod data to the existing tod data. If false, overwrites the tod data. 
+        
+        Returns
+        -------
+        No returns
+
+        Side effects
+        ------------
+        Updates tod data with the values infered from params and vecs.
+        """
+        if mat is None: 
+            mat=tod.get_data()
+        if do_add:
+            mat[:]=mat[:] + map2todbowl(self.vecs, self.params)
+        else:
+            mat[:]=map2todbowl(self.vecs, self.params)
+        
+    def tod2map(self, tod, mat = None, do_add = True):
+        """
+        TODO: write doc
+        """
+
+        if mat is None:
+            mat = tod.get_data()
+        if do_add:
+            self.params = self.params + tod2mapbowl(self.vecs, mat)
+        else:
+            self.paras = tod2mapbowl(self.vecs, mat)
+ 
+
+    def fit_apix(self, tod):
+        if tod.info['fname'] != self.fname:
+            print('Error: bowling fitting can only be performed with the tod used to initialize this timestream; {}'.format(tod.info['fname']))
+            return
+        for i in range(self.ndet):
+            self.params[i,...] = np.polynomial.legendre.legfit(self.apix[i], tod.info['dat_calib'][i] - self.drift[i], self.order) 
 
 def partition_interval(start,stop,seg_len=100,round_up=False):
     #print('partitioning ',start,stop,seg_len)
