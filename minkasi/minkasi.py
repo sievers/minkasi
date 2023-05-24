@@ -1501,17 +1501,17 @@ class tsBowl(tsVecs):
             mat[:]=map2todbowl(self.vecs, self.params)
         
     def tod2map(self, tod, mat = None, do_add = True):
-    """
-    TODO: write doc
-    """
+        """
+        TODO: write doc
+        """
 
-    if mat is None:
-        mat = tod.get_data()
-    if do_add:
-        self.params = self.params + tod2mapbowl(self.vecs, mat)
-    else:
-        self.paras = tod2mapbowl(self.vecs, mat)
- 
+        if mat is None:
+            mat = tod.get_data()
+        if do_add:
+            self.params = self.params + tod2mapbowl(self.vecs, mat)
+        else:
+            self.paras = tod2mapbowl(self.vecs, mat)
+     
 
     def fit_apix(self, tod):
         if tod.info['fname'] != self.fname:
