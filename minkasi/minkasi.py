@@ -1459,22 +1459,17 @@ class tsBowl(tsVecs):
             dd, pred2, cm = fit_cm_plus_poly(tod.info["dat_calib"], cm_ord=3, full_out=True)
             self.drift = pred2
         
-        #TODO speedup
-        self.apix -= np.amin(self.apix)
-        self.apix /= np.amax(self.apix)
-        self.apix *= 2
-        self.apix -= 1
-        #self.vecs=(np.polynomial.legendre.legvander(self.apix,order).T).copy()
+        self.apix /= np.max(np.abs(self.apix), axis = 0)    
         self.vecs=(np.polynomial.legendre.legvander(self.apix,order)).copy()
-        self.nvec=self.vecs.shape[-1]
-        #self.params=np.zeros([self.nvec,self.ndet])
+        self.nvec=self.vecs.shape[-1] 
         self.params=np.zeros([self.ndet,self.nvec])
-    def map2tod(self, tod, mat = None, do_add = True):
+    
+    def map2tod(self, tod, mat = None, do_add = True, do_omp = False):
      
         """
         Given parameters and vecs, compute the corresponding tod.
 
-        Given Am = for A the vecs, m the parameters, and d the tod data, return the d corresponding to the specified A and m. Essentially the inverse of tod2map. This will try to use the jit compiled map2todbowl if it is available, else it will fall back to a slower routine.
+        Given Am = for A the vecs, m the parameters, and d the tod data, return the d corresponding to the specified A and m. This will try to use the jit compiled map2todbowl if it is available, else it will fall back to a slower routine.
 
         Parameters
         ----------
@@ -1484,6 +1479,8 @@ class tsBowl(tsVecs):
             d, the data corresponding to the tod, only used if to_add is True. If not speicified the data is taken from tod
         do_add: bool, optional, default = True
             If true, adds the resulting tod data to the existing tod data. If false, overwrites the tod data. 
+        do_omp : bool, optional
+            Dummy variable to match parameters of other map2tod        
         
         Returns
         -------
@@ -1500,9 +1497,30 @@ class tsBowl(tsVecs):
         else:
             mat[:]=map2todbowl(self.vecs, self.params)
         
-    def tod2map(self, tod, mat = None, do_add = True):
+    def tod2map(self, tod, mat = None, do_add = True, do_omp = False):
         """
-        TODO: write doc
+        Given legandre vecs and TOD data, computes the corresponding parameters.
+
+        tod2map is the transpose of the linear transformation map2tod. This will use the jit compiled tod2mapbowl if available, else it will fall back on a slower routine.
+
+        Parameters
+        ----------
+        tod : 'minkasi.TOD'
+            minkasi tod object 
+        mat : np.array, optional
+            data from tod. If not specified, mat is taken from passed tod
+        do_add : bool
+            If true, adds resulting param to existing param. If false, overwrites it.
+        do_omp : bool
+            Dummy variable to match parameters of other tod2map
+
+        Returns
+        -------
+        No returns
+
+        Side effects
+        ------------
+        Updates params with the values infered from mat  
         """
 
         if mat is None:
