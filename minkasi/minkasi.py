@@ -946,7 +946,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
     """
     t1=time.time()
     Ax=tods.dot(x0)
-
+    
     try:
         #compute the remainder r_0
         r=b.copy()
@@ -957,6 +957,13 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
         #print('applying precon')
         # z_0 = M*r_0
         z=precon*r
+        key = tods.tods[0].info['fname']
+        print('map precon: ', np.mean(precon.maps[0].map))
+        print('tsBowl precon: ', np.mean(precon.maps[1].data[key].params))
+        print('map r: ', np.mean(r.maps[0].map))
+        print('tsBowl r: ', np.mean(r.maps[1].data[key].params))
+        print('map val: ', np.mean(z.maps[0].map))
+        print('tsBowl val: ', np.mean(z.maps[1].data[key].params))
     else:
         z=r.copy()
 
@@ -1460,6 +1467,7 @@ class tsBowl(tsVecs):
             self.drift = pred2
         
         self.apix /= np.max(np.abs(self.apix), axis = 0)    
+        #TODO: swap legvander to legval
         self.vecs=(np.polynomial.legendre.legvander(self.apix,order)).copy()
         self.nvec=self.vecs.shape[-1] 
         self.params=np.zeros([self.ndet,self.nvec])

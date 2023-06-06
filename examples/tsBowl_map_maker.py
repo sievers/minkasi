@@ -11,13 +11,14 @@ tod_names=glob.glob(dir+'Sig*.fits')
 bad_tod, addtag = pbs.get_bad_tods("MS0735", ndo=False, odo=False)
 tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
 tod_names.sort()
-print(minkasi.nproc)
+print("nproc: ", minkasi.nproc)
 tod_names = tod_names[minkasi.myrank::minkasi.nproc]
 
 todvec=minkasi.TodVec()
 
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
+#    if i >= 20: continue
     if i ==194: continue #This one does't make noise right, gotta figure out why that is
     t1=time.time()
     dat=minkasi.read_tod_from_fits(fname)
@@ -38,56 +39,51 @@ for i, fname in enumerate(tod_names):
     todvec.add_tod(tod)
     print('took ',t2-t1,' ',t3-t2,' seconds to read and downsample file ',fname)
 
-#make a template map with desired pixel size an limits that cover the data
-#todvec.lims() is MPI-aware and will return global limits, not just
-#the ones from private TODs
+minkasi.barrier()
+
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 map=minkasi.SkyMap(lims,pixsize)
 
-#once we have a map, we can figure out the pixellization of the data.  Save that
-#so we don't have to recompute.  Also calculate a noise model.  The one here
-#(and currently the only supported one) is to rotate the data into SVD space, then
-#smooth the power spectrum of each mode.  Other models would not be hard
-#to implement.  The smoothing could do with a bit of tuning as well.
-
 mapset = minkasi.Mapset()
 
 for i, tod in enumerate(todvec.tods):
-    print(i)
-
     ipix=map.get_pix(tod)
     tod.info['ipix']=ipix
-    #tod.set_noise_smoothed_svd()
     tod.set_noise(minkasi.NoiseSmoothedSVD)
 
-    #tsBowl = minkasi.tsBowl(tod)
-    #mapset.add_map(tsBowl)
-
 tsVec = minkasi.tsModel(todvec = todvec, modelclass = minkasi.tsBowl)
+
+#We add two things for pcg to do simulatenously here: make the maps from the tods
+#and fit the polynomials to tsVec
+mapset.add_map(map)
 mapset.add_map(tsVec)
 
-#make A^T N^1 d.  TODs need to understand what to do with maps
-#but maps don't necessarily need to understand what to do with TODs, 
-#hence putting make_rhs in the vector of TODs. 
-#Again, make_rhs is MPI-aware, so this should do the right thing
-#if you run with many processes.
+hits=minkasi.make_hits(todvec,map)
+
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
-#this is our starting guess.  Default to starting at 0,
-#but you could start with a better guess if you have one.
 x0=rhs.copy()
 x0.clear()
 
 #preconditioner is 1/ hit count map.  helps a lot for 
 #convergence.
-#precon=mapset.copy()
-#tmp=hits.map.copy()
-#ii=tmp>0
-#tmp[ii]=1.0/tmp[ii]
+precon=mapset.copy()
+tmp=hits.map.copy()
+ii=tmp>0
+tmp[ii]=1.0/tmp[ii]
 
-#precon.maps[0].map[:]=tmp[:]
+precon.maps[0].map[:]=tmp[:]
+
+#tsBowl precon is 1/todlength
+
+for key in precon.maps[1].data.keys():
+    temp = np.ones(precon.maps[1].data[key].params.shape)
+    temp /= precon.maps[1].data[key].vecs.shape[1]
+    precon.maps[1].data[key].params = temp
+
+
 
 #run PCG!
 plot_info={}
@@ -95,9 +91,30 @@ plot_info['vmin']=-6e-4
 plot_info['vmax']=6e-4
 plot_iters=[1,2,3,5,10,15,20,25,30,35,40,45,49]
 
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,maxiter=50)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/first_map_precon_mpi_py3.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/tsBowl_map_precon_mpi_py3.fits') #and write out the map as a FITS file
+    '''    
+    tod = todvec.tods[0]
+    key = tod.info['fname']
+    tsBowl = mapset_out.maps[1].data[key]
+    
+    dd, pred2, cm = minkasi.fit_cm_plus_poly(tod.info['dat_calib'], cm_ord=3, full_out=True) 
+    
+    tod.info['dat_calib'] -= pred2 
+    for i in range(tod.info['dat_calib'].shape[0]):
+        plt.plot(tod.info['apix'][i], tod.info['dat_calib'][i])
+        plt.plot(tod.info['apix'][i], np.dot(tsBowl.params[i], tsBowl.vecs[i].T))
+    
+        plt.ylim(-0.05, 0.05)
+        plt.xlabel('apix')
+        plt.ylabel('dat_calib - pred2')
+        plt.savefig('/scratch/r/rbond/jorlo/MS0735/tsBowl/precon_{}.png'.format(i))
+        plt.close()
+    '''
+
+
+
 else:
     print('not writing map on process ',minkasi.myrank)
 
