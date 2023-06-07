@@ -286,8 +286,8 @@ def tod2mapbowl(vecs, mat):
     for i in range(vecs.shape[0]):
          to_return[i] = np.dot(vecs[i,...].T, mat[i,...])
   
-    return to_return 
-    
+    return to_return   
+
 def read_fits_map(fname,hdu=0,do_trans=True):
     f=fits.open(fname)
     raw=f[hdu].data
@@ -1453,11 +1453,15 @@ class tsBowl(tsVecs):
         except KeyError:
             tod.set_apix()
             self.apix = tod.info['apix']
-                
+        
+        #Normalize apix to run from -1 to 1, to preserve linear independce of leg polys
         self.apix /= np.max(np.abs(self.apix), axis = 0)    
         #TODO: swap legvander to legval
+        #Array(len(apix), order) of the legander polynomials evaluated at self.apix
         self.vecs=(np.polynomial.legendre.legvander(self.apix,order)).copy()
         self.nvec=self.vecs.shape[-1] 
+        
+        #Parameters c_ij for the legandre polynomials
         self.params=np.zeros([self.ndet,self.nvec])
     
     def map2tod(self, tod, mat = None, do_add = True, do_omp = False):
@@ -1489,9 +1493,9 @@ class tsBowl(tsVecs):
         if mat is None: 
             mat=tod.get_data()
         if do_add:
-            mat[:]=mat[:] + map2todbowl(self.vecs, self.params)
+            mat[:]=mat[:] + map2todbowl(self.vecs, self.params) 
         else:
-            mat[:]=map2todbowl(self.vecs, self.params)
+            mat[:]=map2todbowl(self.vecs, self.params) 
         
     def tod2map(self, tod, mat = None, do_add = True, do_omp = False):
         """
@@ -1522,9 +1526,9 @@ class tsBowl(tsVecs):
         if mat is None:
             mat = tod.get_data()
         if do_add:
-            self.params = self.params + tod2mapbowl(self.vecs, mat)
+            self.params = self.params + tod2mapbowl(self.vecs, mat) 
         else:
-            self.paras = tod2mapbowl(self.vecs, mat)
+            self.paras = tod2mapbowl(self.vecs, mat) 
      
 
     def fit_apix(self, tod):
