@@ -468,8 +468,8 @@ def make_rings_wSlope(edges,cent,vals,map,pixsize=2.0,fwhm=10.0,amps=None,aa=1.0
 def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None,iswcs=True):
     xvec=np.arange(map.nx)
     yvec=np.arange(map.ny)
-    ix=np.int(map.nx/2)
-    iy=np.int(map.ny/2)
+    ix=int(map.nx/2)
+    iy=int(map.ny/2)
     xvec[ix:]=xvec[ix:]-map.nx
     yvec[iy:]=yvec[iy:]-map.ny
     #xvec[map.nx/2:]=xvec[map.nx/2:]-map.nx
@@ -769,15 +769,15 @@ def find_good_fft_lens(n,primes=[2,3,5,7]):
 
     r=np.log2(n+0.5)
     lp=np.log2(primes)
-    npoint_max=(vol/2**npr)*np.prod(r/lp)+30 #add a bit just to make sure we don't act up for small n
-    #print 'npoint max is ',npoint max
-    npoint_max=np.int(npoint_max)
+    int_max=(vol/2**npr)*np.prod(r/lp)+30 #add a bit just to make sure we don't act up for small n
+    #print 'int max is ',int max
+    int_max=int(int_max)
 
-    #vals=np.zeros(npoint_max,dtype='int')
-    vals=np.zeros(npoint_max)
+    #vals=np.zeros(int_max,dtype='int')
+    vals=np.zeros(int_max)
     icur=0
     icur=_prime_loop(r,lp,icur,0.0,vals)
-    assert(icur<=npoint_max)
+    assert(icur<=int_max)
     myvals=np.asarray(np.round(2**vals[:icur]),dtype='int')
     myvals=np.sort(myvals)
     return myvals
@@ -1325,7 +1325,7 @@ class tsNotch(tsGeneric):
         dt=tvec[-1]-tvec[0]
         bw=numax-numin
         dnu=1/dt
-        nfreq=np.int(np.ceil(2*bw/dnu)) #factor of 2 is to account for partial waves
+        nfreq=int(np.ceil(2*bw/dnu)) #factor of 2 is to account for partial waves
         ndet=tod.get_ndet()
         self.freqs=np.linspace(numin,numax,nfreq)
         self.nfreq=nfreq
@@ -2379,7 +2379,7 @@ class SkyMap:
             #print("reducing map")
             if chunksize>0:
                 nchunk=(1.0*self.nx*self.ny)/chunksize
-                nchunk=np.int(np.ceil(nchunk))
+                nchunk=int(np.ceil(nchunk))
             else:
                 nchunk=1
             #print('nchunk is ',nchunk)
@@ -2481,7 +2481,7 @@ class SkyMapTwoRes:
         xx,yy=np.meshgrid(yvec,xvec)
         rsqr=xx**2+yy**2
         rr=np.sqrt(rsqr)*pixsize
-        beam=np.interp(rr,prof[:,0],prof[:,1])
+        beam=interp(rr,prof[:,0],prof[:,1])
         beam=beam/np.sum(beam)
         self.beamft=np.fft.rfft2(beam)
 
@@ -2513,8 +2513,8 @@ class SkyMapTwoRes:
     def set_mask(self,hits,thresh=0):
         self.mask=hits>thresh
         self.fine_prior=0*hits
-        self.nx_coarse=np.int(np.round(hits.shape[0]/self.osamp))
-        self.ny_coarse=np.int(np.round(hits.shape[1]/self.osamp))
+        self.nx_coarse=int(np.round(hits.shape[0]/self.osamp))
+        self.ny_coarse=int(np.round(hits.shape[1]/self.osamp))
         self.grid_facs=np.zeros([self.nx_coarse,self.ny_coarse])
         for i in range(self.nx_coarse):
             for j in range(self.ny_coarse):
@@ -2966,7 +2966,7 @@ class PolMap:
             #print("reducing map")
             if chunksize>0:
                 nchunk=(1.0*self.nx*self.ny*self.npol)/chunksize
-                nchunk=np.int(np.ceil(nchunk))
+                nchunk=int(np.ceil(nchunk))
             else:
                 nchunk=1
             #print('nchunk is ',nchunk)
@@ -3270,8 +3270,8 @@ class SkyMapCarOld:
             self.lims=lims[:]
         self.pixsize=pixsize
         self.cosdec=np.cos(0.5*(lims[2]+lims[3]))
-        nx=np.int(np.ceil((lims[1]-lims[0])/pixsize*self.cosdec))
-        ny=np.int(np.ceil((lims[3]-lims[2])/pixsize))
+        nx=int(np.ceil((lims[1]-lims[0])/pixsize*self.cosdec))
+        ny=int(np.ceil((lims[3]-lims[2])/pixsize))
         self.nx=nx
         self.ny=ny
         self.npix=nx*ny
@@ -3598,8 +3598,8 @@ class NoiseWhiteNotch:
         dt=np.median(np.diff(tvec))
         tlen=tvec[-1]-tvec[0]
         dnu=1.0/(2*tlen-dt)
-        self.istart=np.int(np.floor(numin/dnu))
-        self.istop=np.int(np.ceil(numax/dnu))+1
+        self.istart=int(np.floor(numin/dnu))
+        self.istop=int(np.ceil(numax/dnu))+1
 
     def apply_noise(self,dat):
         assert(dat.shape[0]==len(self.weights))
@@ -4388,8 +4388,8 @@ def read_tod_from_fits(fname,hdu=1,branch=None):
         bb=branch*np.pi/180.0
         dx[dx>bb]=dx[dx>bb]-2*np.pi
     #dat['dx']=np.zeros([ndet,nsamp],dtype=type(dx[0]))
-    ndet=np.int(ndet)
-    nsamp=np.int(nsamp)
+    ndet=int(ndet)
+    nsamp=int(nsamp)
     dat['dx']=np.zeros([ndet,nsamp],dtype='float64')
     dat['dx'][:]=np.reshape(dx,[ndet,nsamp])[:]
     dy=raw['DY']
@@ -4604,8 +4604,8 @@ def get_aligned_map_subregion_car(lims,fname=None,big_wcs=None,osamp=1):
     lims_use=lims_use+np.asarray([0.5,-0.5,0.5,-0.5])*pixsize
     
     small_wcs=get_wcs(lims_use*np.pi/180,pixsize*np.pi/180,ref_equ=True)
-    imin=np.int(np.round(corner2[0]+0.5))
-    jmin=np.int(np.round(corner1[1]+0.5))
+    imin=int(np.round(corner2[0]+0.5))
+    jmin=int(np.round(corner1[1]+0.5))
     map_corner=np.asarray([imin,jmin],dtype='int')
     lims_use=lims_use*np.pi/180
 
