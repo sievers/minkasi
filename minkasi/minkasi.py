@@ -958,12 +958,7 @@ def run_pcg(b,x0,tods,precon=None,maxiter=25,outroot='map',save_iters=[-1],save_
         # z_0 = M*r_0
         z=precon*r
         key = tods.tods[0].info['fname']
-        print('map precon: ', np.mean(precon.maps[0].map))
-        print('tsBowl precon: ', np.mean(precon.maps[1].data[key].params))
-        print('map r: ', np.mean(r.maps[0].map))
-        print('tsBowl r: ', np.mean(r.maps[1].data[key].params))
-        print('map val: ', np.mean(z.maps[0].map))
-        print('tsBowl val: ', np.mean(z.maps[1].data[key].params))
+    
     else:
         z=r.copy()
 
