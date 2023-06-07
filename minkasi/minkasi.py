@@ -1453,14 +1453,7 @@ class tsBowl(tsVecs):
         except KeyError:
             tod.set_apix()
             self.apix = tod.info['apix']
-        
-        try:
-            #pred2 is essentially the detector drift
-            self.drift = tod.info['pred2']
-        except KeyError:
-            dd, pred2, cm = fit_cm_plus_poly(tod.info["dat_calib"], cm_ord=3, full_out=True)
-            self.drift = pred2
-        
+                
         self.apix /= np.max(np.abs(self.apix), axis = 0)    
         #TODO: swap legvander to legval
         self.vecs=(np.polynomial.legendre.legvander(self.apix,order)).copy()
