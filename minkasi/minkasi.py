@@ -1529,7 +1529,7 @@ class tsBowl(tsVecs):
             self.params = self.params + tod2mapbowl(self.vecs, mat) 
         else:
             self.paras = tod2mapbowl(self.vecs, mat) 
-     
+  
 
     def fit_apix(self, tod):
         if tod.info['fname'] != self.fname:
