@@ -39,7 +39,7 @@ for fname in tod_names:
     t3=time.time()
     tod=minkasi.Tod(dat)
     todvec.add_tod(tod)
-    print 'took ',t2-t1,' ',t3-t2,' seconds to read and downsample file ',fname
+    print('took ',t2-t1,' ',t3-t2,' seconds to read and downsample file ',fname)
 
 #make a template map with desired pixel size an limits that cover the data
 #todvec.lims() is MPI-aware and will return global limits, not just
@@ -95,7 +95,7 @@ mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 if minkasi.myrank==0:
     mapset_out.maps[0].write('first_map_precon_mpi.fits') #and write out the map as a FITS file
 else:
-    print 'not writing map on process ',minkasi.myrank
+    print('not writing map on process ',minkasi.myrank)
 
 #if you wanted to run another round of PCG starting from the previous solution, 
 #you could, replacing x0 with mapset_out.  

@@ -81,7 +81,7 @@ for tod in todvec.tods:
     tod.set_noise(minkasi.NoiseSmoothedSVD)
 
 
-
+'''
 inds=[0,1,-1]
 for ind in inds:
     tod=todvec.tods[ind]
@@ -104,7 +104,7 @@ for ind in inds:
 
 #assert(1==0)
 
-
+'''
 
 
 
@@ -146,8 +146,9 @@ plot_info['vmin']=-6e-4
 plot_info['vmax']=6e-4
 plot_iters=[1,2,3,5,10,15,20,25,30,35,40,45,49]
 
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50,plot_iters=plot_iters,plot_info=plot_info)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)#,plot_iters=plot_iters,plot_info=plot_info)
 if minkasi.myrank==0:
+    print(type(mapset_out.maps[0]))
     mapset_out.maps[0].write('/scratch/r/rbond/jorlo/first_map_precon_mpi_py3.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
