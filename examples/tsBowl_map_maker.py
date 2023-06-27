@@ -21,6 +21,8 @@ tod_names = tod_names[minkasi.myrank::minkasi.nproc]
 
 todvec=minkasi.TodVec()
 
+flatten = True
+
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
     if fname == '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/Signal_TOD-AGBT21A_123_03-s20.fits': continue
@@ -37,9 +39,11 @@ for i, fname in enumerate(tod_names):
 
     #figure out a guess at common mode #and (assumed) linear detector drifts/offset
     #drifts/offsets are removed, which is important for mode finding.  CM is *not* removed.
-    dd=minkasi.fit_cm_plus_poly(dat['dat_calib'])
-
+    dd, pred2, cm = minkasi.fit_cm_plus_poly(dat["dat_calib"], cm_ord=3, full_out=True)
+   
     dat['dat_calib']=dd
+    if flatten: 
+        dat['dat_calib'] -= pred2
     t3=time.time()
     tod=minkasi.Tod(dat)
     todvec.add_tod(tod)
@@ -111,9 +115,9 @@ plot_iters=[1,2,3,5,10,15,20,25,30,35,40,45,49]
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=200)
 if minkasi.myrank==0:
     if len(mapset.maps)==1:
-        mapset_out.maps[0].write('/scratch/r/rbond/jorlo/noBowl_map_precon_mpi_py3.fits') #and write out the map as a FITS file
+        mapset_out.maps[0].write('/scratch/r/rbond/jorlo/{}_noBowl_map_precon_mpi_py3.fits'.format(flatten)) #and write out the map as a FITS file
     else:
-        mapset_out.maps[0].write('/scratch/r/rbond/jorlo/tsBowl_map_precon_mpi_py3.fits')
+        mapset_out.maps[0].write('/scratch/r/rbond/jorlo/{}_tsBowl_map_precon_mpi_py3.fits'.format(flatten))
 else:
     print('not writing map on process ',minkasi.myrank)
 
@@ -205,7 +209,7 @@ precon.maps[0].map[:]=tmp[:]
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/sub_tsBowl_map_precon_mpi_py3.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/{}_sub_tsBowl_map_precon_mpi_py3.fits'.format(flatten)) #and write out the map as a FITS file
 
 
 else:
