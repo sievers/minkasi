@@ -1,4 +1,4 @@
-from . import MapType
+from . import MapType, SkyMapTwoRes
 from ..minkasi import have_mpi
 
 try:
@@ -170,7 +170,63 @@ class Mapset:
         for i in range(self.nmap):
             self.maps[i].clear_caches()
 
-    def apply_prior(self, x: Self, Ax: Self):
+    def mpi_reduce(self):
+        """
+        Reduce all maps in mapset.
+        If not running with MPI this does nothing.
+        """
+        if have_mpi:
+            for map in self.maps:
+                map.mpi_reduce()
+
+
+class MapsetTwoRes:
+    """
+    Class to store and operate on a set of SkyMapTwoRes objects.
+
+    Attributes
+    ----------
+    nmap : int
+        Number of maps in the set.
+    maps : list[SkyMapTwoRes])
+        Maps stored in this set.
+    """
+
+    def __init__(self):
+        """
+        Initialize the Mapset.
+        By default nmap is 0 and maps in empty.
+        """
+        self.nmap: int = 0
+        self.maps: list[SkyMapTwoRes] = []
+
+    def add_map(self, map: SkyMapTwoRes):
+        """
+        Add a map to the Mapset.
+
+        Parameters
+        ----------
+        map : SkyMapTwoRes
+            The map to add.
+        """
+        self.maps.append(map.copy())
+        self.nmap = self.nmap + 1
+
+    def copy(self) -> Self:
+        """
+        Make a copy of this Mapset.
+
+        Returns
+        -------
+        new_mapset : MapsetTwoRes
+            A copy of this Mapset
+        """
+        new_mapset: Self = MapsetTwoRes()
+        for i in range(self.nmap):
+            new_mapset.add_map(self.maps[i].copy())
+        return new_mapset
+
+    def apply_prior(self, x: Mapset, Ax: Mapset):
         """
         Apply prior to all maps in Mapset.
         This only makes sense to do if maps are SkyMapTwoRes.
@@ -182,7 +238,8 @@ class Mapset:
             Should be a Mapset of SkyMaps (no pol support yet).
 
         Ax : Mapset
-            The output mapset.
+            The output mapset with priors applied.
+            Should be a Mapset of SkyMaps (no pol support yet).
         """
         for i in range(self.nmap):
             if not (self.maps[i] is None):
@@ -195,12 +252,3 @@ class Mapset:
                 except:
                     # print('going through exception')
                     self.maps[i].apply_prior(x.maps[i], Ax.maps[i])
-
-    def mpi_reduce(self):
-        """
-        Reduce all maps in mapset.
-        If not running with MPI this does nothing.
-        """
-        if have_mpi:
-            for map in self.maps:
-                map.mpi_reduce()
