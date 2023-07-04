@@ -94,6 +94,10 @@ class Mapset(_MapsetBase):
         tot : float
             The sum of the dot products between corresponding maps in the Mapsets.
         """
+        if self.nmap != mapset.nmap:
+            raise ValueError(
+                f"nmaps don't match, this Mapset has {self.nmap} but the provided Mapset has {mapset.nmap}"
+            )
         tot: float = 0.0
         for i in range(self.nmap):
             tot = tot + self.maps[i].dot(mapset.maps[i])
@@ -112,6 +116,10 @@ class Mapset(_MapsetBase):
         a : float
             Number to multiply the maps in this Mapset by.
         """
+        if self.nmap != mapset.nmap:
+            raise ValueError(
+                f"nmaps don't match, this Mapset has {self.nmap} but the provided Mapset has {mapset.nmap}"
+            )
         for i in range(self.nmap):
             self.maps[i].axpy(mapset.maps[i], a)
 
@@ -168,6 +176,10 @@ class Mapset(_MapsetBase):
         mm : Mapset
             Mapset containing the multiplied maps.
         """
+        if self.nmap != mapset.nmap:
+            raise ValueError(
+                f"nmaps don't match, this Mapset has {self.nmap} but the provided Mapset has {mapset.nmap}"
+            )
         mm = mapset.copy()
         for i in range(self.nmap):
             mm.maps[i] = self.maps[i] * mapset.maps[i]
