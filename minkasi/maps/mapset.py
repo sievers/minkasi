@@ -9,15 +9,16 @@ except ImportError:
     Self = TypeVar("Self", bound="Mapset")
 
 
-class Mapset:
+class _MapsetBase:
     """
     Class to store and operate on a set of map objects.
+    This class is made to house shared functions to build subclasses with.
 
     Attributes
     ----------
     nmap : int
         Number of maps in the set.
-    maps : list[MapType])
+    maps : list[MapType | SkyMapTwoRes])
         Maps stored in this set.
     """
 
@@ -27,26 +28,19 @@ class Mapset:
         By default nmap is 0 and maps in empty.
         """
         self.nmap: int = 0
-        self.maps: list[MapType] = []
+        self.maps: list[MapType | SkyMapTwoRes] = []
 
-    def add_map(self, map: MapType):
+    def add_map(self, map: MapType | SkyMapTwoRes):
         """
         Add a map to the Mapset.
 
         Parameters
         ----------
-        map : MapType
+        map : MapType | SkyMapTwoRes
             The map to add.
         """
         self.maps.append(map.copy())
         self.nmap = self.nmap + 1
-
-    def clear(self):
-        """
-        Clear all maps in the Mapset.
-        """
-        for i in range(self.nmap):
-            self.maps[i].clear()
 
     def copy(self) -> Self:
         """
@@ -57,10 +51,33 @@ class Mapset:
         new_mapset : Mapset
             A copy of this Mapset
         """
-        new_mapset: Self = Mapset()
+        new_mapset: Self = self.__class__()
         for i in range(self.nmap):
             new_mapset.add_map(self.maps[i].copy())
         return new_mapset
+
+
+class Mapset(_MapsetBase):
+    """
+    Class to store and operate on a set of map objects.
+    This class is made to house shared functions to build subclasses with.
+
+    Attributes
+    ----------
+    nmap : int
+        Number of maps in the set.
+    maps : list[MapType])
+        Maps stored in this set.
+    """
+
+    maps: list[MapType]
+
+    def clear(self):
+        """
+        Clear all maps in the Mapset.
+        """
+        for i in range(self.nmap):
+            self.maps[i].clear()
 
     def dot(self, mapset: Self) -> float:
         """
@@ -180,7 +197,7 @@ class Mapset:
                 map.mpi_reduce()
 
 
-class MapsetTwoRes:
+class MapsetTwoRes(_MapsetBase):
     """
     Class to store and operate on a set of SkyMapTwoRes objects.
 
@@ -192,39 +209,7 @@ class MapsetTwoRes:
         Maps stored in this set.
     """
 
-    def __init__(self):
-        """
-        Initialize the Mapset.
-        By default nmap is 0 and maps in empty.
-        """
-        self.nmap: int = 0
-        self.maps: list[SkyMapTwoRes] = []
-
-    def add_map(self, map: SkyMapTwoRes):
-        """
-        Add a map to the Mapset.
-
-        Parameters
-        ----------
-        map : SkyMapTwoRes
-            The map to add.
-        """
-        self.maps.append(map.copy())
-        self.nmap = self.nmap + 1
-
-    def copy(self) -> Self:
-        """
-        Make a copy of this Mapset.
-
-        Returns
-        -------
-        new_mapset : MapsetTwoRes
-            A copy of this Mapset
-        """
-        new_mapset: Self = MapsetTwoRes()
-        for i in range(self.nmap):
-            new_mapset.add_map(self.maps[i].copy())
-        return new_mapset
+    maps: list[SkyMapTwoRes]
 
     def apply_prior(self, x: Mapset, Ax: Mapset):
         """
