@@ -5,7 +5,6 @@ try:
     from typing import Self
 except ImportError:
     from typing import TypeVar
-
     Self = TypeVar("Self", bound="Mapset")
 
 
@@ -93,6 +92,11 @@ class Mapset(_MapsetBase):
         -------
         tot : float
             The sum of the dot products between corresponding maps in the Mapsets.
+
+        Raises
+        ------
+        ValueError
+            If the size of the Mapsets don't match.
         """
         if self.nmap != mapset.nmap:
             raise ValueError(
@@ -115,6 +119,11 @@ class Mapset(_MapsetBase):
 
         a : float
             Number to multiply the maps in this Mapset by.
+
+        Raises
+        ------
+        ValueError
+            If the size of the Mapsets don't match.
         """
         if self.nmap != mapset.nmap:
             raise ValueError(
@@ -175,6 +184,11 @@ class Mapset(_MapsetBase):
         -------
         mm : Mapset
             Mapset containing the multiplied maps.
+
+        Raises
+        ------
+        ValueError
+            If the size of the Mapsets don't match.
         """
         if self.nmap != mapset.nmap:
             raise ValueError(
