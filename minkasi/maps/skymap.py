@@ -6,12 +6,19 @@ import numpy as np
 from numpy.typing import NDArray
 from .utils import get_wcs
 from ..minkasi import find_good_fft_lens, have_mpi, comm, nproc, get_nthread
-from ..tod2map import tod2map_cached, tod2map_omp, tod2map_simple
+from ..tod2map import (
+    tod2map_cached,
+    tod2map_omp,
+    tod2map_simple,
+    tod2map_everyone,
+    tod2map_atomic,
+)
 from ..map2tod import map2tod
 from ..tods import Tod, TodVec
 
 try:
     import healpy
+
     have_healpy = True
 except ImportError:
     have_healpy = False
@@ -20,6 +27,7 @@ try:
     from typing import Self
 except ImportError:
     from typing import TypeVar
+
     Self = TypeVar("Self", bound="SkyMap")
 
 
@@ -243,7 +251,7 @@ class SkyMap:
             self.get_caches()
             self.tod2map_method = self.tod2map_cached
         if method == "atomic":
-            self.tod2map_method = self.todmap_atomic
+            self.tod2map_method = self.tod2map_atomic
 
     def tod2map_atomic(self, tod: Tod, dat: NDArray[np.floating]):
         """
@@ -290,9 +298,48 @@ class SkyMap:
         ipix = self.get_pix(tod)
         tod2map_simple(self.map, dat, ipix)
 
-    # def tod2map_cached(self.map,dat,ipix):
-    #    ipix=self.get_pix(tod)
-    #    tod2map_cached(map,dat,ipix)
+    def tod2map_everyone(self, tod: Tod, dat: NDArray[np.floating]):
+        """
+        Wrapper that runs tod2map_everyone on this map.
+
+        Parameters
+        __________
+        tod : Tod
+            TOD containing pointing information and edges.
+            Edges are expected to be saved at tod.info[self.tag + "_edges"]
+        dat : NDArray[np.floating]
+            Data to project to map space.
+
+        Raises
+        ------
+        ValueError
+            If edges not saved in tod.
+        """
+        if self.tag + "_edges" not in tod.info:
+            raise ValueError("Edges not set")
+        ipix = self.get_pix(tod)
+        tod2map_everyone(self.caches, dat, ipix, tod.info[self.tag + "_edges"])
+
+    def tod2map_cached(self, tod: Tod, dat: NDArray[np.floating]):
+        """
+        Wrapper that runs tod2map_cached on this map.
+
+        Parameters
+        __________
+        tod : Tod
+            TOD containing pointing information.
+        dat : NDArray[np.floating]
+            Data to project to map space.
+
+        Raises
+        ------
+        ValueError
+            If caches are not set.
+        """
+        if self.caches is None:
+            raise ValueError("Caches not set")
+        ipix = self.get_pix(tod)
+        tod2map_cached(self.caches, dat, ipix)
 
     def copy(self) -> Self:
         """
