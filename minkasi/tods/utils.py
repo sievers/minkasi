@@ -1,84 +1,96 @@
+import numpy as np
+from numpy.typing import NDArray
 
-def slice_with_copy(arr,ind):
-    if isinstance(arr,np.ndarray):
-        myshape=arr.shape
 
-        if len(myshape)==1:
-            ans=np.zeros(ind.sum(),dtype=arr.dtype)
-            print(ans.shape)
-            print(ind.sum())
-            ans[:]=arr[ind]
-        else:   
-            mydims=np.append(np.sum(ind),myshape[1:])
-            print(mydims,mydims.dtype)
-            ans=np.zeros(mydims,dtype=arr.dtype)
-            ans[:,:]=arr[ind,:].copy()
-        return ans
-    return None #should not get here
-def split_dict(mydict,vec,thresh):
-    #split a dictionary into sub-dictionaries wherever a gap in vec is larger than thresh.
-    #useful for e.g. splitting TODs where there's a large time gap due to cuts.
-    inds=np.where(np.diff(vec)>thresh)[0]
-    #print(inds,len(inds))
-    if len(inds)==0:
-        return [mydict]
-    ndict=len(inds)+1
-    inds=np.hstack([[0],inds+1,[len(vec)]])
-    #print(inds)
+def slice_with_copy(arr: NDArray, ind: NDArray[np.bool_], axis: int = 0) -> NDArray:
+    """
+    Make a copy of any array with a mask applied on a given index.
 
-    out=[None]*ndict
-    for i in range(ndict):
-        out[i]={}
+    Parameters
+    ----------
+    arr : NDArray
+        Array to copy and mask.
+    ind : NDArray[np.bool_]
+        Boolean mask to apply along the provided axis.
+    axis : int, default: 0
+        Axis to mask along.
+
+    Returns
+    -------
+    ans : NDArray
+        Copy with mask applied.
+
+    Raises
+    ------
+    ValueError
+        If arr isn't a numpy array.
+    """
+    if not isinstance(arr, np.ndarray):
+        raise ValueError("Input arr should be an array")
+    indices = np.nonzero(ind)[0]
+    ans = np.take(arr, indices, axis).copy()
+    return ans
+
+
+def mask_dict(mydict: dict, mask: NDArray[np.bool_]) -> dict:
+    """
+    Mask all items in a dictionary in place.
+    nd arrays are split along the first axis that has the same length as vec.
+    Things that aren't slicible are left alone.
+
+    Parameters
+    ----------
+    mydict : dict
+        Dict whose items will be masked.
+    mask : NDArray[np.bool_]
+        Mask to apply.
+
+    Returns
+    -------
+    masked_dict : dict
+        The dictionary with the mask applied.
+        Note that this function also works in place.
+    """
     for key in mydict.keys():
-        tmp=mydict[key]
-        for i in range(ndict):
-            out[i][key]=tmp
-        try:
-            dims=tmp.shape
-            ndim=len(dims)
-            if ndim==1:
-                if dims[0]==len(vec):
-                    for i in range(ndict):
-                        out[i][key]=tmp[inds[i]:inds[i+1]].copy()
-            if ndim==2:
-                if dims[1]==len(vec):
-                    for i in range(ndict):
-                        out[i][key]=tmp[:,inds[i]:inds[i+1]].copy()
-                elif dims[0]==len(vec):
-                    for i in range(ndict):
-                        out[i][key]=tmp[inds[i]:inds[i+1],:].copy()
-        except:
-            continue
-            #print('copying ',key,' unchanged')
-            #don't need below as it's already copied by default
-            #for i in range(ndict):
-            #    out[i][key]=mydict[key]
+        tmp = mydict[key]
+        if isinstance(tmp, np.ndarray):
+            axes = np.where(np.array(tmp.shape) == len(mask))[0]
+            if len(axes):
+                mydict[key] = slice_with_copy(tmp, mask, axes[0])
+    return mydict
+
+
+def split_dict(mydict: dict, vec: NDArray, thresh: float) -> list[dict]:
+    """
+    Split a dictionary into sub-dictionaries wherever a gap in vec is larger than thresh.
+    Useful for e.g. splitting TODs where there's a large time gap due to cuts.
+    nd arrays are split along the first axis that has the same length as vec.
+    Things that aren't slicible are copied directly.
+
+    Parameters
+    ----------
+    mydict : dict
+        Dict whose items will be split up.
+    vec : NDArray
+        Vector to get splits from.
+    thresh : float
+        Minimum difference between samples of vec that cause a split.
+
+    Returns
+    -------
+    split_dicts : list[dict]
+        List of split up dictionaries.
+        If no splits occured this will just be [mydict]
+    """
+    inds = np.where(np.diff(vec) > thresh)[0]
+    if len(inds) == 0:
+        return [mydict]
+    ndict = len(inds) + 1
+    inds = np.hstack([[0], inds + 1, [len(vec)]])
+    masks = [np.zeros_like(vec, dtype=bool)] * ndict
+    for i in range(ndict):
+        masks[i][inds[i] : inds[i + 1]] = True
+
+    out = [mask_dict(mydict.copy(), mask) for mask in masks]
 
     return out
-
-def mask_dict(mydict,mask):
-    for key in mydict.keys():
-        tmp=mydict[key]
-        try:
-            dims=tmp.shape
-            ndim=len(dims)
-            if ndim==1:
-                if dims[0]==len(mask):
-                    tmp=tmp[mask]
-                    mydict[key]=tmp
-            if ndim==2:
-                if dims[0]==len(mask):
-                    tmp=tmp[mask,:]
-                if dims[1]==len(mask):
-                    tmp=tmp[:,mask]
-                mydict[key]=tmp
-            if ndim==3:
-                if dims[0]==len(mask):
-                    tmp=tmp[mask,:,:]
-                if dims[1]==len(mask):
-                    tmp=tmp[:,mask,:]
-                if dims[2]==len(maks):
-                    tmp=tmp[:,:,mask]
-                mydict[key]=tmp
-        except:
-            continue
