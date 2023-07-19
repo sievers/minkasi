@@ -588,9 +588,13 @@ class Tod:
                 dat, *(self.noise_args), **(self.noise_kwargs)
             )
             self.noise_delayed = False
-        if isinstance(self.noise, NoiseModelType):
-            return self.noise.apply_noise(dat)
-        print("unable to use class-based noised, falling back onto hardwired.")
+        if self.noise is not None:
+            try:
+                return self.noise.apply_noise(dat)
+            except:
+                print("unable to use class-based noised, falling back onto hardwired.")
+        else:
+            print("tod.noise is not setm falling back onto hardwired.")
 
         if self.info["noise"] == "cm_white":
             return self.apply_noise_cm_white(dat)
