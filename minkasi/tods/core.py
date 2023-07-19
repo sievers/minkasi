@@ -9,6 +9,7 @@ from ..noise import NoiseModelType, WithDetWeights, NoiseSmoothedSVD, NoiseCMWhi
 from ..maps import MapType, Mapset, SkyMap
 from ..minkasi import have_mpi, comm, MPI
 from .. import mkfftw
+from . import _depracated
 
 try:
     from typing import Self, deprecated
@@ -431,27 +432,6 @@ class Tod:
         )
         return dd
 
-    @deprecated("Use tod.set_noise(NoiseCMWhite) instead")
-    def set_noise_cm_white(self):
-        print("deprecated usage - please switch to tod.set_noise(NoiseCMWhite)")
-        self.set_noise(NoiseCMWhite)
-        return
-
-        u, s, v = np.linalg.svd(self.info["dat_calib"], 0)
-        ndet = len(s)
-        ind = np.argmax(s)
-        mode = np.zeros(ndet)
-        # mode[:]=u[:,0]  #bug fixes pointed out by Fernando Zago.  19 Nov 2019
-        # pred=np.outer(mode,v[0,:])
-        mode[:] = u[:, ind]
-        pred = np.outer(mode * s[ind], v[ind, :])
-
-        dat_clean = self.info["dat_calib"] - pred
-        myvar = np.std(dat_clean, 1) ** 2
-        self.info["v"] = mode
-        self.info["mywt"] = 1.0 / myvar
-        self.info["noise"] = "cm_white"
-
     def apply_noise_cm_white(
         self, dat: NDArray[np.floating] | None = None
     ) -> NDArray[np.floating]:
@@ -493,18 +473,13 @@ class Tod:
         dd = dd * tmp
         return dd
 
+    @deprecated("Use tod.set_noise(NoiseCMWhite) instead")
+    def set_noise_cm_white(self):
+        _depracated.set_noise_cm_white(self)
+
     @deprecated("Use tod.set_noise(NoiseBinnedEig) instead")
     def set_noise_binned_eig(self, dat=None, freqs=None, scale_facs=None, thresh=5.0):
-        dat = self.get_data(dat)
-        mycov = np.dot(dat, dat.T)
-        mycov = 0.5 * (mycov + mycov.T)
-        ee, vv = np.linalg.eig(mycov)
-        mask = ee > thresh * thresh * np.median(ee)
-        vecs = vv[:, mask]
-        ts = np.dot(vecs.T, dat)
-        resid = dat - np.dot(vv[:, mask], ts)
-
-        return resid
+        _depracated.set_noise_binned_eig(self, dat, freqs, scale_facs, thresh)
 
     @deprecated("Use tod.set_noise(NoiseSmoothedSVD) instead")
     def set_noise_smoothed_svd(
@@ -512,52 +487,9 @@ class Tod:
     ):
         """If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
         we subtract off before estimating the noise."""
-
-        print(
-            "deprecated usage - please switch to tod.set_noise(minkasi.NoiseSmoothedSVD)"
+        _depracated.set_noise_smoothed_svd(
+            self, fwhm=50, func=None, pars=None, prewhiten=False, fit_powlaw=False
         )
-
-        if func is None:
-            self.set_noise(NoiseSmoothedSVD, self.info["dat_calib"])
-        else:
-            dat_use = func(pars, self)
-            dat_use = self.info["dat_calib"] - dat_use
-            self.set_noise(NoiseSmoothedSVD, dat_use)
-        return
-
-        if func is None:
-            dat_use = self.info["dat_calib"]
-        else:
-            dat_use = func(pars, self)
-            dat_use = self.info["dat_calib"] - dat_use
-            # u,s,v=numpy.linalg.svd(self.info['dat_calib']-tmp,0)
-        if prewhiten:
-            noisevec = np.median(np.abs(np.diff(dat_use, axis=1)), axis=1)
-            dat_use = dat_use / (
-                np.repeat([noisevec], dat_use.shape[1], axis=0).transpose()
-            )
-        u, s, v = np.linalg.svd(dat_use, 0)
-        print("got svd")
-        ndet = s.size
-        n = self.info["dat_calib"].shape[1]
-        self.info["v"] = np.zeros([ndet, ndet])
-        self.info["v"][:] = u.transpose()
-        dat_rot = np.dot(self.info["v"], self.info["dat_calib"])
-        if fit_powlaw:
-            spec_smooth = 0 * dat_rot
-            for ind in range(ndet):
-                fitp, datsqr, C = fit_ts_ps(dat_rot[ind, :])
-                spec_smooth[ind, 1:] = C
-        else:
-            dat_trans = mkfftw.fft_r2r(dat_rot)
-            spec_smooth = smooth_many_vecs(dat_trans**2, fwhm)
-        spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:]
-        spec_smooth[:, 0] = 0
-        if prewhiten:
-            self.info["noisevec"] = noisevec.copy()
-        self.info["mywt"] = spec_smooth
-        self.info["noise"] = "smoothed_svd"
-        # return dat_rot
 
     def apply_noise(
         self, dat: NDArray[np.floating] | None = None
