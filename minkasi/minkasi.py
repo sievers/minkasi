@@ -302,19 +302,6 @@ def make_rings(edges,cent,map,pixsize=2.0,fwhm=10.0,amps=None,iswcs=True):
 
 
 
-def get_type(nbyte):
-    if nbyte==8:
-        return np.dtype('float64')
-    if nbyte==4:
-        return np.dtype('float32')
-    if nbyte==-4:
-        return np.dtype('int32')
-    if nbyte==-8:
-        return np.dtype('int64')
-    if nbyte==1:
-        return np.dtype('str')
-    print('Unsupported nbyte ' + repr(nbyte) + ' in get_type')
-    return None
 
 
 def nsphere_vol(npp):
