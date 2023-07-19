@@ -10,9 +10,7 @@ from ..noise import MapNoiseWhite
 try:
     from typing import Self
 except ImportError:
-    from typing import TypeVar
-
-    Self = TypeVar("Self", bound="SkyMapTwoRes")
+    from typing_extensions import Self
 
 
 class SkyMapTwoRes:

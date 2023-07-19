@@ -19,9 +19,7 @@ except ImportError:
 try:
     from typing import Self
 except ImportError:
-    from typing import TypeVar
-
-    Self = TypeVar("Self", bound="PolMap")
+    from typing_extensions import Self
 
 
 def _poltag2pols(poltag):

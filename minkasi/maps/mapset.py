@@ -4,8 +4,7 @@ from ..minkasi import have_mpi
 try:
     from typing import Self
 except ImportError:
-    from typing import TypeVar
-    Self = TypeVar("Self", bound="Mapset")
+    from typing_extensions import Self
 
 
 class _MapsetBase:

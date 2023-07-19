@@ -26,9 +26,8 @@ except ImportError:
 try:
     from typing import Self
 except ImportError:
-    from typing import TypeVar
-
-    Self = TypeVar("Self", bound="SkyMap")
+    from typing_extensions import Self
+    from typing import Self
 
 
 class SkyMap:
