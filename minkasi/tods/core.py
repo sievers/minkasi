@@ -198,7 +198,7 @@ class Tod:
 
         Parameters
         ----------
-        tag : Any 
+        tag : Any
             The value to save as the tag.
         """
         if "tag" in self.info:
@@ -216,16 +216,35 @@ class Tod:
         ipix = map.get_pix(self)
         self.save_pixellization(map.tag, ipix)
 
-    def get_data(self) -> NDArray[np.floating]:
+    def get_data(self, dat: NDArray[np.floating] | None = None) -> NDArray[np.floating]:
         """
-        Get the data array from self.info['dat_calib']
+        Get the data array for this TOD.
+        Nominally from self.info['dat_calib'], but if a valid dat is passed in it is returned.
+
+        Parameters
+        ----------
+        dat : NDArray[np.floating] | None, default: None
+            If this is None then self.info["dat_calib"] is returned.
+            Otherwise this is just returned.
+            This can be useful to have a shared interface accross functions.
 
         Returns
         ------
-        data : NDArray[np.floating]
+        dat : NDArray[np.floating]
            The data array.
+
+        Raises
+        ------
+        ValueError
+            If both dat and self.info['dat_calib'] doesn't exist.
         """
-        return self.info["dat_calib"]
+        if dat is None:
+            dat = self.info.get("dat_calib", None)
+        if dat is None:
+            raise ValueError(
+                "This TOD has no stored data. Populare tod.info['dat_calib']"
+            )
+        return dat
 
     def get_tvec(self) -> NDArray[np.floating]:
         """
@@ -355,12 +374,7 @@ class Tod:
             self.noise_modelclass = modelclass
         else:
             self.noise_delayed = False
-            if dat is None:
-                dat = self.info.get("dat_calib", None)
-            if dat is None:
-                raise ValueError(
-                    "Either an array should be passed for dat, or self.info['dat_calib'] should be an array"
-                )
+            dat = self.get_data(dat)
             self.noise = modelclass(dat, *args, **kwargs)
 
     def get_det_weights(self) -> NDArray[np.floating] | None:
@@ -409,12 +423,7 @@ class Tod:
         ValueError
             If both dat and self.info['dat_calib'] are None.
         """
-        if dat is None:
-            dat = self.info.get("dat_calib", None)
-        if dat is None:
-            raise ValueError(
-                "Either an array should be passed for dat, or self.info['dat_calib'] should be an array"
-            )
+        dat = self.get_data(dat)
         dd = (
             self.info["mask"]
             * dat
@@ -469,12 +478,7 @@ class Tod:
         print(
             "I'm not sure how you got here (tod.apply_noise_cm_white), but you should not have been able to.  Please complain to someone."
         )
-        if dat is None:
-            dat = self.info.get("dat_calib", None)
-        if dat is None:
-            raise ValueError(
-                "Either an array should be passed for dat, or self.info['dat_calib'] should be an array"
-            )
+        dat = self.get_data(dat)
 
         mat = np.dot(self.info["v"], np.diag(self.info["mywt"]))
         lhs = np.dot(self.info["v"], mat.transpose())
@@ -491,12 +495,7 @@ class Tod:
 
     @deprecated("Use tod.set_noise(NoiseBinnedEig) instead")
     def set_noise_binned_eig(self, dat=None, freqs=None, scale_facs=None, thresh=5.0):
-        if dat is None:
-            dat = self.info.get("dat_calib", None)
-        if dat is None:
-            raise ValueError(
-                "Either an array should be passed for dat, or self.info['dat_calib'] should be an array"
-            )
+        dat = self.get_data(dat)
         mycov = np.dot(dat, dat.T)
         mycov = 0.5 * (mycov + mycov.T)
         ee, vv = np.linalg.eig(mycov)
@@ -582,10 +581,8 @@ class Tod:
         ValueError
             If dat somehow becomes None when applying noise.
         """
-        if dat is None:
-            # dat=self.info['dat_calib']
-            dat = self.get_data().copy()  # the .copy() is here so you don't
-            # overwrite data stored in the TOD.
+        # the .copy() is here so you don't overwrite data stored in the TOD.
+        dat = self.get_data(dat)
         if self.noise_delayed:
             self.noise = self.noise_modelclass(
                 dat, *(self.noise_args), **(self.noise_kwargs)
@@ -766,8 +763,7 @@ class Tod:
         chisq : float
             The chisq of the data.
         """
-        if dat is None:
-            dat = self.get_data()
+        dat = self.get_data(dat)
         dat_filt = self.apply_noise(dat)
         chisq = np.sum(dat_filt * dat)
         return chisq
