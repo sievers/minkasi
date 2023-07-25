@@ -1,5 +1,19 @@
 
 def scaled_airmass_from_el(mat):
+    """
+    Generates a simple 1/cos(el) model for airmass.
+
+    Parameters
+    ----------
+    mat : np.array(float)
+        Array of elevation values
+
+    Returns
+    -------
+    airmass : np.array(float)
+        1/cos(elv), normalized by the average value of the same. A typical simple model for airmass
+    """
+
     airmass=1/np.cos(mat)
     airmass=airmass-airmass.mean()
     #airmass=airmass/np.std(airmass)
@@ -7,15 +21,42 @@ def scaled_airmass_from_el(mat):
 
 class tsGeneric:
     """
-    Generic timestream model class. Used as a parent for other timestream/map classes. Defines multiple common methods
+    Generic timestream model class. Used as a parent for other timestream/map classes. Defines multiple common methods 
+    TODO: IDK if there's more documentation to be written here vs. the methods
+
     """
 
     def __init__(self,tod=None):
+       """
+       Initialization function
+
+       Parameters
+       ----------
+       tod : minkasi.tod
+           tod from which the timestream is to be derived
+    
+       Returns
+       -------
+       none
+       """
+
         #Set file name if tod specified
         self.fname=tod.info['fname']
     def __mul__(self,to_mul):
-        #print('calling mul')
-        #multiplies two timeseries. Returns a a new ts class with the multiplied parameters
+        """ 
+        Multiplies two timeseries. Returns a a new ts class with the multiplied parameters.
+
+        Parameters
+        ----------
+        to_mul : minkasi.tod
+            A tod to multiply with the tod associated with this instance of tsGeneric
+
+        Returns
+        -------
+        tt : minkasi.tod
+            a copy of tsGeneric but with the parameters multiplied
+        
+        """
         tt=self.copy()
         tt.params=self.params*to_mul.params
         return tt
