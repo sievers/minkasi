@@ -1,4 +1,5 @@
 import copy
+import sys
 from astropy import wcs
 import numpy as np
 from numpy.typing import NDArray
@@ -7,9 +8,9 @@ from .skymap import SkyMap, SkyMapCoarse
 from .utils import get_aligned_map_subregion_car, read_fits_map, get_ft_vec
 from ..noise import MapNoiseWhite
 
-try:
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:
+else:
     from typing_extensions import Self
 
 

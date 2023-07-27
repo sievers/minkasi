@@ -1,4 +1,5 @@
 import copy
+import sys
 from astropy import wcs
 from astropy.io import fits
 import numpy as np
@@ -11,15 +12,14 @@ from ..map2tod import polmap2tod, map2tod
 from ..tods import Tod
 
 try:
-    import healpy
-
     have_healpy = True
+    import healpy
 except ImportError:
     have_healpy = False
 
-try:
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:
+else:
     from typing_extensions import Self
 
 

@@ -1,6 +1,8 @@
 import copy
+import sys
 import time
 from typing import Any, Optional, Literal, overload
+from typing_extensions import deprecated
 import numpy as np
 from numpy.typing import NDArray
 from .utils import slice_with_copy
@@ -11,10 +13,10 @@ from ..parallel import have_mpi, comm, MPI
 from .. import mkfftw
 from . import _depracated
 
-try:
-    from typing import Self, deprecated
-except:
-    from typing_extensions import Self, deprecated
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 
 class Tod:

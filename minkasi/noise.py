@@ -1,9 +1,10 @@
+import sys
 import numpy as np
 from numpy.typing import NDArray
 
-try:
+if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable
-except:
+else:
     from typing_extensions import Protocol, runtime_checkable
 
 def apply_noise(tod,dat=None):
