@@ -1,3 +1,7 @@
+try:
+    import numba as nb
+except ImportError:
+    import no_numba as nb
 
 def tod2map_simple(map,dat,ipix):
     ndet=dat.shape[0]
@@ -96,3 +100,46 @@ def make_hits(todvec,map,do_weights=False):
         tot=hits.map.sum()
         print('ending with total hitcount ' + repr(tot))
     return hits
+
+
+@nb.njit(parallel=True)
+def tod2map_destriped(mat,pars,lims,do_add=True):
+    ndet=mat.shape[0]
+    nseg=len(lims)-1
+    for seg in nb.prange(nseg):
+        for det in range(ndet):
+            if do_add==False:
+                pars[det,seg]=0
+            for i in range(lims[seg],lims[seg+1]):
+                pars[det,seg]=pars[det,seg]+mat[det,i]
+                
+
+
+
+
+@nb.njit(parallel=True)
+def __tod2map_binned_det_loop(pars,inds,mat,ndet,n):
+    for det in nb.prange(ndet):
+        for i in range(n):
+            pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+            
+def tod2map_binned_det(mat,pars,vec,lims,nbin,do_add=True):
+    #print('dims are ',mat.shape,pars.shape,vec.shape)
+    #print('lims are ',lims,nbin,vec.min(),vec.max())
+    n=mat.shape[1]
+    
+    fac=nbin/(lims[1]-lims[0]) 
+    #inds=np.empty(n,dtype='int64')
+    #for i in nb.prange(n):
+    #    inds[i]=(vec[i]-lims[0])*fac
+    inds=np.asarray((vec-lims[0])*fac,dtype='int64')
+
+    #print('max is ',inds.max())
+    ndet=mat.shape[0]
+    if do_add==False:
+        mat[:]=0
+    __tod2map_binned_det_loop(pars,inds,mat,ndet,n)
+    #for det in nb.prange(ndet):
+    #    for i in np.arange(n):
+    #        pars[det][inds[i]]=pars[det][inds[i]]+mat[det][i]
+    return 0

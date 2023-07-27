@@ -2,6 +2,13 @@ import sys
 import numpy as np
 from numpy.typing import NDArray
 
+try:
+    have_numba = True
+    import numba as nb
+except ImportError:
+    have_numba = False
+    import no_numba as nb
+
 if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable
 else:
@@ -58,6 +65,47 @@ def get_grad_mask_2d(map,todvec=None,thresh=4.0,noisemap=None,hitsmap=None):
     mygrad[np.logical_not(mask)]=0
     #return mygrad,tmp,noisemap
     return mygrad
+
+@nb.njit(parallel=True)
+def axpy_in_place(y,x,a=1.0):
+    #add b into a
+    n=x.shape[0]
+    m=x.shape[1]
+    assert(n==y.shape[0])
+    assert(m==y.shape[1])
+    #Numba has a bug, as of at least 0.53.1 (an 0.52.0) where
+    #both parts of a conditional can get executed, so don't 
+    #try to be fancy.  Lower-down code can be used in the future.
+    for i in nb.prange(n):
+        for j in np.arange(m):
+            y[i,j]=y[i,j]+x[i,j]*a
+    
+    #isone=(a==1.0)
+    #if isone:
+    #    for  i in nb.prange(n):
+    #        for j in np.arange(m):
+    #            y[i,j]=y[i,j]+x[i,j]
+    #else:
+    #    for i in nb.prange(n):
+    #        for j in np.arange(m):
+    #            y[i,j]=y[i,j]+x[i,j]*a
+
+@nb.njit(parallel=True)
+def scale_matrix_by_vector(mat,vec,axis=1):
+    n=mat.shape[0]
+    m=mat.shape[1]
+    if axis==1:
+        assert(len(vec)==n)
+        for i in nb.prange(n):
+            for j in np.arange(m):
+                mat[i,j]=mat[i,j]*vec[i]
+    elif axis==0:
+        assert(len(vec)==m)
+        for i in nb.prange(n):
+            for j in np.arange(m):
+                mat[i,j]=mat[i,j]*vec[j]
+    else:
+        print('unsupported number of dimensions in scale_matrix_by_vector')
 
 @runtime_checkable
 class NoiseModelType(Protocol):
@@ -272,8 +320,8 @@ class NoiseCMWhite:
             np.outer(-self.v, cm, dd)
             t3 = time.time()
             # dd[:]=dd[:]+dat
-            minkasi_nb.axpy_in_place(dd, dat)
-            minkasi_nb.scale_matrix_by_vector(dd, self.mywt)
+            axpy_in_place(dd, dat)
+            scale_matrix_by_vector(dd, self.mywt)
         else:
             dd = dat - np.outer(self.v, cm)
             # print(dd[:4,:4])
