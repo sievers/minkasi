@@ -5,7 +5,8 @@ from astropy.io import fits
 import numpy as np
 from numpy.typing import NDArray
 from .utils import get_wcs
-from ..minkasi import find_good_fft_lens, have_mpi, comm, nproc, get_nthread
+from ..parallel import have_mpi, comm, nproc, get_nthread
+from ..utils import find_good_fft_lens
 from ..tod2map import (
     tod2map_cached,
     tod2map_omp,

@@ -3,7 +3,7 @@ import numpy as np
 from numpy.typing import NDArray
 from . import Tod, CutsCompact
 from .. import mkfftw
-from ..minkasi import find_good_fft_lens
+from ..utils import find_good_fft_lens
 
 
 def _linfit_2mat(dat, mat1, mat2):
@@ -619,6 +619,38 @@ def truncate_tod(dat: dict, primes: Iterable[int] = [2, 3, 5, 7, 11]):
             continue
         axis = axes[0]
         dat[key] = np.take(dat[key], indices=range(0, n_new), axis=axis)
+
+
+def decimate(
+    vec: NDArray[np.floating], nrep: int = 1, axis: int = -1
+) -> NDArray[np.floating]:
+    """
+    Decimate an array by a factor of 2^nrep.
+
+    Parameters
+    ----------
+    vec : NDArray[np.floating]
+        The array to decimate.
+    nrep : int, default: 1
+        The number of times to decimate the array
+    axis : int, default: -1
+        The axis to decimate along.
+
+    Returns
+    -------
+    decimated : NDArray[np.floating]
+        The decimated array.
+    """
+    even = [slice(None)] * len(vec.shape)
+    odd = [slice(None)] * len(vec.shape)
+    for _ in range(nrep):
+        end = vec.shape[axis]
+        if end % 2:
+            end -= 1
+        even[axis] = slice(0, end, 2)
+        odd[axis] = slice(1, end, 2)
+        vec = 0.5 * (vec[tuple(even)] + vec[tuple(odd)])
+    return vec
 
 
 def fit_mat_vecs_poly_nonoise(

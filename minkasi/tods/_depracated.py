@@ -11,7 +11,7 @@ import numpy as np
 from .. import mkfftw
 from ..noise import NoiseSmoothedSVD, NoiseCMWhite, NoiseBinnedEig
 from ..fitting.power_spectrum import fit_ts_ps
-from ..minkasi import smooth_many_vecs
+from ..smooth import smooth_many_vecs
 
 try:
     from typing import deprecated

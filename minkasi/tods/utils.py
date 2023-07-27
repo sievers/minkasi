@@ -1,5 +1,12 @@
+import sys
 import numpy as np
 from numpy.typing import NDArray
+from .core import Tod
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 
 def slice_with_copy(arr: NDArray, ind: NDArray[np.bool_], axis: int = 0) -> NDArray:
@@ -94,3 +101,169 @@ def split_dict(mydict: dict, vec: NDArray, thresh: float) -> list[dict]:
     out = [mask_dict(mydict.copy(), mask) for mask in masks]
 
     return out
+
+
+class detOffset:
+    """
+    Class to store detector offsets for a TOD.
+
+    Attributes
+    ----------
+    sz : int
+        The number of detectors.
+    params : NDArray[np.floating]
+        The detector offsets.
+    fname : str
+        The TOD filename.
+    """
+
+    def __init__(self, tod: Tod | None = None):
+        """
+        Initialize the detector offsets.
+        params will be all zeros.
+
+        Parameters
+        ----------
+        tod : Tod | None, default: None
+            The TOD to initialize from.
+            If None then the detOffset will only have 1 detector.
+        """
+        self.sz: int
+        self.params: NDArray[np.floating]
+        self.fname: str
+        if tod is None:
+            self.sz = 1
+            self.params = np.zeros(1)
+            self.fname = ""
+        else:
+            self.sz = tod.get_ndet()
+            self.params = np.zeros(self.sz)
+            self.fname = tod.info["fname"]
+
+    def copy(self) -> Self:
+        """
+        Make a copy of this instance.
+        """
+        cp = detOffset()
+        cp.sz = self.sz
+        cp.params = self.params.copy()
+        cp.fname = self.fname
+        return cp
+
+    def clear(self):
+        """
+        Zero out params.
+        """
+        self.params[:] = 0
+
+    def dot(self, other: Self | None = None) -> float:
+        """
+        Take the dot product of this detOffset with another.
+
+        Parameters
+        ----------
+        other : detOffset | None
+            The detOffset to dot with.
+            If None, this instance will be dotted with itself.
+        """
+        if other is None:
+            return np.dot(self.params, self.params)
+        else:
+            return np.dot(self.params, other.params)
+
+    def axpy(self, common: Self, a: float):
+        """
+        Apply an ax + y operation to this detOffset.
+        self.params will be modified in place.
+
+        Parameters
+        ----------
+        common : detOffset
+            The x in the axpy operation.
+        a : float
+            The value to multipy common by.
+        """
+        self.params = self.params + a * common.params
+
+    def tod2map(
+        self,
+        tod: Tod,
+        dat: NDArray[np.floating] | None = None,
+        do_add: bool = True,
+        do_omp: bool = False,
+    ):
+        """
+        Project a TOD into params.
+
+        Parameters
+        ----------
+        tod : Tod
+            TOD to use, tod.info['dat_calib] is used if dat is None.
+        dat : NDArray[np.array] | None, default: None
+            The TOD data to use.
+            If None, tod.info['dat_calib'] is used.
+        do_add : bool, default: True
+            If True add to the current params value.
+        do_omp : bool, default: False
+            Doesn't do anything.
+            Presumably just here to keep consistant function signatures.
+        """
+        if dat is None:
+            dat = tod.get_data()
+        if do_add == False:
+            self.clear()
+        self.params[:] = self.params[:] + np.sum(dat, axis=1)
+
+    def map2tod(
+        self,
+        tod: Tod,
+        dat: NDArray[np.floating] | None = None,
+        do_add: bool = True,
+        do_omp: bool = False,
+    ):
+        """
+        Project params into a TOD.
+
+        Parameters
+        ----------
+        tod : Tod
+            TOD to use, tod.info['dat_calib] is used if dat is None.
+        dat : NDArray[np.array] | None, default: None
+            The TOD data to use.
+            If None, tod.info['dat_calib'] is used.
+        do_add : bool, default: True
+            If True add to the current params value.
+        do_omp : bool, default: False
+            Doesn't do anything.
+            Presumably just here to keep consistant function signatures.
+        """
+        if dat is None:
+            dat = tod.get_data()
+        if do_add == False:
+            dat[:] = 0
+        dat[:] = dat[:] + np.repeat([self.params], dat.shape[1], axis=0).transpose()
+
+    def write(self, fname: str | None = None):
+        """
+        Doesn't currently do anything.
+        Presumably will write the det offsets to disk when implemented.
+        """
+        pass
+
+    def __mul__(self, to_mul: Self) -> Self:
+        """
+        Multiply this detOffset with another.
+
+        Parameters
+        ----------
+        to_mul : detOffset
+            The detOffset to multiply by.
+
+        Returns
+        -------
+        multiplied : detOffset
+            The result of the multiplication.
+        """
+        multiplied = self.copy()
+        multiplied.params = self.params * to_mul.params
+        return multiplied

@@ -7,7 +7,7 @@ from .utils import slice_with_copy
 from .cuts import CutsCompact
 from ..noise import NoiseModelType, WithDetWeights, NoiseSmoothedSVD, NoiseCMWhite
 from ..maps import MapType, Mapset, SkyMap
-from ..minkasi import have_mpi, comm, MPI
+from ..parallel import have_mpi, comm, MPI
 from .. import mkfftw
 from . import _depracated
 

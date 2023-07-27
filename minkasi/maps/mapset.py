@@ -1,5 +1,5 @@
 from . import MapType, SkyMapTwoRes
-from ..minkasi import have_mpi
+from ..parallel import have_mpi
 
 try:
     from typing import Self

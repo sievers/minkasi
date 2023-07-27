@@ -62,3 +62,37 @@ def tod2mapbowl(vecs, mat):
     for i in range(vecs.shape[0]):
          to_return[i] = np.dot(vecs[i,...].T, mat[i,...])
   
+def make_hits(todvec,map,do_weights=False):
+    hits=map.copy()
+    try:
+        if map.npol>1:
+            hits.set_polstate(map.poltag+'_PRECON')
+    except:
+        pass
+    hits.clear()
+    for tod in todvec.tods:
+        if do_weights:
+            try:
+                weights=tod.get_det_weights()
+                #sz=tod.info['dat_calib'].shape
+                sz=tod.get_data_dims()
+                tmp=np.outer(weights,np.ones(sz[1]))
+                #tmp=np.outer(weights,np.ones(tod.info['dat_calb'].shape[1]))
+            except:
+                print("error in making weight map.  Detector weights requested, but do not appear to be present.  Do you have a noise model?")
+                             
+        else:
+            #tmp=np.ones(tod.info['dat_calib'].shape)
+            tmp=np.ones(tod.get_data_dims())
+        #if tod.info.has_key('mask'):
+        if 'mask' in tod.info:
+            tmp=tmp*tod.info['mask']
+        hits.tod2map(tod,tmp)
+    if have_mpi:
+        print('reducing hits')
+        tot=hits.map.sum()
+        print('starting with total hitcount ' + repr(tot))
+        hits.mpi_reduce()
+        tot=hits.map.sum()
+        print('ending with total hitcount ' + repr(tot))
+    return hits

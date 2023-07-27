@@ -6,6 +6,57 @@ try:
 except:
     from typing_extensions import Protocol, runtime_checkable
 
+def apply_noise(tod,dat=None):
+    if dat is None:
+        #dat=tod['dat_calib']
+        dat=tod.get_data().copy()
+    dat_rot=np.dot(tod['v'],dat)
+    datft=mkfftw.fft_r2r(dat_rot)
+    nn=datft.shape[1]
+    datft=datft*tod['mywt'][:,0:nn]
+    dat_rot=mkfftw.fft_r2r(datft)
+    dat=np.dot(tod['v'].transpose(),dat_rot)
+    #for fft_r2r, the first/last samples get counted for half of the interior ones, so 
+    #divide them by 2 in the post-filtering.  Makes symmetry much happier...
+    #print 'hello'
+    dat[:,0]=dat[:,0]*0.5
+    dat[:,-1]=dat[:,-1]*0.5
+
+
+    return dat
+
+def get_grad_mask_2d(map,todvec=None,thresh=4.0,noisemap=None,hitsmap=None):
+    """make a mask that has an estimate of the gradient within a pixel.  Look at the 
+    rough expected noise to get an idea of which gradients are substantially larger than
+    the map noise."""
+    if  noisemap is None:
+        noisemap=make_hits(todvec,map,do_weights=True)
+        noisemap.invert()
+        noisemap.map=np.sqrt(noisemap.map)
+    if hitsmap is None:
+        hitsmap=make_hits(todvec,map,do_weights=False)
+    mygrad=(map.map-np.roll(map.map,1,axis=0))**2
+    mygrad=mygrad+(map.map-np.roll(map.map,-1,axis=0))**2
+    mygrad=mygrad+(map.map-np.roll(map.map,-1,axis=1))**2
+    mygrad=mygrad+(map.map-np.roll(map.map,1,axis=1))**2
+    mygrad=np.sqrt(0.25*mygrad)
+
+
+
+
+
+
+    #find the typical timestream noise in a pixel, which should be the noise map times sqrt(hits)
+    hitsmask=hitsmap.map>0
+    tmp=noisemap.map.copy()
+    tmp[hitsmask]=tmp[hitsmask]*np.sqrt(hitsmap.map[hitsmask])
+    #return mygrad,tmp
+    mask=(mygrad>(thresh*tmp))
+    frac=1.0*np.sum(mask)/mask.size
+    print("Cutting " + repr(frac*100) + "% of map pixels in get_grad_mask_2d.")
+    mygrad[np.logical_not(mask)]=0
+    #return mygrad,tmp,noisemap
+    return mygrad
 
 @runtime_checkable
 class NoiseModelType(Protocol):

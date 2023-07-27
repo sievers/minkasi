@@ -4,7 +4,8 @@ from astropy.io import fits
 import numpy as np
 from numpy.typing import NDArray
 from .utils import get_wcs
-from ..minkasi import find_good_fft_lens, have_mpi, comm, get_nthread
+from ..parallel import have_mpi, comm, get_nthread
+from ..utils import find_good_fft_lens
 from ..tod2map import tod2polmap, tod2map_cached, tod2map_omp, tod2map_simple
 from ..map2tod import polmap2tod, map2tod
 from ..tods import Tod
