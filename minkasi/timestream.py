@@ -73,11 +73,13 @@ class tsGeneric:
         #returns ts + a*common
         self.params=self.params+a*common.params
     def apply_prior(self,x,Ax):
-        
+        #TODO: not sure exactly what this does
         Ax.params=Ax.params+self.params*x.params
     def copy(self):
+        #Returns a copy of the TS object
         return copy.deepcopy(self)
     def write(self,fname=None):
+        #Currently not implemented
         pass
 
 class tsVecs(tsGeneric):
@@ -231,7 +233,7 @@ class tsNotch(tsGeneric):
 
 class tsPoly(tsVecs):
     """
-    Class for fitting legandre polynomials to tods. Inheritted from tsVecs.
+    Class for fitting legandre polynomials to tods. Inheritted from tsVecs. Currently no map2tod or tod2map is implemented so this does not work.
     
     Attributes
     ----------
@@ -262,12 +264,10 @@ class tsPoly(tsVecs):
         """
 
         self.fname=tod.info['fname']
-
-        #self.ndata=tod.info['dat_calib'].shape[1]
+ 
         dims=tod.get_data_dims()
         self.ndata=dims[1]
-        self.order=order
-        #self.ndet=tod.info['dat_calib'].shape[0]
+        self.order=order 
         self.ndet=dims[0]
         xvec=np.linspace(-1,1,self.ndata)
         self.vecs=(np.polynomial.legendre.legvander(xvec,order).T).copy()
