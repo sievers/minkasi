@@ -1,11 +1,13 @@
 import copy
+import sys
 from typing import Callable
 from astropy import wcs
 from astropy.io import fits
 import numpy as np
 from numpy.typing import NDArray
 from .utils import get_wcs
-from ..minkasi import find_good_fft_lens, have_mpi, comm, nproc, get_nthread
+from ..parallel import have_mpi, comm, nproc, get_nthread
+from ..utils import find_good_fft_lens
 from ..tod2map import (
     tod2map_cached,
     tod2map_omp,
@@ -23,11 +25,10 @@ try:
 except ImportError:
     have_healpy = False
 
-try:
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:
+else:
     from typing_extensions import Self
-    from typing import Self
 
 
 class SkyMap:

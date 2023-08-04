@@ -1,9 +1,10 @@
+import sys
 from . import MapType, SkyMapTwoRes
-from ..minkasi import have_mpi
+from ..parallel import have_mpi
 
-try:
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:
+else:
     from typing_extensions import Self
 
 

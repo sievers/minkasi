@@ -1,7 +1,13 @@
+from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 from astropy import wcs
 from astropy.io import fits
+
+try:
+    import numba as nb
+except ImportError:
+    from .. import no_numba as nb
 
 
 def read_fits_map(
@@ -222,3 +228,44 @@ def get_ft_vec(n: int) -> NDArray[np.integer]:
     x = np.arange(n)
     x[x > n / 2] = x[x > n / 2] - n
     return x
+
+
+@nb.njit(parallel=True)
+def radec2pix_car(
+    ra: NDArray[np.floating],
+    dec: NDArray[np.floating],
+    ipix: NDArray[np.integer],
+    lims: Sequence[float],
+    pixsize: float,
+    cosdec: float,
+    ny: int,
+):
+    """
+    Convert RA/dec to pixelization.
+
+    Parameters
+    ----------
+    ra : NDArray[np.floating]
+        The the RA TOD.
+    dec : NDArray[np.floating]
+        The the dec TOD.
+    ipix : NDArray[np.integer]
+        The the pixellization.
+        Modified inplace.
+    lims : Sequence[float]
+        The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
+    pixsize : float
+        The pixel size in the same units as RA and dec.
+    cosdec : float
+        The declination stretch term.
+    ny : int
+        The number of pixels in the y (dec) direction.
+    """
+    ra = np.ravel(ra)
+    dec = np.ravel(dec)
+    ipix = np.ravel(ipix)
+    n = len(ipix)
+    for i in nb.prange(n):
+        xpix = int((ra[i] - lims[0]) * cosdec / pixsize + 0.5)
+        ypix = int((dec[i] - lims[2]) / pixsize + 0.5)
+        ipix[i] = xpix * ny + ypix

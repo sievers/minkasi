@@ -1,24 +1,25 @@
 import copy
+import sys
 from astropy import wcs
 from astropy.io import fits
 import numpy as np
 from numpy.typing import NDArray
 from .utils import get_wcs
-from ..minkasi import find_good_fft_lens, have_mpi, comm, get_nthread
+from ..parallel import have_mpi, comm, get_nthread
+from ..utils import find_good_fft_lens
 from ..tod2map import tod2polmap, tod2map_cached, tod2map_omp, tod2map_simple
 from ..map2tod import polmap2tod, map2tod
 from ..tods import Tod
 
 try:
-    import healpy
-
     have_healpy = True
+    import healpy
 except ImportError:
     have_healpy = False
 
-try:
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:
+else:
     from typing_extensions import Self
 
 
