@@ -55,7 +55,7 @@ def smooth_many_vecs(
 
     Returns
     -------
-    xtrans : NDArray[np.floating]
+    smoothed : NDArray[np.floating]
         The smoothed data.
     """
     n = vecs.shape[1]
@@ -84,16 +84,9 @@ def smooth_vec(vec: NDArray[np.floating], fwhm: float = 20) -> NDArray[np.floati
 
     Returns
     -------
-    xtrans : NDArray[np.floating]
+    smoothed : NDArray[np.floating]
         The smoothed data.
     """
-    n = vec.size
-    x = np.arange(n)
-    sig = fwhm / np.sqrt(8 * np.log(2))
-    to_conv = np.exp(-0.5 * (x / sig) ** 2)
-    tot = to_conv[0] + to_conv[-1] + 2 * to_conv[1:-1].sum()  # r2r normalization
-    to_conv = to_conv / tot
-    to_conv_ft = mkfftw.fft_r2r(to_conv)
-    xtrans = mkfftw.fft_r2r(vec)
-    back = mkfftw.fft_r2r(xtrans * to_conv_ft)
-    return back / 2.0 / (n - 1)
+    vecs = vec[None, :]
+    smoothed = smooth_many_vecs(vecs, fwhm)
+    return smoothed[0]
