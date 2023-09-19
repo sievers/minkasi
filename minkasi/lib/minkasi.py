@@ -4,12 +4,7 @@ Python wrapper for the libminkasi C library.
 import ctypes
 import os
 
-try:
-    mylib = ctypes.cdll.LoadLibrary("libminkasi.so")
-except OSError:
-    mylib = ctypes.cdll.LoadLibrary(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "libminkasi.so")
-    )
+from ._minkasi_init import libminkasi as mylib
 
 # ------------------------------ tod2map functions --------------------------- #
 tod2map_simple_c = mylib.tod2map_simple
