@@ -490,11 +490,11 @@ class tsStripes(tsGeneric):
         Ax.params=Ax.params+mkfftw.fft_r2r(xft*self.params)
         
 class tsBinnedAz(tsGeneric):
-    def __init__(self,tod,lims=[0,2*np.pi],nbin=360):
+    def __init__(self,tod,lims=(0,2*np.pi),nbin=360):
         #print('nbin is',nbin)
         ndet=tod.get_ndet()
         self.params=np.zeros([ndet,nbin])
-        self.lims=[lims[0],lims[1]]
+        self.lims=(lims[0],lims[1])
         self.nbin=nbin
         
     def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
@@ -508,9 +508,9 @@ class tsBinnedAz(tsGeneric):
 
 class tsBinnedAzShared(tsGeneric):
 #"""class to have az shared amongst TODs (say, if you think the ground is constant for a while)"""
-    def __init__(self,ndet=2,lims=[0,2*np.pi],nbin=360):
+    def __init__(self,ndet=2,lims=(0,2*np.pi),nbin=360):
         self.params=np.zeros([ndet,nbin])
-        self.lims=[lims[0],lims[1]]
+        self.lims=(lims[0],lims[1])
         self.nbin=nbin
         
     def map2tod(self,tod,dat=None,do_add=True,do_omp=False):
