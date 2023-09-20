@@ -89,6 +89,46 @@ class needlet:
         if return_filt:
             return self.filters
 
+    def filter_lightcone(self, return_fourier=False, plot = False, plot_norm = "lin", n_nu_plot = None):
+
+        filtered_slices_real = []
+        filtered_slices_fourier = []
+        fourier_radii = self.lightcone_box.get_grid_dimless_2d(return_grid=True)
+        self.get_needlet_filters_2d(fourier_radii)
+
+        for i in range(len(self.lightcone)):
+            lightcone_ft = np.fft.fftn(np.fft.fftshift(self.lightcone[i]))
+
+            filtered_slice_real = []
+            filtered_slice_fourier = []
+            for filt in self.filters:
+                fourier_filtered = np.fft.fftshift(filt)*lightcone_ft
+                filtered_slice_fourier.append(fourier_filtered)
+                filtered_slice_real.append(np.fft.fftshift(np.real(np.fft.ifftn(fourier_filtered))))# should maybe catch if imag(fourier_filtered)!=0 here 
+
+            filtered_slices_real.append(np.array(filtered_slice_real))
+            filtered_slices_fourier.append(np.array(filtered_slice_fourier))
+
+        if return_fourier:
+            return np.array(filtered_slices_real), np.array(filtered_slices_fourier)
+        else:
+            return np.array(filtered_slices_real)
+
+    def back_transform(self,filtered_boxes):
+        back_transformed = []
+        for nu in range(len(self.lightcone)):
+            fourier_boxes = []
+            for b in filtered_boxes[nu]:
+                fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
+
+            back_transform = np.zeros_like(fourier_boxes[0])
+            for i in range(self.nfilt):
+                back_transform += np.fft.fftshift(fourier_boxes[i])*self.filters[i]
+            back_transform = np.fft.fftshift(np.real(np.fft.ifftn(np.fft.fftshift(back_transform))))
+            back_transformed.append(back_transform)
+        return np.array(back_transformed)
+
+
     #============================== functions for computing 1d filters ================================#
     #======================= Adapted from https://github.com/javicarron/mtneedlet''' ==================#
     #==================================================================================================#
@@ -143,6 +183,9 @@ class needlet:
         ax.set_ylabel(r"$b_j$")
         plt.show()
 
+
+
+
 ###############################################################################################
 
 class cosmo_box:
@@ -183,9 +226,7 @@ class cosmo_box:
             return self.grid_dimless
 
 
-
-@jit(nopython=True)
-def map2wav(imaps, filters):
+def map2wav_real(imaps, filters):
     """
     Transform from a regular map to a multimap of wavelet coefficients. Adapted from enmap.wavelets.
     
@@ -202,6 +243,11 @@ def map2wav(imaps, filters):
         multimap of wavelet coefficients
     """
     
+    if len(imaps.shape) == 2:
+        imaps = np.expand_dims(imaps, axis = 0)
+    elif len(imaps.shape) != 3:
+        print("Error: input map must have dim = 2 or 3")
+        return
     filtered_slices_real = []
     filtered_slices_fourier = []
 
@@ -209,18 +255,33 @@ def map2wav(imaps, filters):
         lightcone_ft = np.fft.fftn(np.fft.fftshift(imaps[i]))
 
         filtered_slice_real = []
-        filtered_slice_fourier = []
+        #filtered_slice_fourier = []
         for filt in filters:
             fourier_filtered = np.fft.fftshift(filt)*lightcone_ft
-            filtered_slice_fourier.append(fourier_filtered)
+            #filtered_slice_fourier.append(fourier_filtered)
             filtered_slice_real.append(np.fft.fftshift(np.real(np.fft.ifftn(fourier_filtered))))# should maybe catch if imag(fourier_filtered)!=0 here 
 
         filtered_slices_real.append(np.array(filtered_slice_real))
-        filtered_slices_fourier.append(np.array(filtered_slice_fourier))
+        #filtered_slices_fourier.append(np.array(filtered_slice_fourier))
 
+      
+     
+    
+    return np.array(filtered_slices_real)
 
+def wav2map_real(wav_mapset, filters):
+    back_transformed = []
+    for nu in range(len(wav_mapset)):
+        fourier_boxes = []
+        for b in wav_mapset[nu]:
+            fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
 
-
+        back_transform = np.zeros_like(fourier_boxes[0])
+        for i in range(wav_mapset.shape[1]): 
+            back_transform += np.fft.fftshift(fourier_boxes[i])*filters[i]
+        back_transform = np.fft.fftshift(np.real(np.fft.ifftn(np.fft.fftshift(back_transform))))
+        back_transformed.append(back_transform)
+    return np.array(back_transformed)
 
 
 
