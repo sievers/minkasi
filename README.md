@@ -92,3 +92,21 @@ export LIBRARY_PATH=$LIBRARY_PATH:$FFTW_DIR
 ```
 Where `CRAY_CPU_TARGET` is your target CPU (ie: `x86-milan)`.
 Run `module spider cray-fftw/VERSION` for more information.
+
+## Fall 2023 Refactor
+In Fall of 2023 this repo underwent an API breaking refactor.
+If you have old code with a line like:
+```
+import minkasi
+```
+where you are expecting all of `minkasi` in a flat namespace you can shim it by replacing it with:
+```
+from minkasi import minkasi_all as minkasi
+```
+ Note that `minkasi_all` was implemented to make running legacy code easier,
+ if you are writing new code please use the new API.
+
+ If you need to fully revert to the pre-refactor version of `minkasi` this can be done with:
+ ```
+ git checkout v1.1.1
+ ```
