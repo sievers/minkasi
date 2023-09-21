@@ -351,12 +351,16 @@ def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
 
 
 @overload
-def fft_r2r(dat: NDArray[np.float64]) -> NDArray[np.float64]:
+def fft_r2r(
+    dat: NDArray[np.float64], datft: NDArray[np.float64] | None = None, kind: int = 1
+) -> NDArray[np.float64]:
     ...
 
 
 @overload
-def fft_r2r(dat: NDArray[np.float32]) -> NDArray[np.float32]:
+def fft_r2r(
+    dat: NDArray[np.float32], datft: NDArray[np.float32] | None = None, kind: int = 1
+) -> NDArray[np.float32]:
     ...
 
 
@@ -364,7 +368,7 @@ def fft_r2r(
     dat: NDArray[np.float64] | NDArray[np.float32],
     datft: NDArray[np.float64] | NDArray[np.float32] | None = None,
     kind: int = 1,
-):
+) -> NDArray[np.float64] | NDArray[np.float32]:
     """
     Take many 1d real to real FFTs.
 
@@ -384,13 +388,15 @@ def fft_r2r(
 
     Returns
     -------
-    datft : NDArray[np.complex128] | NDArray[np.complex64]
+    datft : NDArray[np.float64] | NDArray[np.float32]
         The FFTed array.
     """
     if datft is not None:
         assert dat.dtype == datft.dtype
     if len(dat.shape) == 1:
-        _datft = fft_r2r_1d(dat.astype(np.float64), kind).astype(dat.dtype)
+        _datft = fft_r2r_1d(dat.astype(np.float64), kind)
+        if dat.dtype == np.dtype("float32"):
+            _datft = _datft.astype("float32")
         if datft is not None:
             datft[:] = _datft[:]
         return _datft
