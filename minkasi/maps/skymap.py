@@ -408,10 +408,10 @@ class SkyMap:
         ----------
         ra : NDArray[np.floating]
             The RA TOD in radians.
-            Should have shape (ndet, nsamp)
+            Should have shape (ndet, ndata)
         dec : NDArray[np.floating]
             The dec TOD in radians.
-            Should have shape (ndet, nsamp)
+            Should have shape (ndet, ndata)
 
         Returns
         -------
@@ -419,15 +419,15 @@ class SkyMap:
             The pixellization.
         """
         ndet: int = ra.shape[0]
-        nsamp: int = ra.shape[1]
-        nn = ndet * nsamp
+        ndata: int = ra.shape[1]
+        nn = ndet * ndata
         coords: NDArray[np.floating] = np.zeros([nn, 2])
         coords[:, 0] = np.reshape(ra * 180 / np.pi, nn)
         coords[:, 1] = np.reshape(dec * 180 / np.pi, nn)
         pix: NDArray[np.floating] = np.asarray(self.wcs.wcs_world2pix(coords, 1))
         # -1 is to go between unit offset in FITS and zero offset in python
-        xpix = np.reshape(pix[:, 0], [ndet, nsamp]) - 1
-        ypix = np.reshape(pix[:, 1], [ndet, nsamp]) - 1
+        xpix = np.reshape(pix[:, 0], [ndet, ndata]) - 1
+        ypix = np.reshape(pix[:, 1], [ndet, ndata]) - 1
         xpix = np.round(xpix)
         ypix = np.round(ypix)
         ipix: NDArray[np.int32] = np.asarray(xpix * self.ny + ypix, dtype="int32")
@@ -455,11 +455,11 @@ class SkyMap:
                 return ipix
         ra, dec = tod.get_radec()
         # ndet=tod.info['dx'].shape[0]
-        # nsamp=tod.info['dx'].shape[1]
+        # ndata=tod.info['dx'].shape[1]
         if False:
             ndet = ra.shape[0]
-            nsamp = ra.shape[1]
-            nn = ndet * nsamp
+            ndata = ra.shape[1]
+            nn = ndet * ndata
             coords = np.zeros([nn, 2])
             # coords[:,0]=np.reshape(tod.info['dx']*180/np.pi,nn)
             # coords[:,1]=np.reshape(tod.info['dy']*180/np.pi,nn)
@@ -470,9 +470,9 @@ class SkyMap:
             pix = self.wcs.wcs_world2pix(coords, 1)
             # print pix.shape
             xpix = (
-                np.reshape(pix[:, 0], [ndet, nsamp]) - 1
+                np.reshape(pix[:, 0], [ndet, ndata]) - 1
             )  # -1 is to go between unit offset in FITS and zero offset in python
-            ypix = np.reshape(pix[:, 1], [ndet, nsamp]) - 1
+            ypix = np.reshape(pix[:, 1], [ndet, ndata]) - 1
             xpix = np.round(xpix)
             ypix = np.round(ypix)
             ipix = np.asarray(xpix * self.ny + ypix, dtype="int32")
@@ -499,7 +499,7 @@ class SkyMap:
             Tod object, used to get pixellization.
         dat : NDArray[np.floating]
             Array to put tod data into.
-            Shape should be (ndet, nsamps).
+            Shape should be (ndet, ndata).
         do_add : bool, default: True
             If True add the projected map to dat.
             If False replace dat with it.
@@ -526,7 +526,7 @@ class SkyMap:
             Tod object, used to get pixellization.
         dat : NDArray[np.floating]
             Array to pull tod data from.
-            Shape should be (ndet, nsamps).
+            Shape should be (ndet, ndata).
         do_add : bool, default: True.
             If True add the projected map to this map.
             If False replace this map with it.
@@ -847,10 +847,10 @@ class HealMap(SkyMap):
         ----------
         ra : NDArray[np.floating]
             The RA TOD in radians.
-            Should have shape (ndet, nsamp)
+            Should have shape (ndet, ndata)
         dec : NDArray[np.floating]
             The dec TOD in radians.
-            Should have shape (ndet, nsamp)
+            Should have shape (ndet, ndata)
 
         Returns
         -------
@@ -910,10 +910,10 @@ class SkyMapCar(SkyMap):
         ----------
         ra : NDArray[np.floating]
             The RA TOD in radians.
-            Should have shape (ndet, nsamp)
+            Should have shape (ndet, ndata)
         dec : NDArray[np.floating]
             The dec TOD in radians.
-            Should have shape (ndet, nsamp)
+            Should have shape (ndet, ndata)
 
         Returns
         -------

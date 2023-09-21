@@ -163,7 +163,7 @@ def map2tod_destriped(
     Parameters
     ----------
     mat : NDArray[np.floating]
-        The array to fill with the TOD, should be (ndet, nsamps).
+        The array to fill with the TOD, should be (ndet, ndata).
     pars : NDArray[np.floating]
         The stripe parameters, should be (ndet, nseg).
     lims : NDArray[np.int_]
@@ -186,7 +186,7 @@ def __map2tod_binned_det_loop(
     inds: NDArray[np.int_],
     mat: NDArray[np.floating],
     ndet: int,
-    nsamps: int,
+    ndata: int,
 ):
     """
     Helper function to add data to a TOD using numba
@@ -207,11 +207,11 @@ def __map2tod_binned_det_loop(
         Will be added to (not overwriten) in place.
     ndet : int
         The number of detectors.
-    nsamps : int
+    ndata : int
         The number of samples per detector.
     """
     for det in nb.prange(ndet):
-        mat[det][0:nsamps] += pars[det][inds[0:nsamps]]
+        mat[det][0:ndata] += pars[det][inds[0:ndata]]
 
 
 def map2tod_binned_det(
@@ -228,11 +228,11 @@ def map2tod_binned_det(
     Parameters
     ----------
     mat : NDArray[np.floating]
-        The TOD array, should be (ndet, nsamps).
+        The TOD array, should be (ndet, ndata).
     binned : NDArray[np.floating]
         The binned data, should be (ndet, nbin).
     vec : NDArray[np.floating]
-        The vector tha we are binned by, should be (ndet, nsamps).
+        The vector that we are binned by, should be (ndet, ndata).
     lims : tuple[float, float]
         The bounds of the binning, should only have 2 elements.
     nbin : int
@@ -241,12 +241,12 @@ def map2tod_binned_det(
         If True then the TOD is added to mat.
         If False the contents of mat are overwriten.
     """
-    ndet, nsamps = mat.shape
+    ndet, ndata = mat.shape
     fac = nbin / (lims[1] - lims[0])
     inds = np.asarray((vec - lims[0]) * fac, dtype="int64")
     if do_add == False:
         mat[:] = 0
-    __map2tod_binned_det_loop(binned, inds, mat, ndet, nsamps)
+    __map2tod_binned_det_loop(binned, inds, mat, ndet, ndata)
 
 
 # @nb.njit(parallel=True)

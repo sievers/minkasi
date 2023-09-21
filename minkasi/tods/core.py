@@ -285,7 +285,7 @@ class Tod:
         Returns
         -------
         empty : NDArray
-            ndet by nsamps array.
+            ndet by ndata array.
             dtype is set to (in order of priority):
             self.info['dtype'], self.info['dat_calib'].dtype, or float.
         """

@@ -207,8 +207,8 @@ def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) ->
     pixid = np.array(raw["PIXID"])
     dets = np.unique(pixid)
     ndet = len(dets)
-    nsamp = int(len(pixid) / len(dets))
-    pixid = np.reshape(pixid, [ndet, nsamp])[:, 0]
+    ndata = int(len(pixid) / len(dets))
+    pixid = np.reshape(pixid, [ndet, ndata])[:, 0]
     dat["pixid"] = pixid
 
     # this bit of odd gymnastics is because a straightforward reshape doesn't seem to leave the data in
@@ -218,27 +218,27 @@ def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) ->
     if not (branch is None):
         bb = branch * np.pi / 180.0
         dx[dx > bb] = dx[dx > bb] - 2 * np.pi
-    dat["dx"] = np.zeros([ndet, nsamp], dtype="float64")
-    dat["dx"][:] = np.reshape(dx, [ndet, nsamp])[:]
+    dat["dx"] = np.zeros([ndet, ndata], dtype="float64")
+    dat["dx"][:] = np.reshape(dx, [ndet, ndata])[:]
 
     dy = np.array(raw["DY"])
-    dat["dy"] = np.zeros([ndet, nsamp], dtype="float64")
-    dat["dy"][:] = np.reshape(dy, [ndet, nsamp])[:]
+    dat["dy"] = np.zeros([ndet, ndata], dtype="float64")
+    dat["dy"][:] = np.reshape(dy, [ndet, ndata])[:]
 
     if "ELEV" in raw.names:
         elev = np.array(raw["ELEV"]) * np.pi / 180
-        dat["elev"] = np.zeros([ndet, nsamp], dtype="float64")
-        dat["elev"][:] = np.reshape(elev, [ndet, nsamp])[:]
+        dat["elev"] = np.zeros([ndet, ndata], dtype="float64")
+        dat["elev"][:] = np.reshape(elev, [ndet, ndata])[:]
 
-    tt = np.reshape(np.array(raw["TIME"]), [ndet, nsamp])[0, :]
+    tt = np.reshape(np.array(raw["TIME"]), [ndet, ndata])[0, :]
     dt = np.median(np.diff(tt))
     dat["dt"] = dt
 
     dat_calib = np.array(raw["FNU"])
     dat["dat_calib"] = np.zeros(
-        [ndet, nsamp], dtype="float64"
+        [ndet, ndata], dtype="float64"
     )  # go to double because why not
-    dat_calib = np.reshape(dat_calib, [ndet, nsamp])
+    dat_calib = np.reshape(dat_calib, [ndet, ndata])
     dat["dat_calib"][:] = dat_calib[:]
 
     ufnu = np.array(raw["UFNU"])
@@ -256,9 +256,9 @@ def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) ->
     ymin = dy.min() * ff
     ymax = dy.max() * ff
     print(
-        "nsamp and ndet are ",
+        "ndata and ndet are ",
         ndet,
-        nsamp,
+        ndata,
         len(pixid),
         " on ",
         fname,

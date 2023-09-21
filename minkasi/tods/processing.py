@@ -439,7 +439,7 @@ def fit_cm_plus_poly(
     ----------
     dat : NDArray[np.floating]
         The data to fit common mode out of.
-        Should be (ndet, nsamp).
+        Should be (ndet, ndata).
     ord : int, default: 2
         Order of the legvander that is used as the non common mode polynomial.
     cm_ord : int, default: 2

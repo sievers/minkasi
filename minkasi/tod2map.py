@@ -241,7 +241,7 @@ def tod2map_destriped(mat, pars, lims, do_add=True):
     Parameters
     ----------
     mat : NDArray[np.floating]
-        TOD data array, should be (ndet, nsamps).
+        TOD data array, should be (ndet, ndata).
     pars : NDArray[np.floating]
         Array to fill with the stripe parameters, should be (ndet, nseg).
     lims : NDArray[np.int_]
@@ -265,7 +265,7 @@ def __tod2map_binned_det_loop(
     inds: NDArray[np.int_],
     mat: NDArray[np.floating],
     ndet: int,
-    nsamps: int,
+    ndata: int,
 ):
     """
     Helper function to add binned data to a map using numba
@@ -283,14 +283,14 @@ def __tod2map_binned_det_loop(
         This mapping should be the same for each row/det.
         This is analogous to P in the mapmaker eq.
     mat : NDArray[np.floating]
-        The TOD array, should be (ndet, nsamps).
+        The TOD array, should be (ndet, ndata).
     ndet : int
         The number of detectors.
-    nsamps : int
+    ndata : int
         The number of samples per detector.
     """
     for det in nb.prange(ndet):
-        pars[det][inds[0:nsamps]] += mat[det][0:nsamps]
+        pars[det][inds[0:ndata]] += mat[det][0:ndata]
 
 
 def tod2map_binned_det(mat, binned, vec, lims, nbin, do_add=True):
@@ -300,12 +300,12 @@ def tod2map_binned_det(mat, binned, vec, lims, nbin, do_add=True):
     Parameters
     ----------
     mat : NDArray[np.floating]
-        The TOD array, should be (ndet, nsamps).
+        The TOD array, should be (ndet, ndata).
     binned : NDArray[np.floating]
         The binned data, should be (ndet, nbin).
         Will be filled in place
     vec : NDArray[np.floating]
-        The vector that we are binned by, should be (ndet, nsamps).
+        The vector that we are binned by, should be (ndet, ndata).
     lims : tuple[float, float]
         The bounds of the binning, should only have 2 elements.
     nbin : int
@@ -314,13 +314,13 @@ def tod2map_binned_det(mat, binned, vec, lims, nbin, do_add=True):
         If True then the TOD is added to mat.
         If False the contents of mat are overwriten.
     """
-    ndet, nsamps = mat.shape
+    ndet, ndata = mat.shape
     fac = nbin / (lims[1] - lims[0])
     inds = np.asarray((vec - lims[0]) * fac, dtype="int64")
 
     if do_add == False:
         binned[:] = 0
-    __tod2map_binned_det_loop(binned, inds, mat, ndet, nsamps)
+    __tod2map_binned_det_loop(binned, inds, mat, ndet, ndata)
 
 
 def make_hits(todvec: TodVec, map: MapType, do_weights: bool = False) -> MapType:

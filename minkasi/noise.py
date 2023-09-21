@@ -171,7 +171,7 @@ class NoiseWhite:
         Parameters
         ----------
         dat : NDArray[np.floating]
-            The TOD data to apply noise to, should be (ndet, nsamps).
+            The TOD data to apply noise to, should be (ndet, ndata).
             Will also be modified in place.
 
         Returns
@@ -239,7 +239,7 @@ class NoiseWhiteNotch:
         Parameters
         ----------
         dat : NDArray[np.floating]
-            The TOD data to apply noise to, should be (ndet, nsamps).
+            The TOD data to apply noise to, should be (ndet, ndata).
             Will also be modified in place.
 
         Returns
@@ -304,7 +304,7 @@ class NoiseCMWhite:
         Parameters
         ----------
         dat : NDArray[np.floating]
-            The TOD data to apply the model to, should be (ndet, nsamps).
+            The TOD data to apply the model to, should be (ndet, ndata).
         dd : NDArray[np.floating] | None, default: None
             Array to store data with model applied.
             If provided it will be modified in place and should be the same shape as dat.
@@ -362,7 +362,7 @@ class NoiseBinnedDet:
     ----------
     ndet : int
         The number of detectors.
-    nsamps : int
+    ndata : int
         The number of samples per detector.
     nn : int
         The number of frequencies in the FFTs.
@@ -392,16 +392,16 @@ class NoiseBinnedDet:
             The edges of the freqency bins.
         """
         ndet = dat.shape[0]
-        nsamps = dat.shape[1]
-        nn = 2 * (nsamps - 1)
+        ndata = dat.shape[1]
+        nn = 2 * (ndata - 1)
         dnu = 1 / (nn * dt)
         self.ndet: int = ndet
-        self.nsamps: int = nsamps
+        self.ndata: int = ndata
         self.nn: int = nn
 
         bins = np.asarray(freqs / dnu, dtype="int")
-        bins = bins[bins < nsamps]
-        bins = np.hstack([bins, nsamps])
+        bins = bins[bins < ndata]
+        bins = np.hstack([bins, ndata])
         if bins[0] > 0:
             bins = np.hstack([0, bins])
         elif bins[0] < 0:
@@ -423,7 +423,7 @@ class NoiseBinnedDet:
         Parameters
         ----------
         dat : NDArray[np.floating]
-            The TOD data to apply the model to, should be (ndet, nsamps).
+            The TOD data to apply the model to, should be (ndet, ndata).
 
         Returns
         -------
@@ -451,7 +451,7 @@ class NoiseBinnedEig:
     ----------
     ndet : int
         The number of detectors.
-    nsamps : int
+    ndata : int
         The number of samples per detector.
     nn : int
         The number of frequencies in the FFTs.
@@ -488,14 +488,14 @@ class NoiseBinnedEig:
             thresh^2 times larger than the mean eigenvalue.
         """
         ndet = dat.shape[0]
-        nsamps = dat.shape[1]
-        nn = 2 * (nsamps - 1)
+        ndata = dat.shape[1]
+        nn = 2 * (ndata - 1)
         dnu = 1 / (nn * dt)
         print("dnu is " + repr(dnu))
         self.ndet: int = ndet
-        self.nsamps: int = nsamps
+        self.ndata: int = ndata
         self.nn: int = nn
-        nn = 2 * (nsamps - 1)
+        nn = 2 * (ndata - 1)
 
         mycov = np.dot(dat, dat.T)
         mycov = 0.5 * (mycov + mycov.T)
@@ -506,8 +506,8 @@ class NoiseBinnedEig:
         resid = dat - np.dot(vv[:, mask], mode)
 
         bins = np.asarray(freqs / dnu, dtype="int")
-        bins = bins[bins < nsamps]
-        bins = np.hstack([bins, nsamps])
+        bins = bins[bins < ndata]
+        bins = np.hstack([bins, ndata])
         if bins[0] > 0:
             bins = np.hstack([0, bins])
         if bins[0] < 0:
@@ -539,7 +539,7 @@ class NoiseBinnedEig:
         Parameters
         ----------
         dat : NDArray[np.floating]
-            The TOD data to apply the model to, should be (ndet, nsamps).
+            The TOD data to apply the model to, should be (ndet, ndata).
 
         Returns
         -------
@@ -547,7 +547,7 @@ class NoiseBinnedEig:
             The data with the noise model applied.
         """
         assert dat.shape[0] == self.ndet
-        assert dat.shape[1] == self.nsamps
+        assert dat.shape[1] == self.ndata
 
         datft = mkfftw.fft_r2r(dat)
         for i in range(self.nbin):
