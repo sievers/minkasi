@@ -16,7 +16,7 @@ except OSError:
 
 setup(
     name='minkasi',
-    version='1.0.0',
+    version='1.1.1',
     install_requires=[
         'requests',
         'importlib-metadata',
