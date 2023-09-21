@@ -30,8 +30,17 @@ tod2map_atomic_c.argtypes = [
     ctypes.c_void_p,
 ]
 
-# tod2map_everyone_c=mylib.tod2map_everyone
-# tod2map_everyone_c.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,ctypes.c_int]
+tod2map_everyone_c = mylib.tod2map_everyone
+tod2map_everyone_c.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.c_void_p,
+    ctypes.c_int,
+]
 
 tod2map_omp_c = mylib.tod2map_omp
 tod2map_omp_c.argtypes = [
