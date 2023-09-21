@@ -421,6 +421,22 @@ def _fit_timestreams_with_derivs_old(func,pars,tods,to_fit=None,to_scale=None,to
 #        return tot
 
 
+def apply_noise(tod ,dat=None):
+    if dat is None:
+        #dat=tod['dat_calib']
+        dat=tod.get_data().copy()
+    dat_rot=np.dot(tod['v'],dat)
+    datft=mkfftw.fft_r2r(dat_rot)
+    nn=datft.shape[1]
+    datft=datft*tod['mywt'][:,0:nn]
+    dat_rot=mkfftw.fft_r2r(datft)
+    dat=np.dot(tod['v'].transpose(),dat_rot)
+    #for fft_r2r, the first/last samples get counted for half of the interior ones, so 
+    #divide them by 2 in the post-filtering.  Makes symmetry much happier...
+    #print 'hello'
+    dat[:,0]=dat[:,0]*0.5
+    dat[:,-1]=dat[:,-1]*0.5
 
 
+    return dat
 
