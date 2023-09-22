@@ -1,6 +1,8 @@
 import sys
+
 import numpy as np
 from numpy.typing import NDArray
+
 from .core import Tod
 
 if sys.version_info >= (3, 11):

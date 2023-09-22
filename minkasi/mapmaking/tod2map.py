@@ -1,24 +1,25 @@
 import numpy as np
 from numpy.typing import NDArray
-from .parallel import get_nthread, have_mpi
-from .minkasi import (
-    tod2map_simple_c,
-    tod2map_everyone_c,
+
+from ..lib.minkasi import (
     tod2map_atomic_c,
-    tod2map_omp_c,
     tod2map_cached_c,
-    tod2map_qu_simple_c,
-    tod2map_iqu_simple_c,
-    tod2map_qu_precon_simple_c,
+    tod2map_everyone_c,
     tod2map_iqu_precon_simple_c,
+    tod2map_iqu_simple_c,
+    tod2map_omp_c,
+    tod2map_qu_precon_simple_c,
+    tod2map_qu_simple_c,
+    tod2map_simple_c,
 )
-from .tods import TodVec
-from .maps import MapType, PolMap
+from ..maps import MapType, PolMap
+from ..parallel import get_nthread, have_mpi
+from ..tods import TodVec
 
 try:
     import numba as nb
 except ImportError:
-    import no_numba as nb
+    from ..tools import no_numba as nb
 
 
 def tod2map_simple(

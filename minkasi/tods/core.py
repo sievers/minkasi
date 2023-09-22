@@ -1,17 +1,19 @@
 import copy
 import sys
 import time
-from typing import Any, Optional, Literal, overload
-from typing_extensions import deprecated
+from typing import Any, Literal, Optional, overload
+
 import numpy as np
 from numpy.typing import NDArray
-from .utils import slice_with_copy
-from .cuts import CutsCompact
-from ..noise import NoiseModelType, WithDetWeights, NoiseSmoothedSVD, NoiseCMWhite
-from ..maps import MapType, Mapset, SkyMap
-from ..parallel import have_mpi, comm, MPI
-from .. import mkfftw
+from typing_extensions import deprecated
+
+from ..mapmaking.noise import NoiseModelType, NoiseSmoothedSVD, WithDetWeights
+from ..maps import Mapset, MapType, SkyMap
+from ..parallel import MPI, comm, have_mpi
+from ..tools import fft
 from . import _depracated
+from .cuts import CutsCompact
+from .utils import slice_with_copy
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -490,7 +492,12 @@ class Tod:
         """If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
         we subtract off before estimating the noise."""
         _depracated.set_noise_smoothed_svd(
-            self, fwhm=50, func=None, pars=None, prewhiten=False, fit_powlaw=False
+            self,
+            fwhm=fwhm,
+            func=func,
+            pars=pars,
+            prewhiten=prewhiten,
+            fit_powlaw=fit_powlaw,
         )
 
     def apply_noise(
@@ -543,10 +550,10 @@ class Tod:
             dat = dat / noisemat
         dat_rot = np.dot(self.info["v"], dat)
 
-        datft = mkfftw.fft_r2r(dat_rot)
+        datft = fft.fft_r2r(dat_rot)
         nn = datft.shape[1]
         datft = datft * self.info["mywt"][:, 0:nn]
-        dat_rot: NDArray[np.floating] = mkfftw.fft_r2r(datft)
+        dat_rot: NDArray[np.floating] = fft.fft_r2r(datft)
         dat = np.dot(self.info["v"].transpose(), dat_rot)
         # if self.info.has_key('noisevec'):
         if dat is None:

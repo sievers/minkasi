@@ -1,5 +1,6 @@
 import numpy as np
-from .minkasi import set_nthread_c, get_nthread_c
+
+from .lib.minkasi import get_nthread_c, set_nthread_c
 
 try:
     import mpi4py.rc
@@ -18,9 +19,22 @@ try:
         have_mpi = False
 except:
     MPI = None
+    comm = None
     have_mpi = False
     myrank = 0
     nproc = 1
+
+__all__ = [
+    "MPI",
+    "have_mpi",
+    "comm",
+    "myrank",
+    "nproc",
+    "report_mpi",
+    "barrier",
+    "set_nthread",
+    "get_nthread",
+]
 
 
 def report_mpi():
@@ -38,7 +52,7 @@ def barrier():
     If running with MPI makes a barrier.
     Otherwise does nothing.
     """
-    if have_mpi:
+    if have_mpi and comm is not None:
         comm.barrier()
     else:
         pass

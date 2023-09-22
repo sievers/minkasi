@@ -1,22 +1,23 @@
 import copy
 import sys
 from typing import Callable
+
+import numpy as np
 from astropy import wcs
 from astropy.io import fits
-import numpy as np
 from numpy.typing import NDArray
-from .utils import get_wcs
-from ..parallel import have_mpi, comm, nproc, get_nthread
-from ..utils import find_good_fft_lens
-from ..tod2map import (
+
+from ..mapmaking.map2tod import map2tod
+from ..mapmaking.tod2map import (
     tod2map_cached,
+    tod2map_everyone,
     tod2map_omp,
     tod2map_simple,
-    tod2map_everyone,
-    tod2map_atomic,
 )
-from ..map2tod import map2tod
+from ..parallel import comm, get_nthread, have_mpi, nproc
 from ..tods import Tod, TodVec
+from ..tools.fft import find_good_fft_lens
+from .utils import get_wcs
 
 try:
     import healpy

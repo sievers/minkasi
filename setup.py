@@ -6,12 +6,12 @@ import os
 try:
     mylib=ctypes.cdll.LoadLibrary("libminkasi.so")
 except OSError:
-    os.environ["prefix"] = "minkasi"
+    os.environ["prefix"] = "minkasi/lib"
     subprocess.check_call(["make", "-e", "libminkasi"])
 try:
     mylib=ctypes.cdll.LoadLibrary("libmkfftw.so")
 except OSError:
-    os.environ["prefix"] = "minkasi"
+    os.environ["prefix"] = "minkasi/lib"
     subprocess.check_call(["make", "-e", "libmkfftw"])
 
 setup(
@@ -25,5 +25,5 @@ setup(
 		'scipy'
     ],
     packages=['minkasi'],
-    package_data={"minkasi": ["*.so"]},
+    package_data={"minkasi": ["lib/*.so"]},
 )

@@ -1,17 +1,17 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from .minkasi import (
-    map2tod_simple_c,
+from ..lib.minkasi import (
+    map2tod_iqu_omp_c,
     map2tod_omp_c,
     map2tod_qu_omp_c,
-    map2tod_iqu_omp_c,
+    map2tod_simple_c,
 )
 
 try:
     import numba as nb
 except ImportError:
-    import no_numba as nb
+    from ..tools import no_numba as nb
 
 
 def map2tod(

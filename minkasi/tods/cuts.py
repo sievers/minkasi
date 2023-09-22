@@ -1,9 +1,11 @@
 import sys
+
 import numpy as np
 from numpy.typing import NDArray
-from . import Tod
+
+from ..lib.minkasi import cuts2tod_c, tod2cuts_c
 from ..maps import MapType
-from ..minkasi import tod2cuts_c, cuts2tod_c
+from . import Tod
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -208,9 +210,9 @@ class CutsCompact:
         List of ndet lists, each one with the start indices of cuts.
     istop : list[list[int]]
         List of ndet lists, each one with the stop indices of cuts.
-    map : NDArray[np.floating] | None
+    map : NDArray[np.floating]
         1D array storing cuts "map".
-    imap : NDArray[np.int64] | None
+    imap : NDArray[np.int64]
         1D array storing cuts "map" in index space.
     """
 
@@ -220,8 +222,8 @@ class CutsCompact:
         self.imax: int
         self.istart: list[list[int]]
         self.istop: list[list[int]]
-        self.map: NDArray[np.floating] | None
-        self.imap: NDArray[np.int64] | None
+        self.map: NDArray[np.floating]
+        self.imap: NDArray[np.int64]
         if isinstance(tod, CutsCompact):
             self.ndet = tod.ndet
             self.nseg = tod.nseg
@@ -236,8 +238,8 @@ class CutsCompact:
             self.istart = [[]] * ndet
             self.istop = [[]] * ndet
 
-        self.imap = None
-        self.map = None
+        self.imap = np.zeros(0, dtype="int64")
+        self.map = np.zeros(0)
 
     def copy(self, deep: bool = True) -> Self:
         """
@@ -255,10 +257,8 @@ class CutsCompact:
         """
         copy = CutsCompact(self)
         if deep:
-            if not (self.imap is None):
-                copy.imap = self.imap.copy()
-            if not (self.map is None):
-                copy.map = self.map.copy()
+            copy.imap = self.imap.copy()
+            copy.map = self.map.copy()
         else:
             copy.imap = self.imap
             copy.map = self.map
@@ -401,10 +401,9 @@ class CutsCompact:
         Zero out self.map.
         Doesn't clear imap.
         """
-        if not (self.map is None):
-            self.map[:] = 0
+        self.map[:] = 0
 
-    def dot(self, other: Self = None) -> float | None:
+    def dot(self, other: Self | None = None) -> float:
         """
         Take the dot product of CutsCompact.
 
@@ -418,12 +417,9 @@ class CutsCompact:
         -------
         tot : float
             The dot product of self.map and other.map.
-            If either map is None, None is returned.
         """
         if other is None:
             other = self
-        if self.map is None or other.map is None:
-            return None
         return np.dot(self.map, other.map)
 
     def axpy(self, common: Self, a: float):

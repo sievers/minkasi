@@ -1,9 +1,11 @@
-from typing import overload, Literal, Iterable
+from typing import Literal, Sequence, overload
+
 import numpy as np
 from numpy.typing import NDArray
-from . import Tod, CutsCompact
-from .. import mkfftw
-from ..utils import find_good_fft_lens
+
+from ..tools.array_ops import downsample_array_r2r
+from ..tools.fft import find_good_fft_lens
+from . import CutsCompact, Tod
 
 
 def _linfit_2mat(dat, mat1, mat2):
@@ -416,9 +418,10 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: bool = False,
-) -> NDArray[np.floating] | tuple[
-    NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]
-]:
+) -> (
+    NDArray[np.floating]
+    | tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]
+):
     ...
 
 
@@ -429,9 +432,10 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: bool = False,
-) -> NDArray[np.floating] | tuple[
-    NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]
-]:
+) -> (
+    NDArray[np.floating]
+    | tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]
+):
     """
     Fit the common mode with polynomials for drifts across the focal plane.
 
@@ -532,125 +536,58 @@ def find_bad_skew_kurt(
     return skew, kurt, isgood
 
 
-def downsample_array_r2r(
-    arr: NDArray[np.floating], fac: int, axis: int = -1
-) -> NDArray[np.floating]:
-    """
-    Downsample array using fourier transform.
-
-    Parameters
-    ----------
-    arr : NDArray[np.floating]
-        Array to downsample.
-    fac : int
-        Factor to downsample by.
-    axis : int, default: -1
-        The axis to downsample along.
-
-    Returns
-    -------
-    downsampled_arr : NDArray[np.floating]
-        The downsampled array.
-    """
-    n = arr.shape[axis]
-    nn = int(n / fac)
-    arr_ft = mkfftw.fft_r2r(arr)
-    arr_ft = np.take(arr_ft, indices=range(0, nn), axis=axis)
-    downsampled_arr = mkfftw.fft_r2r(arr_ft) / (2 * (n - 1))
-    return downsampled_arr
-
-
-def downsample_vec_r2r(vec: NDArray[np.floating], fac: int) -> NDArray[np.floating]:
-    """
-    Just a wrapped around downsample_array_r2r to support legacy code.
-    """
-    return downsample_array_r2r(vec, fac)
-
-
-def downsample_tod(dat: dict, fac: int = 10):
+def downsample_tod(tod_info: dict, fac: int = 10):
     """
     Downsample a TOD using fourier transforms.
     Only fields that have size ndata along their last axis are downsampled,
-    where ndata is the number of samples in each row of dat['dat_calib'].
+    where ndata is the number of samples in each row of tod_info['dat_calib'].
     If dat_calib isn't in dat then all arrays in dat are downsampled.
 
     Parameters
     ----------
-    dat : dict
+    tod_info : dict
         The TOD to downsample.
         If you have a Tod object you probably want to pass in tod.info.
     fac : int, default: 10
         The factor to downsample by.
     """
-    ndata = dat["dat_calib"].shape[1]
-    for key in dat.keys():
-        if hasattr(dat[key], "shape"):
-            if dat[key].shape[-1] != ndata:
+    ndata = tod_info["dat_calib"].shape[1]
+    for key in tod_info.keys():
+        if hasattr(tod_info[key], "shape"):
+            if tod_info[key].shape[-1] != ndata:
                 continue
-            dat[key] = downsample_array_r2r(dat[key], fac)
+            tod_info[key] = downsample_array_r2r(tod_info[key], fac)
 
 
-def truncate_tod(dat: dict, primes: Iterable[int] = [2, 3, 5, 7, 11]):
+def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11]):
     """
     Truncate TOD to the closet good FFT length.
     Required 'dat_calib' to be in dat, if it isn't nothing is done.
 
     Parameters
     ----------
-    dat : dict
+    tod_info : dict
         The TOD to truncate.
         If you have a Tod object you probably want to pass in tod.info.
-    primes : Iterable[int]
-        Prime number to use to calculate good fft lengths.
+    primes : Sequence[int]
+        Prime numbers to use to calculate good fft lengths.
     """
-    if "dat_calib" not in dat:
+    if "dat_calib" not in tod_info:
         return
-    n = dat["dat_calib"].shape[1]
+    n = tod_info["dat_calib"].shape[1]
     lens = find_good_fft_lens(n - 1, primes)
     n_new = lens.max() + 1
     if n_new >= n:
         return
     print("truncating from ", n, " to ", n_new)
-    for key in dat.keys():
-        if not hasattr(dat[key], "shape"):
+    for key in tod_info.keys():
+        if not hasattr(tod_info[key], "shape"):
             continue
-        axes = np.where(np.array(dat[key].shape) == n)[0]
+        axes = np.where(np.array(tod_info[key].shape) == n)[0]
         if len(axes) == 0:
             continue
         axis = axes[0]
-        dat[key] = np.take(dat[key], indices=range(0, n_new), axis=axis)
-
-
-def decimate(
-    vec: NDArray[np.floating], nrep: int = 1, axis: int = -1
-) -> NDArray[np.floating]:
-    """
-    Decimate an array by a factor of 2^nrep.
-
-    Parameters
-    ----------
-    vec : NDArray[np.floating]
-        The array to decimate.
-    nrep : int, default: 1
-        The number of times to decimate the array
-    axis : int, default: -1
-        The axis to decimate along.
-
-    Returns
-    -------
-    decimated : NDArray[np.floating]
-        The decimated array.
-    """
-    even = [slice(None)] * len(vec.shape)
-    odd = [slice(None)] * len(vec.shape)
-    for _ in range(nrep):
-        end = vec.shape[axis]
-        if end % 2:
-            end -= 1
-        even[axis] = slice(0, end, 2)
-        odd[axis] = slice(1, end, 2)
-        vec = 0.5 * (vec[tuple(even)] + vec[tuple(odd)])
-    return vec
+        tod_info[key] = np.take(tod_info[key], indices=range(0, n_new), axis=axis)
 
 
 def fit_mat_vecs_poly_nonoise(

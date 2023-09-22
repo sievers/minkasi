@@ -1,6 +1,6 @@
-from .skymap import SkyMap, SkyMapCar, SkyMapCoarse, HealMap
-from .polmap import PolMap, HealPolMap
-from .twores import SkyMapTwoRes
 from .mapset import Mapset
+from .polmap import HealPolMap, PolMap
+from .skymap import HealMap, SkyMap, SkyMapCar, SkyMapCoarse
+from .twores import SkyMapTwoRes
 
 MapType = SkyMap | PolMap

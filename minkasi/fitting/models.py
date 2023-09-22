@@ -1,7 +1,8 @@
 import numpy as np
-from ..minkasi import (
-    fill_gauss_src_c,
+
+from ..lib.minkasi import (
     fill_gauss_derivs_c,
+    fill_gauss_src_c,
     fill_isobeta_c,
     fill_isobeta_derivs_c,
 )
@@ -9,7 +10,7 @@ from ..minkasi import (
 try:
     import numba as nb
 except ImportError:
-    from .. import no_numba as nb
+    from ..tools import no_numba as nb
 
 
 def timestreams_from_gauss(ra, dec, fwhm, tod, pred=None):

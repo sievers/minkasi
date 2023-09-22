@@ -1,9 +1,11 @@
 import copy
+
 import numpy as np
-from . import mkfftw
-from .parallel import have_mpi, comm
-from .map2tod import map2todbowl, map2tod_destriped, map2tod_binned_det
-from .tod2map import tod2mapbowl, tod2map_destriped, tod2map_binned_det
+
+from ..parallel import comm, have_mpi
+from ..tools import fft
+from .map2tod import map2tod_binned_det, map2tod_destriped, map2todbowl
+from .tod2map import tod2map_binned_det, tod2map_destriped, tod2mapbowl
 
 
 def scaled_airmass_from_el(mat):
@@ -511,7 +513,7 @@ class tsStripes(tsGeneric):
         assert corrvec.shape[0] == self.params.shape[0]
         n = self.params.shape[1]
         corrvec = corrvec[:, :n].copy()
-        corrft = mkfftw.fft_r2r(corrvec)
+        corrft = fft.fft_r2r(corrvec)
         if thresh > 0:
             for i in range(corrft.shape[0]):
                 tt = thresh * np.median(corrft[i, :])
@@ -520,8 +522,8 @@ class tsStripes(tsGeneric):
         self.params = 1.0 / corrft / (2 * (n - 1))
 
     def apply_prior(self, x, Ax):
-        xft = mkfftw.fft_r2r(x.params)
-        Ax.params = Ax.params + mkfftw.fft_r2r(xft * self.params)
+        xft = fft.fft_r2r(x.params)
+        Ax.params = Ax.params + fft.fft_r2r(xft * self.params)
 
 
 class tsBinnedAz(tsGeneric):

@@ -1,8 +1,9 @@
 import sys
 import time
-from .maps import Mapset, SkyMap, PolMap
-from .tods import TodVec
-from .parallel import myrank
+
+from ..maps import Mapset, PolMap, SkyMap
+from ..parallel import myrank
+from ..tods import TodVec
 
 if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable

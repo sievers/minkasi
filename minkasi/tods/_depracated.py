@@ -7,13 +7,14 @@ These functions may not be actively maintained.
 """
 import os
 from distutils.util import strtobool
+
 import numpy as np
 from typing_extensions import deprecated
-from .. import mkfftw
-from ..noise import NoiseSmoothedSVD, NoiseCMWhite, NoiseBinnedEig
-from ..fitting.power_spectrum import fit_ts_ps
-from ..smooth import smooth_many_vecs
 
+from ..fitting.power_spectrum import fit_ts_ps
+from ..mapmaking.noise import NoiseBinnedEig, NoiseCMWhite, NoiseSmoothedSVD
+from ..tools import fft
+from ..tools.smooth import smooth_many_vecs
 
 try:
     use_dep = strtobool(os.environ.get("MINKASI_USE_DEPRECATED", "false"))
@@ -117,7 +118,7 @@ def set_noise_smoothed_svd(
             fitp, datsqr, C = fit_ts_ps(dat_rot[ind, :])
             spec_smooth[ind, 1:] = C
     else:
-        dat_trans = mkfftw.fft_r2r(dat_rot)
+        dat_trans = fft.fft_r2r(dat_rot)
         spec_smooth = smooth_many_vecs(dat_trans**2, fwhm)
     spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:]
     spec_smooth[:, 0] = 0

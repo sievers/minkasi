@@ -1,22 +1,17 @@
 import sys
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.special import erfinv
-from . import mkfftw
-from .tods import Tod, TodVec
-from .maps import MapType
-from .maps.utils import read_fits_map
-from .tod2map import make_hits
-from .utils import axpy_in_place, scale_matrix_by_vector
-from .smooth import smooth_many_vecs
-from .fitting.power_spectrum import fit_ts_ps
 
-try:
-    have_numba = True
-    import numba as nb
-except ImportError:
-    have_numba = False
-    from . import no_numba as nb
+from ..fitting.power_spectrum import fit_ts_ps
+from ..maps import MapType
+from ..maps.utils import read_fits_map
+from ..tods import Tod, TodVec
+from ..tools import fft
+from ..tools.array_ops import axpy_in_place, scale_matrix_by_vector
+from ..tools.smooth import smooth_many_vecs
+from .tod2map import make_hits
 
 if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable
@@ -248,9 +243,9 @@ class NoiseWhiteNotch:
             The TOD data with noise applied.
         """
         assert dat.shape[0] == len(self.weights)
-        datft = mkfftw.fft_r2r(dat)
+        datft = fft.fft_r2r(dat)
         datft[:, self.istart : self.istop] = 0
-        dat = mkfftw.fft_r2r(datft)
+        dat = fft.fft_r2r(datft)
 
         dat *= self.weights[..., np.newaxis]
         return dat
@@ -410,7 +405,7 @@ class NoiseBinnedDet:
         self.nbin: int = len(bins) - 1
 
         det_ps = np.zeros([ndet, self.nbin])
-        datft = mkfftw.fft_r2r(dat)
+        datft = fft.fft_r2r(dat)
         for i in range(self.nbin):
             det_ps[:, i] = 1.0 / np.mean(datft[:, bins[i] : bins[i + 1]] ** 2, axis=1)
         self.det_ps: NDArray[np.floating] = det_ps
@@ -430,12 +425,12 @@ class NoiseBinnedDet:
         dd : NDArray[np.floating]
             The data with the noise model applied.
         """
-        datft = mkfftw.fft_r2r(dat)
+        datft = fft.fft_r2r(dat)
         for i in range(self.nbin):
             datft[:, self.bins[i] : self.bins[i + 1]] = datft[
                 :, self.bins[i] : self.bins[i + 1]
             ] * np.outer(self.det_ps[:, i], np.ones(self.bins[i + 1] - self.bins[i]))
-        dd = mkfftw.fft_r2r(datft)
+        dd = fft.fft_r2r(datft)
         dd[:, 0] = 0.5 * dd[:, 0]
         dd[:, -1] = 0.5 * dd[:, -1]
         return dd
@@ -518,8 +513,8 @@ class NoiseBinnedEig:
         nmode = mode.shape[0]
         det_ps = np.zeros([ndet, self.nbin])
         mode_ps = np.zeros([nmode, self.nbin])
-        residft = mkfftw.fft_r2r(resid)
-        modeft = mkfftw.fft_r2r(mode)
+        residft = fft.fft_r2r(resid)
+        modeft = fft.fft_r2r(mode)
         for i in range(self.nbin):
             det_ps[:, i] = 1.0 / np.mean(residft[:, bins[i] : bins[i + 1]] ** 2, axis=1)
             mode_ps[:, i] = 1.0 / np.mean(modeft[:, bins[i] : bins[i + 1]] ** 2, axis=1)
@@ -549,7 +544,7 @@ class NoiseBinnedEig:
         assert dat.shape[0] == self.ndet
         assert dat.shape[1] == self.ndata
 
-        datft = mkfftw.fft_r2r(dat)
+        datft = fft.fft_r2r(dat)
         for i in range(self.nbin):
             n = self.bins[i + 1] - self.bins[i]
 
@@ -569,7 +564,7 @@ class NoiseBinnedEig:
 
             datft[:, self.bins[i] : self.bins[i + 1]] = tmp
 
-        dd = mkfftw.fft_r2r(datft)
+        dd = fft.fft_r2r(datft)
         dd[:, 0] = 0.5 * dd[:, 0]
         dd[:, -1] = 0.5 * dd[:, -1]
 
@@ -666,7 +661,7 @@ class NoiseSmoothedSVD:
                 _, __, C = fit_ts_ps(dat_rot[ind, :])
                 spec_smooth[ind, 1:] = C
         else:
-            dat_trans = mkfftw.fft_r2r(dat_rot)
+            dat_trans = fft.fft_r2r(dat_rot)
             spec_smooth = smooth_many_vecs(dat_trans**2, fwhm)
         spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:]
         spec_smooth[:, 0] = 0
@@ -697,10 +692,10 @@ class NoiseSmoothedSVD:
             noisemat = np.repeat([self.noisevec], dat.shape[1], axis=0).transpose()
             dat = dat / noisemat
         dat_rot: NDArray[np.float64] = np.dot(self.v, dat)
-        datft = mkfftw.fft_r2r(dat_rot)
+        datft = fft.fft_r2r(dat_rot)
         nn = datft.shape[1]
         datft = datft * self.mywt[:, :nn]
-        dat_rot = mkfftw.fft_r2r(datft)
+        dat_rot = fft.fft_r2r(datft)
         dd = np.dot(self.vT, dat_rot)
         dd[:, 0] = 0.5 * dd[:, 0]
         dd[:, -1] = 0.5 * dd[:, -1]
@@ -741,11 +736,11 @@ class NoiseSmoothedSVD:
         dat_rot = np.dot(self.v, dat, dat_rot)
         dat = tmp2
         datft = dat
-        datft = mkfftw.fft_r2r(dat_rot, datft)
+        datft = fft.fft_r2r(dat_rot, datft)
         nn = datft.shape[1]
         datft[:] = datft * self.mywt[:, :nn]
         dat_rot = tmp
-        dat_rot = mkfftw.fft_r2r(datft, dat_rot)
+        dat_rot = fft.fft_r2r(datft, dat_rot)
         dd = np.dot(self.vT, dat_rot, dat)
         dd[:, 0] = 0.5 * dat[:, 0]
         dd[:, -1] = 0.5 * dat[:, -1]

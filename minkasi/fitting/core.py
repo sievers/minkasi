@@ -1,7 +1,9 @@
 import sys
 import time
+
 import numpy as np
-from ..parallel import have_mpi, comm, myrank
+
+from ..parallel import comm, have_mpi, myrank
 
 
 def update_lamda(lamda, success):

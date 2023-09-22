@@ -1,6 +1,7 @@
 import numpy as np
+
+from ..tools import fft
 from .core import update_lamda
-from .. import mkfftw
 
 
 def fit_linear_ps_uncorr(dat, vecs, tol=1e-3, guess=None, max_iter=15):
@@ -89,7 +90,7 @@ def get_curve_deriv_powspec(fitp, nu_scale, lognu, datsqr, vecs):
 def fit_ts_ps(
     dat, dt=1.0, ind=-1.5, nu_min=0.0, nu_max=np.inf, scale_fac=1.0, tol=0.01
 ):
-    datft = mkfftw.fft_r2r(dat)
+    datft = fft.fft_r2r(dat)
     n = len(datft)
 
     dnu = 0.5 / (len(dat) * dt)  # coefficient should reflect the type of fft you did...

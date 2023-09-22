@@ -1,101 +1,22 @@
-import os
-from typing import overload
+from typing import Sequence, overload
+
 import numpy as np
 from numpy.typing import NDArray
-import ctypes
 
-try:
-    mylib = ctypes.cdll.LoadLibrary("libmkfftw.so")
-except OSError:
-    mylib = ctypes.cdll.LoadLibrary(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "libmkfftw.so")
-    )
-
-many_fft_r2c_1d_c = mylib.many_fft_r2c_1d
-many_fft_r2c_1d_c.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-]
-
-
-many_fftf_r2c_1d_c = mylib.many_fftf_r2c_1d
-many_fftf_r2c_1d_c.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-]
-
-
-many_fft_c2r_1d_c = mylib.many_fft_c2r_1d
-many_fft_c2r_1d_c.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-]
-
-many_fftf_c2r_1d_c = mylib.many_fftf_c2r_1d
-many_fftf_c2r_1d_c.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-]
-
-fft_r2r_1d_c = mylib.fft_r2r_1d
-fft_r2r_1d_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-
-many_fft_r2r_1d_c = mylib.many_fft_r2r_1d
-many_fft_r2r_1d_c.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-]
-
-many_fftf_r2r_1d_c = mylib.many_fftf_r2r_1d
-many_fftf_r2r_1d_c.argtypes = [
-    ctypes.c_void_p,
-    ctypes.c_void_p,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-]
-
-fft_r2c_n_c = mylib.fft_r2c_n
-fft_r2c_n_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
-
-fft_c2r_n_c = mylib.fft_c2r_n
-fft_c2r_n_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
-
-
-fft_r2c_3d_c = mylib.fft_r2c_3d
-fft_r2c_3d_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-
-fft_c2r_3d_c = mylib.fft_c2r_3d
-fft_c2r_3d_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-
-
-set_threaded_c = mylib.set_threaded
-set_threaded_c.argtypes = [ctypes.c_int]
-
-read_wisdom_c = mylib.read_wisdom
-read_wisdom_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-
-write_wisdom_c = mylib.write_wisdom
-write_wisdom_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+from ..lib.mkfftw import (
+    fft_c2r_3d_c,
+    fft_c2r_n_c,
+    fft_r2c_3d_c,
+    fft_r2c_n_c,
+    fft_r2r_1d_c,
+    many_fft_c2r_1d_c,
+    many_fft_r2c_1d_c,
+    many_fft_r2r_1d_c,
+    many_fftf_c2r_1d_c,
+    many_fftf_r2c_1d_c,
+    many_fftf_r2r_1d_c,
+    set_threaded_c,
+)
 
 
 def set_threaded(n: int = -1):
@@ -451,3 +372,108 @@ def write_wisdom(double_file: str = ".fftw_wisdom", single_file: str = ".fftwf_w
     sf[0:-1] = [ord(c) for c in single_file]
 
     write_wisdom_c(df.ctypes.data, sf.ctypes.data)
+
+
+def _nsphere_vol(npp: int) -> float:
+    """
+    Find volume of an nsphere.
+
+    Parameters
+    ----------
+    npp : int
+        Dimension of nsphere.
+
+    Returns
+    -------
+    vol : float
+        The volume of the nsphere.
+    """
+    if npp % 2:
+        nn = (npp - 1) / 2
+        vol = 2 ** (nn + 1) * np.pi**nn / np.prod(np.arange(1, npp + 1, 2))
+    else:
+        nn = npp / 2
+        vol = (np.pi**nn) / np.prod(np.arange(1, nn + 1))
+    return vol
+
+
+def _prime_loop(
+    ln: float,
+    lp: NDArray[np.floating],
+    icur: int,
+    lcur: float,
+    vals: NDArray[np.floating],
+) -> int:
+    """
+    Loop through composites of primes in log2 space.
+
+    Parameters
+    ----------
+    ln : float
+        The limit of values in log2 space.
+    lp : NDArray[np.floating]
+        The primes in log2 space.
+    icur : int
+        The current index.
+    lcur : float
+        The current starting value in log2 space, start at 0.
+    vals : NDArray[np.floating]
+        The current composites in log2 space.
+    """
+    facs = np.arange(lcur, ln + 1e-3, lp[0])
+    if len(lp) == 1:
+        nfac = len(facs)
+        if nfac > 0:
+            vals[icur : (icur + nfac)] = facs
+            icur = icur + nfac
+        else:
+            print("bad facs came from " + repr([2**lcur, 2**ln, 2 ** lp[0]]))
+        return icur
+    else:
+        facs = np.arange(lcur, ln, lp[0])
+        for fac in facs:
+            icur = _prime_loop(ln, lp[1:], icur, fac, vals)
+        return icur
+
+
+def find_good_fft_lens(
+    n: int, primes: Sequence[int] = [2, 3, 5, 7]
+) -> NDArray[np.integer]:
+    """
+    Find a good FFT length.
+
+    Parameters
+    ----------
+    n : int
+        The length that we want to cut down to a good FFT length.
+    primes : Sequence[int], default = [2,3,5,7]
+        Prime numbers used as the radix.
+        The length will be a composite of these numbers.
+    """
+    # lmax=np.log(n+0.5)
+    npr = len(primes)
+    vol = _nsphere_vol(npr)
+
+    r = np.log2(n + 0.5)
+    lp = np.log2(primes, dtype=float)
+    int_max = (vol / 2**npr) * np.prod(
+        r / lp
+    ) + 30  # add a bit just to make sure we don't act up for small n
+    int_max = int(int_max)
+
+    vals = np.zeros(int_max)
+    icur = 0
+    icur = _prime_loop(r, lp, icur, 0.0, vals)
+    assert icur <= int_max
+    myvals = np.asarray(np.round(2 ** vals[:icur]), dtype="int")
+    myvals = np.sort(myvals)
+    return myvals
+
+
+def plot_ps(vec, downsamp=0):
+    """
+    This function isn't actually implemented yet.
+    I assume its to plot a power spectrum,
+    """
+    return
+    # vecft = mkfftw.fft_r2r(vec)

@@ -1,15 +1,17 @@
 import copy
 import sys
+
+import numpy as np
 from astropy import wcs
 from astropy.io import fits
-import numpy as np
 from numpy.typing import NDArray
-from .utils import get_wcs
-from ..parallel import have_mpi, comm, get_nthread
-from ..utils import find_good_fft_lens
-from ..tod2map import tod2polmap, tod2map_cached, tod2map_omp, tod2map_simple
-from ..map2tod import polmap2tod, map2tod
+
+from ..mapmaking.map2tod import map2tod, polmap2tod
+from ..mapmaking.tod2map import tod2map_cached, tod2map_omp, tod2map_simple, tod2polmap
+from ..parallel import comm, get_nthread, have_mpi
 from ..tods import Tod
+from ..tools.fft import find_good_fft_lens
+from .utils import get_wcs
 
 try:
     have_healpy = True

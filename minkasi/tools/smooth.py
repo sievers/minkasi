@@ -3,7 +3,8 @@ Functions for beam smoothing.
 """
 import numpy as np
 from numpy.typing import NDArray
-from . import mkfftw
+
+from . import fft
 
 
 def smooth_spectra(
@@ -33,8 +34,8 @@ def smooth_spectra(
     to_conv = np.exp(-0.5 * (x / sig) ** 2)
     tot = to_conv[0] + to_conv[-1] + 2 * to_conv[1:-1].sum()  # r2r normalization
     to_conv = to_conv / tot
-    to_conv_ft = mkfftw.fft_r2r(to_conv)
-    xtrans = mkfftw.fft_r2r(spec)
+    to_conv_ft = fft.fft_r2r(to_conv)
+    xtrans = fft.fft_r2r(spec)
     xtrans *= to_conv_ft
     return xtrans, to_conv_ft
 
@@ -64,10 +65,10 @@ def smooth_many_vecs(
     to_conv = np.exp(-0.5 * (x / sig) ** 2)
     tot = to_conv[0] + to_conv[-1] + 2 * to_conv[1:-1].sum()  # r2r normalization
     to_conv = to_conv / tot
-    to_conv_ft = mkfftw.fft_r2r(to_conv)
-    xtrans = mkfftw.fft_r2r(vecs)
+    to_conv_ft = fft.fft_r2r(to_conv)
+    xtrans = fft.fft_r2r(vecs)
     xtrans *= to_conv_ft
-    back = mkfftw.fft_r2r(xtrans)
+    back = fft.fft_r2r(xtrans)
     return back / (2 * (n - 1))
 
 

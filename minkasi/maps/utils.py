@@ -1,13 +1,14 @@
 from typing import Sequence
+
 import numpy as np
-from numpy.typing import NDArray
 from astropy import wcs
 from astropy.io import fits
+from numpy.typing import NDArray
 
 try:
     import numba as nb
 except ImportError:
-    from .. import no_numba as nb
+    from ..tools import no_numba as nb
 
 
 def read_fits_map(

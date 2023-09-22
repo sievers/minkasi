@@ -1,12 +1,14 @@
 import copy
 import sys
-from astropy import wcs
+
 import numpy as np
+from astropy import wcs
 from numpy.typing import NDArray
+
+from ..mapmaking.noise import MapNoiseWhite
 from .mapset import MapsetTwoRes
 from .skymap import SkyMap, SkyMapCoarse
-from .utils import get_aligned_map_subregion_car, read_fits_map, get_ft_vec
-from ..noise import MapNoiseWhite
+from .utils import get_aligned_map_subregion_car, get_ft_vec, read_fits_map
 
 if sys.version_info >= (3, 11):
     from typing import Self

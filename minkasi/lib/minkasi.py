@@ -1,8 +1,8 @@
 """
 Python wrapper for the libminkasi C library.
 """
-import os
 import ctypes
+import os
 
 try:
     mylib = ctypes.cdll.LoadLibrary("libminkasi.so")

@@ -1,9 +1,11 @@
 """
 Functions for loading TODs from disk.
 """
-from astropy.io import fits
 from typing import Any, Iterable
+
 import numpy as np
+from astropy.io import fits
+
 from . import Tod, TodVec
 
 try:
