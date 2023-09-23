@@ -1,12 +1,8 @@
 import ctypes
 import os
 
-try:
-    mylib = ctypes.cdll.LoadLibrary("libmkfftw.so")
-except OSError:
-    mylib = ctypes.cdll.LoadLibrary(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "libmkfftw.so")
-    )
+from ._minkasi_init import libmkfftw as mylib
+
 
 many_fft_r2c_1d_c = mylib.many_fft_r2c_1d
 many_fft_r2c_1d_c.argtypes = [
