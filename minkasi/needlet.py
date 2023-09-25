@@ -25,6 +25,7 @@ class WavSkyMap:
         corners[1,:]=[lims[0],lims[3]]
         corners[2,:]=[lims[1],lims[2]]
         corners[3,:]=[lims[1],lims[3]]
+        
         pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)
         pix_corners=np.round(pix_corners)
 
@@ -41,8 +42,8 @@ class WavSkyMap:
         nx=int(nx)
         ny=int(ny)
 
-        nx = max(nx, ny)#Maps must be square
-        ny = max(nx, ny)
+        #nx = max(nx, ny)#Maps must be square
+        #ny = max(nx, ny)
         if not(primes is None):
             lens=find_good_fft_lens(2*(nx+ny),primes)
             nx=lens[lens>=nx].min()
@@ -286,7 +287,9 @@ class needlet:
             xi=(self.k_arr/self.B**j)
             bl=np.sqrt(bl2(xi))
             needs.append(bl)
-        return(np.squeeze(needs))
+        needs = np.squeeze(needs)
+        needs[0][0] = 1 #Want the k=0 mode to get the map average
+        return needs
 
     def get_needlet_filters_2d(self,fourier_radii, return_filt=False, plot = False):
 

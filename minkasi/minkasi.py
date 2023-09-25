@@ -2130,6 +2130,7 @@ class SkyMap:
         #print nx,ny
         nx=int(nx)
         ny=int(ny)
+         
         if not(primes is None):
             lens=find_good_fft_lens(2*(nx+ny),primes)
             #print 'nx and ny initially are ',nx,ny
