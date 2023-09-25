@@ -55,6 +55,17 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
+#This only works if x is the larger axis, need to make it work both ways
+wmap = WavSkyMap(lims, np.zeros(1), pixsize)
+xmax = 2*np.ceil(wmap.nx / 2)
+xdiff = lims[1] - lims[0]
+lims[0] = lims[1] - xdiff * xmax/wmap.nx #Make nx a factor of 2
+
+
+ratio = xmax/wmap.ny
+ydiff = lims[3]-lims[2]
+lims[3] = lims[2] + ratio*ydiff #Square off the map
+
 wmap = WavSkyMap(lims, np.zeros(1), pixsize).map #Really shitty way to get the right map geometry for making filters
 need = needlet(np.arange(10), lightcone=wmap, L=300)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
