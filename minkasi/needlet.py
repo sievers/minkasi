@@ -10,6 +10,8 @@ from minkasi import get_wcs, tod2map_simple, map2tod
 
 from pixell import enmap
 
+import matplotlib.pyplot as plt
+
 class WavSkyMap:
     def __init__(self,lims, filters,pixsize=0,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
         if mywcs is None:
@@ -41,9 +43,7 @@ class WavSkyMap:
             ny=(pix_corners[:,1].max()+pad)
         nx=int(nx)
         ny=int(ny)
-
-        #nx = max(nx, ny)#Maps must be square
-        #ny = max(nx, ny)
+  
         if not(primes is None):
             lens=find_good_fft_lens(2*(nx+ny),primes)
             nx=lens[lens>=nx].min()
@@ -139,7 +139,7 @@ class WavSkyMap:
 
     def map2tod(self,tod,dat,do_add=True,do_omp=True):
         ipix=self.get_pix(tod)
-        self.map = wav2map_real(self.wmap, self.filters) 
+        self.map = np.squeeze(wav2map_real(self.wmap, self.filters), axis = 0) #Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real 
         map2tod(dat,self.map,ipix,do_add,do_omp)
 
     def tod2map(self,tod,dat=None,do_add=True,do_omp=True):
@@ -295,7 +295,8 @@ class needlet:
 
         filters=[]
         for j in self.js:
-            interp_func = interp1d(self.k_arr,self.bands[j]) # interpolating is faster than computing bands for every row
+            interp_func = interp1d(self.k_arr,self.bands[j], fill_value='extraplate') # interpolating is faster than computing bands for every row. 
+                                                                                      #We should not extrapolate but occasionally the last bin will be very slightly outside range
             filter_2d = []
             for row in fourier_radii:
                 filter_2d.append(interp_func(row))
