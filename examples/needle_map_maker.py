@@ -18,15 +18,15 @@ from minkasi.needlet import wav2map_real, map2wav_real
 
 dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
 tod_names=glob.glob(dir+'Sig*.fits')
+n_tods = 999999
 
+tod_names = tod_names[:n_tods]
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 
 todvec=minkasi.TodVec()
 
 flatten = True
 
-
-n_tods = 200
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
     if i > n_tods: break
@@ -83,7 +83,9 @@ mapset.add_map(wmap)
 #if you run with many processes.
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
-rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needle_rhs.fits')
+
+if minkasi.myrank==0:
+    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needle_rhs.fits')
 #this is our starting guess.  Default to starting at 0,
 #but you could start with a better guess if you have one.
 x0=rhs.copy()
@@ -99,7 +101,7 @@ tmp[ii]=1.0/tmp[ii]
 precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec, maxiter=50)#,precon,maxiter=50)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 if minkasi.myrank==0:
     mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/MS0735_needle.fits') #and write out the map as a FITS file
 else:

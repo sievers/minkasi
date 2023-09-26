@@ -8,7 +8,8 @@ from scipy.linalg import norm
 import scipy.integrate as integrate
 from scipy.interpolate import interp1d
 
-from minkasi import get_wcs, tod2map_simple, map2tod
+from minkasi import get_wcs, tod2map_simple, map2tod, comm
+import minkasi 
 
 from pixell import enmap
 
@@ -119,7 +120,7 @@ class WavSkyMap:
     def clear(self):
         self.map[:]=0
     def axpy(self,map,a):
-        self.map[:]=self.map[:]+a*map.map[:]
+        self.wmap[:]=self.wmap[:]+a*map.wmap[:]
     def assign(self,arr):
         assert(arr.shape[0]==self.nx)
         assert(arr.shape[1]==self.ny)
@@ -204,12 +205,13 @@ class WavSkyMap:
         return rmat,th
 
     def dot(self,map):
-        tot=np.sum(self.map*map.map)
+        tot=np.sum(self.wmap*map.wmap)
         return tot
 
     def plot(self,plot_info=None):
         vmin=self.map.min()
-        vmax=self.map.max()
+        vmatod.set_noise_smoothed_svd()
+        x=self.map.max()
         clf=True
         pause=True
         pause_len=0.001
@@ -231,6 +233,7 @@ class WavSkyMap:
         if pause:
             plt.pause(pause_len)
     def write(self,fname='map.fits'):
+        self.map = np.squeeze(wav2map_real(self.wmap, self.filters), axis = 0) 
         header=self.wcs.to_header()
         if True: #try a patch to fix the wcs xxx
             tmp=self.map.transpose().copy()
@@ -248,7 +251,7 @@ class WavSkyMap:
     def mpi_reduce(self,chunksize=1e5):
         #chunksize is added since at least on my laptop mpi4py barfs if it
         #tries to reduce an nside=512 healpix map, so need to break it into pieces.
-        if have_mpi:
+        if minkasi.have_mpi:
             if chunksize>0:
                 nchunk=(1.0*self.nx*self.ny)/chunksize
                 nchunk=int(np.ceil(nchunk))
@@ -330,7 +333,7 @@ class needlet:
 
         filters=[]
         for j in self.js:
-            interp_func = interp1d(self.k_arr,self.bands[j], fill_value='extraplate') # interpolating is faster than computing bands for every row. 
+            interp_func = interp1d(self.k_arr,self.bands[j], fill_value='extrapolate') # interpolating is faster than computing bands for every row. 
                                                                                       #We should not extrapolate but occasionally the last bin will be very slightly outside range
             filter_2d = []
             for row in fourier_radii:
