@@ -1,5 +1,7 @@
 from numba import jit
 
+from astropy.io import fits
+
 import numpy as np
 
 from scipy.linalg import norm
@@ -12,8 +14,10 @@ from pixell import enmap
 
 import matplotlib.pyplot as plt
 
+import copy
+
 class WavSkyMap:
-    def __init__(self,lims, filters,pixsize=0,proj='CAR',pad=2,primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
+    def __init__(self,lims, filters,pixsize=0,proj='CAR',pad=2, square=False, multiple=False, primes=None,cosdec=None,nx=None,ny=None,mywcs=None,tag='ipix',purge_pixellization=False,ref_equ=False):
         if mywcs is None:
             assert(pixsize!=0) #we had better have a pixel size if we don't have an incoming WCS that contains it
             self.wcs=get_wcs(lims,pixsize,proj,cosdec,ref_equ)
@@ -22,27 +26,9 @@ class WavSkyMap:
             pixsize_use=mywcs.wcs.cdelt[1]*np.pi/180
             pixsize=pixsize_use
 
-        corners=np.zeros([4,2])
-        corners[0,:]=[lims[0],lims[2]]
-        corners[1,:]=[lims[0],lims[3]]
-        corners[2,:]=[lims[1],lims[2]]
-        corners[3,:]=[lims[1],lims[3]]
-        
-        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)
-        pix_corners=np.round(pix_corners)
-
-        if pix_corners.min()<-0.5:
-            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
-        if True: #try a patch to fix the wcs xxx
-            if nx is None:
-                nx=(pix_corners[:,0].max()+pad)
-            if ny is None:
-                ny=(pix_corners[:,1].max()+pad)
-        else:
-            nx=(pix_corners[:,0].max()+pad)
-            ny=(pix_corners[:,1].max()+pad)
-        nx=int(nx)
-        ny=int(ny)
+        self.lims = lims
+       
+        nx, ny = self.get_npix(pad, nx=nx, ny=ny)
   
         if not(primes is None):
             lens=find_good_fft_lens(2*(nx+ny),primes)
@@ -51,9 +37,33 @@ class WavSkyMap:
             self.primes=primes[:]
         else:
             self.primes=None
+
+        if square:
+            if nx != ny:
+                nmax = max(nx, ny)
+                ratio_x = nmax/nx
+                ratio_y = nmax/ny
+
+                self.lims[0] = self.lims[1] - ratio_x*(self.lims[1] - self.lims[0]) #note we are adjusting lims in place here
+                self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
+
+                nx, ny = self.get_npix(pad)
+
+        if multiple:
+          assert(type(multiple) == int)
+          
+          xmax = 2*np.ceil(nx / multiple)
+          xdiff = self.lims[1] - self.lims[0]
+          self.lims[0] = self.lims[1] - xdiff * xmax/nx #Make nx a factor of 2
+ 
+          ymax = 2*np.ceil(ny / multiple) 
+          ydiff = self.lims[3] - self.lims[2]
+          self.lims[3] = self.lims[2] + ydiff * ymax/ny
+          
+          nx, ny = self.get_npix(pad) #This may be applying pad a bunch of times
+ 
         self.nx=nx
         self.ny=ny
-        self.lims=lims
         self.pixsize=pixsize
         self.map=np.zeros([nx,ny])
         self.proj=proj
@@ -66,6 +76,31 @@ class WavSkyMap:
         self.filters = filters
         self.nfilt = len(self.filters)
         self.wmap = np.zeros([self.nfilt, nx, ny])
+
+    def get_npix(self, pad, nx=None, ny=None):
+        corners=np.zeros([4,2])
+        corners[0,:]=[self.lims[0],self.lims[2]]
+        corners[1,:]=[self.lims[0],self.lims[3]]
+        corners[2,:]=[self.lims[1],self.lims[2]]
+        corners[3,:]=[self.lims[1],self.lims[3]]
+
+        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)
+        pix_corners=np.round(pix_corners)
+
+        if pix_corners.min()<-0.5:
+            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
+        if True: #try a patch to fix the wcs xxx
+            if nx is None:
+                nx=(pix_corners[:,0].max()+pad)
+            if ny is None:
+                ny=(pix_corners[:,1].max()+pad)
+        else:#What is this else doing here?
+            nx=(pix_corners[:,0].max()+pad)
+            ny=(pix_corners[:,1].max()+pad)
+        nx=int(nx)
+        ny=int(ny)
+
+        return nx, ny
 
     def get_caches(self):
         npix=self.nx*self.ny
