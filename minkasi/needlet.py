@@ -246,7 +246,7 @@ class WavSkyMap:
             hdu.writeto(fname,clobber=True)
     def __mul__(self,map):
         new_map=map.copy()
-        new_map.map[:]=self.map[:]*map.map[:]
+        new_map.wmap[:]=self.wmap[:]*map.wmap[:]
         return new_map
     def mpi_reduce(self,chunksize=1e5):
         #chunksize is added since at least on my laptop mpi4py barfs if it
