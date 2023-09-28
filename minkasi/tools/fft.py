@@ -1,4 +1,4 @@
-from typing import Sequence, overload
+from typing import Optional, Sequence, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -168,8 +168,8 @@ def fft_r2c(dat: NDArray[np.float32]) -> NDArray[np.complex64]:
 
 
 def fft_r2c(
-    dat: NDArray[np.float64] | NDArray[np.float32],
-) -> NDArray[np.complex128] | NDArray[np.complex64]:
+    dat: Union[NDArray[np.float64], NDArray[np.float32]],
+) -> Union[NDArray[np.complex128], NDArray[np.complex64]]:
     """
     Take many 1d FFTs of a real valued input.
 
@@ -209,8 +209,8 @@ def fft_c2r(datft: NDArray[np.complex64]) -> NDArray[np.float32]:
 
 
 def fft_c2r(
-    datft: NDArray[np.complex128] | NDArray[np.complex64],
-) -> NDArray[np.float64] | NDArray[np.float32]:
+    datft: Union[NDArray[np.complex128], NDArray[np.complex64]],
+) -> Union[NDArray[np.float64], NDArray[np.float32]]:
     """
     Take many 1d inverse FFTs with a real valued output.
 
@@ -273,23 +273,23 @@ def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
 
 @overload
 def fft_r2r(
-    dat: NDArray[np.float64], datft: NDArray[np.float64] | None = None, kind: int = 1
+    dat: NDArray[np.float64], datft: Optional[NDArray[np.float64]] = None, kind: int = 1
 ) -> NDArray[np.float64]:
     ...
 
 
 @overload
 def fft_r2r(
-    dat: NDArray[np.float32], datft: NDArray[np.float32] | None = None, kind: int = 1
+    dat: NDArray[np.float32], datft: Optional[NDArray[np.float32]] = None, kind: int = 1
 ) -> NDArray[np.float32]:
     ...
 
 
 def fft_r2r(
-    dat: NDArray[np.float64] | NDArray[np.float32],
-    datft: NDArray[np.float64] | NDArray[np.float32] | None = None,
+    dat: Union[NDArray[np.float64], NDArray[np.float32]],
+    datft: Optional[Union[NDArray[np.float64], NDArray[np.float32]]] = None,
     kind: int = 1,
-) -> NDArray[np.float64] | NDArray[np.float32]:
+) -> Union[NDArray[np.float64], NDArray[np.float32]]:
     """
     Take many 1d real to real FFTs.
 

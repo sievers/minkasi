@@ -1,19 +1,21 @@
 import copy
 import sys
 import time
-from typing import Any, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import deprecated
 
 from ..mapmaking.noise import NoiseModelType, NoiseSmoothedSVD, WithDetWeights
-from ..maps import Mapset, MapType, SkyMap
 from ..parallel import MPI, comm, have_mpi
 from ..tools import fft
 from . import _depracated
 from .cuts import CutsCompact
 from .utils import slice_with_copy
+
+if TYPE_CHECKING:
+    from ..maps import Mapset, MapType, SkyMap
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -64,9 +66,9 @@ class Tod:
             See class docstring for more info.
         """
         self.info: dict = info.copy()
-        self.jumps: list | None = None
-        self.cuts: list | None = None
-        self.noise: NoiseModelType | None = None
+        self.jumps: Optional[list] = None
+        self.cuts: Optional[list] = None
+        self.noise: Optional[NoiseModelType] = None
         self.noise_delayed: bool = False
         self.noise_args: tuple = ()
         self.noise_kwargs: dict = {}
@@ -153,7 +155,7 @@ class Tod:
         """
         return (self.get_ndet(), self.get_ndata())
 
-    def get_saved_pix(self, tag: str = "ipix") -> NDArray[np.int32] | None:
+    def get_saved_pix(self, tag: str = "ipix") -> Optional[NDArray[np.int32]]:
         """
         Get pixelization array.
 
@@ -187,7 +189,7 @@ class Tod:
 
         Parameters
         ----------
-        tag : str | None
+        tag : str
             Tag to save pixelization under.
         ipix : NDArray[np.int32]
             Pixelization to save.
@@ -210,7 +212,7 @@ class Tod:
             print("Warning: overwriting tag")
         self.info["tag"] = tag
 
-    def set_pix(self, map: MapType):
+    def set_pix(self, map: "MapType"):
         """
         Set pixelization using a map.
         Uses the same tag as the map.
@@ -221,7 +223,9 @@ class Tod:
         ipix = map.get_pix(self)
         self.save_pixellization(map.tag, ipix)
 
-    def get_data(self, dat: NDArray[np.floating] | None = None) -> NDArray[np.floating]:
+    def get_data(
+        self, dat: Optional[NDArray[np.floating]] = None
+    ) -> NDArray[np.floating]:
         """
         Get the data array for this TOD.
         Nominally from self.info['dat_calib'], but if a valid dat is passed in it is returned.
@@ -344,7 +348,7 @@ class Tod:
     def set_noise(
         self,
         modelclass: type[NoiseModelType] = NoiseSmoothedSVD,
-        dat: NDArray[np.floating] | None = None,
+        dat: Optional[NDArray[np.floating]] = None,
         delayed: bool = False,
         *args,
         **kwargs
@@ -382,7 +386,7 @@ class Tod:
             dat = self.get_data(dat)
             self.noise = modelclass(dat, *args, **kwargs)
 
-    def get_det_weights(self) -> NDArray[np.floating] | None:
+    def get_det_weights(self) -> Optional[NDArray[np.floating]]:
         """
         Get detector weights from noise model.
 
@@ -407,7 +411,7 @@ class Tod:
         self.info["noise"] = "white_masked"
         self.info["mywt"] = np.ones(self.get_ndet())
 
-    def apply_noise_white_masked(self, dat: NDArray[np.floating] | None = None):
+    def apply_noise_white_masked(self, dat: Optional[NDArray[np.floating]] = None):
         """
         Apply white noise and mask to data.
         self.info should contain 'mask' and 'mywt'.
@@ -437,7 +441,7 @@ class Tod:
         return dd
 
     def apply_noise_cm_white(
-        self, dat: NDArray[np.floating] | None = None
+        self, dat: Optional[NDArray[np.floating]] = None
     ) -> NDArray[np.floating]:
         """
         Apply white noise with common mode.
@@ -501,7 +505,7 @@ class Tod:
         )
 
     def apply_noise(
-        self, dat: NDArray[np.floating] | None = None
+        self, dat: Optional[NDArray[np.floating]] = None
     ) -> NDArray[np.floating]:
         """
         Apply noise model to the TOD.
@@ -565,7 +569,7 @@ class Tod:
 
         return dat
 
-    def mapset2tod(self, mapset: Mapset, dat: NDArray[np.floating] | None = None):
+    def mapset2tod(self, mapset: "Mapset", dat: Optional[NDArray[np.floating]] = None):
         """
         Project a mapset into a TOD.
 
@@ -588,7 +592,7 @@ class Tod:
             map.map2tod(self, dat)
         return dat
 
-    def tod2mapset(self, mapset: Mapset, dat: NDArray[np.floating] | None = None):
+    def tod2mapset(self, mapset: "Mapset", dat: Optional[NDArray[np.floating]] = None):
         """
         Fill a mapset with maps projected from this TOD.
 
@@ -607,24 +611,24 @@ class Tod:
 
     @overload
     def dot(
-        self, mapset: Mapset, mapset_out: Mapset, times: Literal[True] = True
+        self, mapset: "Mapset", mapset_out: "Mapset", times: Literal[True] = True
     ) -> NDArray[np.floating]:
         ...
 
     @overload
     def dot(
-        self, mapset: Mapset, mapset_out: Mapset, times: Literal[False] = False
+        self, mapset: "Mapset", mapset_out: "Mapset", times: Literal[False] = False
     ) -> None:
         ...
 
     @overload
     def dot(
-        self, mapset: Mapset, mapset_out: Mapset, times: bool = False
+        self, mapset: "Mapset", mapset_out: "Mapset", times: bool = False
     ) -> Optional[NDArray[np.floating]]:
         ...
 
     def dot(
-        self, mapset: Mapset, mapset_out: Mapset, times: bool = False
+        self, mapset: "Mapset", mapset_out: "Mapset", times: bool = False
     ) -> Optional[NDArray[np.floating]]:
         """
         Project mapset into a TOD, apply noise model, and reproject into maps.
@@ -655,7 +659,7 @@ class Tod:
         if times:
             return np.asarray([t2 - t1, t3 - t2, t4 - t3])
 
-    def set_jumps(self, jumps: list | None):
+    def set_jumps(self, jumps: Optional[list]):
         """
         Set the jumps attribute for the TOD.
 
@@ -693,7 +697,7 @@ class Tod:
             for i in bad_inds:
                 del self.cuts[i]
 
-    def timestream_chisq(self, dat: NDArray[np.floating] | None = None) -> float:
+    def timestream_chisq(self, dat: Optional[NDArray[np.floating]] = None) -> float:
         """
         Get chi squared of TOD.
 
@@ -711,9 +715,9 @@ class Tod:
         dat = self.get_data(dat)
         dat_filt = self.apply_noise(dat)
         chisq = np.sum(dat_filt * dat)
-        return chisq
+        return float(chisq)
 
-    def prior_from_skymap(self, skymap: SkyMap) -> CutsCompact:
+    def prior_from_skymap(self, skymap: "SkyMap") -> CutsCompact:
         """.
         Given e.g. the gradient of a map that has been zeroed under some threshold,
         return a CutsCompact object that can be used as a prior for solving for per-sample deviations
@@ -841,7 +845,7 @@ class TodVec:
             tot = comm.allreduce(tot)
         return tot
 
-    def set_pix(self, map: MapType):
+    def set_pix(self, map: "MapType"):
         """
         Calculate pixelization for all TODs.
 
@@ -861,7 +865,9 @@ class TodVec:
         for tod in self.tods:
             tod.set_apix()
 
-    def dot_cached(self, mapset: Mapset, mapset_out: Mapset | None = None) -> Mapset:
+    def dot_cached(
+        self, mapset: "Mapset", mapset_out: Optional["Mapset"] = None
+    ) -> "Mapset":
         """
         Take dot of all the TODs in this TodVec.
         This function uses caches maps, so tod2map_cached is called.
@@ -895,40 +901,40 @@ class TodVec:
     @overload
     def dot(
         self,
-        mapset: Mapset,
-        mapset_out: Mapset | None = None,
+        mapset: "Mapset",
+        mapset_out: Optional["Mapset"] = None,
         report_times: Literal[False] = False,
         cache_maps: bool = False,
-    ) -> Mapset:
+    ) -> "Mapset":
         ...
 
     @overload
     def dot(
         self,
-        mapset: Mapset,
-        mapset_out: Mapset | None = None,
+        mapset: "Mapset",
+        mapset_out: Optional["Mapset"] = None,
         report_times: Literal[True] = True,
         cache_maps: bool = False,
-    ) -> tuple[Mapset, NDArray[np.floating]]:
+    ) -> tuple["Mapset", NDArray[np.floating]]:
         ...
 
     @overload
     def dot(
         self,
-        mapset: Mapset,
-        mapset_out: Mapset | None = None,
+        mapset: "Mapset",
+        mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
-    ) -> Mapset | tuple[Mapset, NDArray[np.floating]]:
+    ) -> Union["Mapset", tuple["Mapset", NDArray[np.floating]]]:
         ...
 
     def dot(
         self,
-        mapset: Mapset,
-        mapset_out: Mapset | None = None,
+        mapset: "Mapset",
+        mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
-    ) -> Mapset | tuple[Mapset, NDArray[np.floating]]:
+    ) -> Union["Mapset", tuple["Mapset", NDArray[np.floating]]]:
         """
         Take dot of all the TODs in this TodVec.
         Also prints out the sum of times from Tod.dot.
@@ -978,7 +984,7 @@ class TodVec:
             return mapset_out, times
         return mapset_out
 
-    def make_rhs(self, mapset: Mapset, do_clear: bool = False):
+    def make_rhs(self, mapset: "Mapset", do_clear: bool = False):
         """
         Apply noise to TODs and then project into maps.
 

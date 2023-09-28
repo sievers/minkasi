@@ -1,14 +1,9 @@
-from typing import Sequence
+from typing import Optional, Sequence, Union
 
 import numpy as np
 from astropy import wcs
 from astropy.io import fits
 from numpy.typing import NDArray
-
-from .polmap import PolMap
-from .skymap import SkyMap
-
-MapType = SkyMap | PolMap
 
 try:
     import numba as nb
@@ -72,10 +67,10 @@ def write_fits_map_wheader(
 
 
 def get_wcs(
-    lims: tuple[float, ...] | list[float] | NDArray[np.floating],
+    lims: Union[Sequence[float], NDArray[np.floating]],
     pixsize: float,
     proj: str = "CAR",
-    cosdec: float | None = None,
+    cosdec: Optional[float] = None,
     ref_equ: bool = False,
 ) -> wcs.WCS:
     """
@@ -83,7 +78,7 @@ def get_wcs(
 
     Parameters
     ----------
-    lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+    lims : Sequence[float] | NDArray[np.floating]
         The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
     pixsize : float
         The size of a pixel.
@@ -129,9 +124,9 @@ def get_wcs(
 
 
 def get_aligned_map_subregion_car(
-    lims: tuple[float, ...] | list[float] | NDArray[np.floating],
-    fname: str | None = None,
-    big_wcs: wcs.WCS | None = None,
+    lims: Union[Sequence[float], NDArray[np.floating]],
+    fname: Optional[str] = None,
+    big_wcs: Optional[wcs.WCS] = None,
     osamp: int = 1,
 ) -> tuple[wcs.WCS, NDArray[np.floating], NDArray[np.integer]]:
     """
@@ -140,7 +135,7 @@ def get_aligned_map_subregion_car(
 
     Parameters
     ----------
-    lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+    lims : Sequence[float] | NDArray[np.floating]
         The limits of ra/dec for the subregion (ra_low, ra_high, dec_low, dec_high).
         Will be tweaked as needed.
     fname : str | None, default: None

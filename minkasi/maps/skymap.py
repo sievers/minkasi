@@ -1,6 +1,6 @@
 import copy
 import sys
-from typing import Callable
+from typing import TYPE_CHECKING, Callable, Optional, Sequence, Union
 
 import numpy as np
 from astropy import wcs
@@ -15,9 +15,11 @@ from ..mapmaking.tod2map import (
     tod2map_simple,
 )
 from ..parallel import comm, get_nthread, have_mpi, nproc
-from ..tods import Tod, TodVec
 from ..tools.fft import find_good_fft_lens
 from .utils import get_wcs
+
+if TYPE_CHECKING:
+    from ..tods import Tod, TodVec
 
 try:
     import healpy
@@ -51,9 +53,7 @@ class SkyMap:
         The number of polarization states.
     poltag : str
         String that lists the polarization states.
-    pols : list[str]
-        List of polarizations in this map.
-    lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+    lims : Sequence[float] | NDArray[np.floating]
         The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
     tag : str
         Name to store pixellization under.
@@ -75,15 +75,15 @@ class SkyMap:
 
     def __init__(
         self,
-        lims: tuple[float, ...] | list[float] | NDArray[np.floating],
+        lims: Union[Sequence[float], NDArray[np.floating]],
         pixsize: float,
         proj: str = "CAR",
         pad: int = 2,
-        primes: list[int] | None = None,
-        cosdec: float | None = None,
-        nx: int | None = None,
-        ny: int | None = None,
-        mywcs: wcs.WCS | None = None,
+        primes: Optional[list[int]] = None,
+        cosdec: Optional[float] = None,
+        nx: Optional[int] = None,
+        ny: Optional[int] = None,
+        mywcs: Optional[wcs.WCS] = None,
         tag: str = "ipix",
         purge_pixellization: bool = False,
         ref_equ: bool = False,
@@ -93,7 +93,7 @@ class SkyMap:
 
         Parameters
         ----------
-        lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+        lims : Sequence[float] | NDArray[np.floating]
             The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
         pixsize : float
             The size of a pixel in radians.
@@ -160,7 +160,7 @@ class SkyMap:
         else:
             self.nx = int(pix_corners[:, 0].max() + pad)
             self.ny = int(pix_corners[:, 1].max() + pad)
-        self.primes: None | list[int]
+        self.primes: Optional[list[int]]
         if primes is None:
             self.primes = primes
         else:
@@ -171,16 +171,16 @@ class SkyMap:
         self.caches = None
         self.cosdec = cosdec
         self.tod2map_method = None
-        self.lims: tuple[float, ...] | list[float] | NDArray[np.floating] = lims
+        self.lims: Union[Sequence[float], NDArray[np.floating]] = lims
         self.tag: str = tag
         self.purge_pixellization: bool = purge_pixellization
         self.pixsize: float = pixsize
         self.map: NDArray[np.floating] = np.zeros([nx, ny])
         self.proj: str = proj
         self.pad: int = pad
-        self.caches: NDArray[np.floating] | None = None
-        self.cosdec: float | None = cosdec
-        self.tod2map_method: Callable | None = None
+        self.caches: Optional[NDArray[np.floating]] = None
+        self.cosdec: Optional[float] = cosdec
+        self.tod2map_method: Optional[Callable] = None
 
     def get_caches(self):
         """
@@ -200,7 +200,9 @@ class SkyMap:
         self.map[:] = np.reshape(np.sum(self.caches, axis=0), self.map.shape)
         self.caches = None
 
-    def set_tod2map(self, method: str | None = None, todvec: TodVec | None = None):
+    def set_tod2map(
+        self, method: Optional[str] = None, todvec: Optional["TodVec"] = None
+    ):
         """
         Select which method of tod2map to use.
         Currently the set method doesn't seem to be used anywhere.
@@ -254,7 +256,7 @@ class SkyMap:
         if method == "atomic":
             self.tod2map_method = self.tod2map_atomic
 
-    def tod2map_atomic(self, tod: Tod, dat: NDArray[np.floating]):
+    def tod2map_atomic(self, tod: "Tod", dat: NDArray[np.floating]):
         """
         Wrapper that runs tod2map_atomic on this map.
         Since it is atomic there is no map copy, the map is accumulated with atomic adds.
@@ -269,7 +271,7 @@ class SkyMap:
         ipix = self.get_pix(tod)
         tod2map_omp(self.map, dat, ipix, True)
 
-    def tod2map_omp(self, tod: Tod, dat: NDArray[np.floating]):
+    def tod2map_omp(self, tod: "Tod", dat: NDArray[np.floating]):
         """
         Wrapper that runs tod2map_omp this map.
         Runs with parallelization but every map makes its own copy
@@ -284,7 +286,7 @@ class SkyMap:
         ipix = self.get_pix(tod)
         tod2map_omp(self.map, dat, ipix, False)
 
-    def tod2map_simple(self, tod: Tod, dat: NDArray[np.floating]):
+    def tod2map_simple(self, tod: "Tod", dat: NDArray[np.floating]):
         """
         Wrapper that runs tod2map_simple on this map.
         This function is not parallelized.
@@ -299,7 +301,7 @@ class SkyMap:
         ipix = self.get_pix(tod)
         tod2map_simple(self.map, dat, ipix)
 
-    def tod2map_everyone(self, tod: Tod, dat: NDArray[np.floating]):
+    def tod2map_everyone(self, tod: "Tod", dat: NDArray[np.floating]):
         """
         Wrapper that runs tod2map_everyone on this map.
 
@@ -318,10 +320,12 @@ class SkyMap:
         """
         if self.tag + "_edges" not in tod.info:
             raise ValueError("Edges not set")
+        if self.caches is None:
+            raise ValueError("Caches not set")
         ipix = self.get_pix(tod)
         tod2map_everyone(self.caches, dat, ipix, tod.info[self.tag + "_edges"])
 
-    def tod2map_cached(self, tod: Tod, dat: NDArray[np.floating]):
+    def tod2map_cached(self, tod: "Tod", dat: NDArray[np.floating]):
         """
         Wrapper that runs tod2map_cached on this map.
 
@@ -434,7 +438,7 @@ class SkyMap:
         ipix: NDArray[np.int32] = np.asarray(xpix * self.ny + ypix, dtype="int32")
         return ipix
 
-    def get_pix(self, tod: Tod, savepix: bool = True) -> NDArray[np.int32]:
+    def get_pix(self, tod: "Tod", savepix: bool = True) -> NDArray[np.int32]:
         """
         Get pixellization of a TOD.
 
@@ -486,7 +490,7 @@ class SkyMap:
 
     def map2tod(
         self,
-        tod: Tod,
+        tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
@@ -513,7 +517,7 @@ class SkyMap:
 
     def tod2map(
         self,
-        tod: Tod,
+        tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
@@ -608,9 +612,9 @@ class SkyMap:
             The dot product
         """
         tot = np.sum(self.map * map.map)
-        return tot
+        return float(tot)
 
-    def plot(self, plot_info: dict | None = None):
+    def plot(self, plot_info: Optional[dict] = None):
         """
         Plot the map.
         Defaut settings are:
@@ -825,7 +829,7 @@ class HealMap(SkyMap):
         self.nside: int = nside
         self.nx: int = healpy.nside2npix(self.nside)
         self.ny: int = 1
-        self.caches: NDArray[np.floating] | None = None
+        self.caches: Optional[NDArray[np.floating]] = None
         self.tag: str = tag
         self.map: NDArray[np.floating] = np.zeros([self.nx, self.ny])
         self.purge_pixellization: bool = purge_pixellization

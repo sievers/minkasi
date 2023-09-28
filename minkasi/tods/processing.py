@@ -1,11 +1,13 @@
-from typing import Literal, Sequence, overload
+from typing import TYPE_CHECKING, Literal, Optional, Sequence, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ..tools.array_ops import downsample_array_r2r
 from ..tools.fft import find_good_fft_lens
-from . import CutsCompact, Tod
+
+if TYPE_CHECKING:
+    from . import CutsCompact, Tod
 
 
 def _linfit_2mat(dat, mat1, mat2):
@@ -107,7 +109,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> list[list[int]] | tuple[list[list[int]], NDArray[np.floating]]:
+) -> Union[list[list[int]], tuple[list[list[int]], NDArray[np.floating]]]:
     ...
 
 
@@ -118,7 +120,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> list[list[int]] | tuple[list[list[int]], NDArray[np.floating]]:
+) -> Union[list[list[int]], tuple[list[list[int]], NDArray[np.floating]]]:
     """
     Find jumps in a block of timestreams, preferably with the common mode removed.
 
@@ -271,13 +273,13 @@ def fit_jumps_from_cm(
 
 def gapfill_eig(
     dat: NDArray[np.floating],
-    cuts: CutsCompact,
-    tod: Tod | None = None,
+    cuts: "CutsCompact",
+    tod: Optional["Tod"] = None,
     thresh: float = 5.0,
     niter_eig: int = 3,
     niter_inner: int = 3,
     insert_cuts: bool = False,
-) -> CutsCompact:
+) -> "CutsCompact":
     """
     Use eigenmodes to fill in gaps.
 
@@ -332,7 +334,7 @@ def gapfill_eig(
             cuts_cur.tod2map(tod, pred, do_add=False)
             cuts_cur.map2tod(tod, tmp, do_add=False)
     if insert_cuts:
-        cuts_cur.map2tod(dat)
+        cuts_cur.map2tod(tod, dat)
     return cuts_cur
 
 
@@ -418,10 +420,10 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: bool = False,
-) -> (
-    NDArray[np.floating]
-    | tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]
-):
+) -> Union[
+    NDArray[np.floating],
+    tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
+]:
     ...
 
 
@@ -432,10 +434,10 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: bool = False,
-) -> (
-    NDArray[np.floating]
-    | tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]
-):
+) -> Union[
+    NDArray[np.floating],
+    tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
+]:
     """
     Fit the common mode with polynomials for drifts across the focal plane.
 
@@ -594,7 +596,7 @@ def fit_mat_vecs_poly_nonoise(
     dat: NDArray[np.floating],
     mat: NDArray[np.floating],
     order: int,
-    cm_order: int | None = None,
+    cm_order: Optional[int] = None,
 ) -> tuple[
     NDArray[np.floating],
     NDArray[np.floating],

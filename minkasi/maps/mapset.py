@@ -1,8 +1,14 @@
 import sys
+from typing import TYPE_CHECKING, Union
 
 from ..parallel import have_mpi
-from .twores import SkyMapTwoRes
-from .utils import MapType
+from .polmap import PolMap
+from .skymap import SkyMap
+
+MapType = Union[SkyMap, PolMap]
+
+if TYPE_CHECKING:
+    from .twores import SkyMapTwoRes
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -29,9 +35,9 @@ class _MapsetBase:
         By default nmap is 0 and maps in empty.
         """
         self.nmap: int = 0
-        self.maps: list[MapType | SkyMapTwoRes] = []
+        self.maps: list[Union[MapType, "SkyMapTwoRes"]] = []
 
-    def add_map(self, map: MapType | SkyMapTwoRes):
+    def add_map(self, map: Union[MapType, "SkyMapTwoRes"]):
         """
         Add a map to the Mapset.
 
@@ -71,7 +77,7 @@ class Mapset(_MapsetBase):
         Maps stored in this set.
     """
 
-    maps: list[MapType]
+    maps: list["MapType"]
 
     def clear(self):
         """
@@ -237,7 +243,7 @@ class MapsetTwoRes(_MapsetBase):
         Maps stored in this set.
     """
 
-    maps: list[SkyMapTwoRes]
+    maps: list["SkyMapTwoRes"]
 
     def apply_prior(self, x: Mapset, Ax: Mapset):
         """

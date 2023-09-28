@@ -1,9 +1,11 @@
 import sys
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .core import Tod
+if TYPE_CHECKING:
+    from .core import Tod
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -119,7 +121,7 @@ class detOffset:
         The TOD filename.
     """
 
-    def __init__(self, tod: Tod | None = None):
+    def __init__(self, tod: Optional["Tod"] = None):
         """
         Initialize the detector offsets.
         params will be all zeros.
@@ -158,7 +160,7 @@ class detOffset:
         """
         self.params[:] = 0
 
-    def dot(self, other: Self | None = None) -> float:
+    def dot(self, other: Optional[Self] = None) -> float:
         """
         Take the dot product of this detOffset with another.
 
@@ -189,8 +191,8 @@ class detOffset:
 
     def tod2map(
         self,
-        tod: Tod,
-        dat: NDArray[np.floating] | None = None,
+        tod: "Tod",
+        dat: Optional[NDArray[np.floating]] = None,
         do_add: bool = True,
         do_omp: bool = False,
     ):
@@ -218,8 +220,8 @@ class detOffset:
 
     def map2tod(
         self,
-        tod: Tod,
-        dat: NDArray[np.floating] | None = None,
+        tod: "Tod",
+        dat: Optional[NDArray[np.floating]] = None,
         do_add: bool = True,
         do_omp: bool = False,
     ):
@@ -245,7 +247,7 @@ class detOffset:
             dat[:] = 0
         dat[:] = dat[:] + np.repeat([self.params], dat.shape[1], axis=0).transpose()
 
-    def write(self, fname: str | None = None):
+    def write(self, fname: Optional[str] = None):
         """
         Doesn't currently do anything.
         Presumably will write the det offsets to disk when implemented.

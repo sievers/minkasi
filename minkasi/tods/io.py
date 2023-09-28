@@ -1,7 +1,7 @@
 """
 Functions for loading TODs from disk.
 """
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 import numpy as np
 from astropy.io import fits
@@ -150,7 +150,9 @@ def read_tod_from_fits_cbass(
     return dat
 
 
-def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) -> dict:
+def read_tod_from_fits(
+    fname: str, hdu: int = 1, branch: Optional[float] = None
+) -> dict:
     """
     Read a TOD from a FITS file.
     This function nominally runs on MUSTANG TODs.
