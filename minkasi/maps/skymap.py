@@ -79,6 +79,8 @@ class SkyMap:
         pixsize: float,
         proj: str = "CAR",
         pad: int = 2,
+        square: bool = False,
+        multiple: int | bool = False,
         primes: list[int] | None = None,
         cosdec: float | None = None,
         nx: int | None = None,
@@ -101,6 +103,10 @@ class SkyMap:
             The projection of the map.
         pad : int, default: 2
             Amount of pixels to pad the map outside of lims.
+        square : bool, default: False
+            If true, square the map to the larger side length
+        multiple : int | bool, default: None
+            Require the map sides to be an integer multiple of multiple
         primes : list[int] | None, default: None
             Prime numbers to use when calculating good fft lengths (modifies nx and ny).
             If None this is not performed.
@@ -138,28 +144,10 @@ class SkyMap:
             # print('pixel size from wcs and requested are ',pixsize_use,pixsize,100*(pixsize_use-pixsize)/pixsize)
             pixsize = pixsize_use
 
-        corners: NDArray[np.floating] = np.zeros([4, 2])
-        corners[0, :] = [lims[0], lims[2]]
-        corners[1, :] = [lims[0], lims[3]]
-        corners[2, :] = [lims[1], lims[2]]
-        corners[3, :] = [lims[1], lims[3]]
-        pix_corners = self.wcs.wcs_world2pix(corners * 180 / np.pi, 1)
-        pix_corners = np.round(pix_corners)
+        self.lims = lims     
 
-        if pix_corners.min() < -0.5:
-            print(
-                "corners seem to have gone negative in SkyMap projection.  not good, you may want to check this."
-            )
-        if True:  # try a patch to fix the wcs xxx
-            if nx is None:
-                nx = int(pix_corners[:, 0].max() + pad)
-            self.nx: int = nx
-            if ny is None:
-                ny = int(pix_corners[:, 1].max() + pad)
-            self.ny: int = ny
-        else:
-            self.nx = int(pix_corners[:, 0].max() + pad)
-            self.ny = int(pix_corners[:, 1].max() + pad)
+        nx, ny = self.get_npix(pad, nx=nx, ny=ny)
+
         self.primes: None | list[int]
         if primes is None:
             self.primes = primes
@@ -168,6 +156,32 @@ class SkyMap:
             self.nx = lens[lens >= nx].min()
             self.ny = lens[lens >= ny].min()
             self.primes = primes[:]
+        
+        if square:
+            if nx != ny:
+                nmax = max(nx, ny)
+                ratio_x = nmax/nx
+                ratio_y = nmax/ny
+
+                self.lims[0] = self.lims[1] - ratio_x*(self.lims[1] - self.lims[0]) #note we are adjusting lims in place here
+                self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
+
+                nx, ny = self.get_npix(pad)
+
+          if multiple:
+              assert(type(multiple) == int)
+
+          xmax = 2*np.ceil(nx / multiple)
+          xdiff = self.lims[1] - self.lims[0]
+          self.lims[0] = self.lims[1] - xdiff * xmax/nx #Make nx a factor of 2
+
+          ymax = 2*np.ceil(ny / multiple)
+          ydiff = self.lims[3] - self.lims[2]
+          self.lims[3] = self.lims[2] + ydiff * ymax/ny
+
+          nx, ny = self.get_npix(pad) #This may be applying pad a bunch of times
+
+
         self.caches = None
         self.cosdec = cosdec
         self.tod2map_method = None
@@ -181,6 +195,35 @@ class SkyMap:
         self.caches: NDArray[np.floating] | None = None
         self.cosdec: float | None = cosdec
         self.tod2map_method: Callable | None = None
+
+    def get_npix(self, pad, nx=None, ny=None):
+        """
+        Given self.lims, self.wcs, get npix for map.
+        """
+        corners: NDArray[np.floating] = np.zeros([4, 2]) 
+        corners[0,:]=[self.lims[0],self.lims[2]]
+        corners[1,:]=[self.lims[0],self.lims[3]]
+        corners[2,:]=[self.lims[1],self.lims[2]]
+        corners[3,:]=[self.lims[1],self.lims[3]]
+
+        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)
+        pix_corners=np.round(pix_corners)
+
+        if pix_corners.min()<-0.5:
+            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
+        if True: #try a patch to fix the wcs xxx
+            if nx is None:
+                nx=(pix_corners[:,0].max()+pad)
+            if ny is None:
+                ny=(pix_corners[:,1].max()+pad)
+        else:#What is this else doing here?
+            nx=(pix_corners[:,0].max()+pad)
+            ny=(pix_corners[:,1].max()+pad)
+        nx=int(nx)
+        ny=int(ny)
+
+        return nx, ny
+
 
     def get_caches(self):
         """
