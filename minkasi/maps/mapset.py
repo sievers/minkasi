@@ -1,7 +1,8 @@
 import sys
 
 from ..parallel import have_mpi
-from . import MapType, SkyMapTwoRes
+from .twores import SkyMapTwoRes
+from .utils import MapType
 
 if sys.version_info >= (3, 11):
     from typing import Self

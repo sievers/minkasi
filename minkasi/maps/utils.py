@@ -5,6 +5,11 @@ from astropy import wcs
 from astropy.io import fits
 from numpy.typing import NDArray
 
+from .polmap import PolMap
+from .skymap import SkyMap
+
+MapType = SkyMap | PolMap
+
 try:
     import numba as nb
 except ImportError:
