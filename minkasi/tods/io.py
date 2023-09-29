@@ -199,7 +199,7 @@ def read_tod_from_fits(
             "beamvunc",
         )  # for now just hardwired ones we want
         for kwd in kwds:
-            calinfo[kwd] = loaded_hdu.header[kwd]
+            calinfo[kwd] = hdul[hdu].header[kwd]
     except KeyError:
         print(
             "WARNING - calinfo information not found in fits file header - to track JytoK etc you may need to reprocess the fits files using mustangidl > revision 932"
