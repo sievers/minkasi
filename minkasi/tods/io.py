@@ -173,9 +173,8 @@ def read_tod_from_fits(
         Dict containing TOD info.
         Can be passed into the Tod class.
     """
-    with fits.open(fname) as hdul:
-        loaded_hdu: fits.hdu.TableHDU = hdul[hdu]
-    raw = loaded_hdu.data
+    hdul = fits.open(fname)
+    raw = hdul[hdu].data
 
     if raw.names is None:
         raise ValueError("TOD seems to be empty")
@@ -272,6 +271,8 @@ def read_tod_from_fits(
         ymin,
         ymax,
     )
+
+    hdul.close()
 
     return dat
 
