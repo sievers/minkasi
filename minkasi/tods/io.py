@@ -173,9 +173,8 @@ def read_tod_from_fits(
         Dict containing TOD info.
         Can be passed into the Tod class.
     """
-    with fits.open(fname) as hdul:
-        loaded_hdu: fits.hdu.TableHDU = hdul[hdu]
-    raw = loaded_hdu.data
+    hdul = fits.open(fname)
+    raw = hdul[hdu].data
 
     if raw.names is None:
         raise ValueError("TOD seems to be empty")
@@ -200,7 +199,7 @@ def read_tod_from_fits(
             "beamvunc",
         )  # for now just hardwired ones we want
         for kwd in kwds:
-            calinfo[kwd] = loaded_hdu.header[kwd]
+            calinfo[kwd] = hdul[hdu].header[kwd]
     except KeyError:
         print(
             "WARNING - calinfo information not found in fits file header - to track JytoK etc you may need to reprocess the fits files using mustangidl > revision 932"
@@ -272,6 +271,8 @@ def read_tod_from_fits(
         ymin,
         ymax,
     )
+
+    hdul.close()
 
     return dat
 
