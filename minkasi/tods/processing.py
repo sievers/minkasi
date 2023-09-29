@@ -556,7 +556,10 @@ def downsample_tod(tod_info: dict, fac: int = 10):
     ndata = tod_info["dat_calib"].shape[1]
     for key in tod_info.keys():
         if hasattr(tod_info[key], "shape"):
-            if tod_info[key].shape[-1] != ndata:
+            shape = tod_info[key].shape
+            if len(shape) == 0:
+                continue
+            if shape[-1] != ndata:
                 continue
             tod_info[key] = downsample_array_r2r(tod_info[key], fac)
 
@@ -576,20 +579,25 @@ def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11]):
     """
     if "dat_calib" not in tod_info:
         return
-    n = tod_info["dat_calib"].shape[1]
-    lens = find_good_fft_lens(n - 1, primes)
-    n_new = lens.max() + 1
-    if n_new >= n:
+    if len(tod_info["dat_calib"].shape) != 2:
+        raise ValueError("dat_calib not 2d")
+    ndata = tod_info["dat_calib"].shape[1]
+    lens = find_good_fft_lens(ndata - 1, primes)
+    ndata_new = lens.max() + 1
+    if ndata_new >= ndata:
         return
-    print("truncating from ", n, " to ", n_new)
+    print("truncating from ", ndata, " to ", ndata_new)
     for key in tod_info.keys():
         if not hasattr(tod_info[key], "shape"):
             continue
-        axes = np.where(np.array(tod_info[key].shape) == n)[0]
+        shape = tod_info[key].shape
+        if len(shape) == 0:
+            continue
+        axes = np.where(np.array(shape) == ndata)[0]
         if len(axes) == 0:
             continue
         axis = axes[0]
-        tod_info[key] = np.take(tod_info[key], indices=range(0, n_new), axis=axis)
+        tod_info[key] = np.take(tod_info[key], indices=range(0, ndata_new), axis=axis)
 
 
 def fit_mat_vecs_poly_nonoise(
@@ -631,8 +639,8 @@ def fit_mat_vecs_poly_nonoise(
     """
     if cm_order is None:
         cm_order = order
-    n = dat.shape[1]
-    x = np.linspace(-1, 1, n)
+    ndata = dat.shape[1]
+    x = np.linspace(-1, 1, ndata)
     polys = np.polynomial.legendre.legvander(x, order).transpose()
     cm_polys = np.polynomial.legendre.legvander(x, cm_order).transpose()
     v1 = np.sum(dat, axis=0)
