@@ -1,6 +1,6 @@
 import copy
 import sys
-from typing import Optional, Sequence, Union
+from typing import TYPE_CHECKING, Optional, Sequence, Union
 
 import numpy as np
 from astropy import wcs
@@ -10,9 +10,11 @@ from numpy.typing import NDArray
 from ..mapmaking.map2tod import map2tod, polmap2tod
 from ..mapmaking.tod2map import tod2map_cached, tod2map_omp, tod2map_simple, tod2polmap
 from ..parallel import comm, get_nthread, have_mpi
-from ..tods import Tod
 from ..tools.fft import find_good_fft_lens
 from .utils import get_wcs
+
+if TYPE_CHECKING:
+    from ..tods import Tod
 
 try:
     have_healpy = True
@@ -413,7 +415,7 @@ class PolMap:
         ipix: NDArray[np.int32] = np.asarray(xpix * self.ny + ypix, dtype="int32")
         return ipix
 
-    def get_pix(self, tod: Tod, savepix: bool = True) -> NDArray[np.int32]:
+    def get_pix(self, tod: "Tod", savepix: bool = True) -> NDArray[np.int32]:
         """
         Get pixellization of a TOD.
 
@@ -460,7 +462,7 @@ class PolMap:
 
     def map2tod(
         self,
-        tod: Tod,
+        tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
@@ -500,7 +502,7 @@ class PolMap:
 
     def tod2map(
         self,
-        tod: Tod,
+        tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,

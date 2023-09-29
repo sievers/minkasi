@@ -6,9 +6,9 @@ import numpy as np
 from astropy import wcs
 from numpy.typing import NDArray
 
-from ..mapmaking.noise import MapNoiseWhite
+from ..tools.map_io import read_fits_map
 from .skymap import SkyMap, SkyMapCoarse
-from .utils import get_aligned_map_subregion_car, get_ft_vec, read_fits_map
+from .utils import get_aligned_map_subregion_car, get_ft_vec
 
 if TYPE_CHECKING:
     from .mapset import MapsetTwoRes
