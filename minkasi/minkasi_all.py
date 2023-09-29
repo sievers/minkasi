@@ -32,6 +32,7 @@ from .tods.utils import *
 
 from .tools.array_ops import *
 from .tools.fft import *
+from .tools.map_io import *
 from .tools.pyregion_tools import *
 from .tools.rings import *
 from .tools.smooth import *
