@@ -1,14 +1,21 @@
 import numpy
 from matplotlib import pyplot as plt
-import minkasi,pyfftw
+import minkasi.minkasi_all as minkasi
+import minkasi_jax.presets_by_source as pbs
+import pyfftw
 import time
 import glob
-reload(minkasi)
+#reload(minkasi)
 plt.ion()
 
 #find tod files we want to map
-dir='../data/m0717_raw/'
-tod_names=glob.glob(dir+'*.fits')  
+dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
+tod_names=glob.glob(dir+'Sig*.fits')
+
+bad_tod, addtag = pbs.get_bad_tods("MS0735", ndo=False, odo=False)
+#bad_tod.append('Signal_TOD-AGBT21A_123_03-s20.fits')
+tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
+
 
 #if running MPI, you would want to split up files between processes
 #one easy way is to say to this:
@@ -56,7 +63,7 @@ map=minkasi.SkyMap(lims,pixsize)
 for tod in todvec.tods:
     ipix=map.get_pix(tod)
     tod.info['ipix']=ipix
-    tod.set_noise_smoothed_svd()
+    tod.set_noise(minkasi.NoiseSmoothedSVD) 
 
 #get the hit count map.  We use this as a preconditioner
 #which helps small-scale convergence quite a bit.
