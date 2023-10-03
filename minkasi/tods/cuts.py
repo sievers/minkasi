@@ -1,5 +1,5 @@
 import sys
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -18,7 +18,7 @@ else:
 
 def segs_from_vec(
     vec: NDArray[np.bool_], pad: bool = True
-) -> tuple[int, list[int], list[int]]:
+) -> Tuple[int, List[int], List[int]]:
     """
     Return the starting/stopping points of regions marked False in vec.  For use in e.g. generating
     cuts from a vector/array.
@@ -224,8 +224,8 @@ class CutsCompact:
         self.ndet: int
         self.nseg: NDArray[np.integer]
         self.imax: int
-        self.istart: list[list[int]]
-        self.istop: list[list[int]]
+        self.istart: List[List[int]]
+        self.istop: List[List[int]]
         self.map: NDArray[np.floating]
         self.imap: NDArray[np.int64]
         if isinstance(tod, CutsCompact):

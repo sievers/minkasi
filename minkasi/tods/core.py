@@ -1,7 +1,7 @@
 import copy
 import sys
 import time
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -66,15 +66,15 @@ class Tod:
             See class docstring for more info.
         """
         self.info: dict = info.copy()
-        self.jumps: Optional[list] = None
-        self.cuts: Optional[list] = None
+        self.jumps: Optional[List] = None
+        self.cuts: Optional[List] = None
         self.noise: Optional[NoiseModelType] = None
         self.noise_delayed: bool = False
-        self.noise_args: tuple = ()
+        self.noise_args: Tuple = ()
         self.noise_kwargs: dict = {}
         self.noise_modelclass: type[NoiseModelType]
 
-    def lims(self) -> tuple[float, float, float, float]:
+    def lims(self) -> Tuple[float, float, float, float]:
         """
         Get RA/dec limits of this TOD.
 
@@ -144,7 +144,7 @@ class Tod:
         """
         return self.get_ndet() * self.get_ndata()
 
-    def get_data_dims(self) -> tuple[int, int]:
+    def get_data_dims(self) -> Tuple[int, int]:
         """
         Get shape of TOD data.
 
@@ -266,7 +266,7 @@ class Tod:
         """
         return self.info["ctime"]
 
-    def get_radec(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    def get_radec(self) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Get the RA/dec arrays for this TOD.
 
@@ -659,7 +659,7 @@ class Tod:
         if times:
             return np.asarray([t2 - t1, t3 - t2, t4 - t3])
 
-    def set_jumps(self, jumps: Optional[list]):
+    def set_jumps(self, jumps: Optional[List]):
         """
         Set the jumps attribute for the TOD.
 
@@ -768,7 +768,7 @@ class TodVec:
         """
         Initialize an empty TodVec.
         """
-        self.tods: list[Tod] = []
+        self.tods: List[Tod] = []
         self.ntod: int = 0
 
     def add_tod(self, tod: Tod, copy_info: bool = False):
@@ -788,7 +788,7 @@ class TodVec:
         self.tods[-1].set_tag(self.ntod)
         self.ntod = self.ntod + 1
 
-    def lims(self) -> Optional[tuple[float, float, float, float]]:
+    def lims(self) -> Optional[Tuple[float, float, float, float]]:
         """
         Get global limits of all TODs.
         This function is MPI aware, so the limits are the same across processes.
@@ -915,7 +915,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[True] = True,
         cache_maps: bool = False,
-    ) -> tuple["Mapset", NDArray[np.floating]]:
+    ) -> Tuple["Mapset", NDArray[np.floating]]:
         ...
 
     @overload
@@ -925,7 +925,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
-    ) -> Union["Mapset", tuple["Mapset", NDArray[np.floating]]]:
+    ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
         ...
 
     def dot(
@@ -934,7 +934,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
-    ) -> Union["Mapset", tuple["Mapset", NDArray[np.floating]]]:
+    ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
         """
         Take dot of all the TODs in this TodVec.
         Also prints out the sum of times from Tod.dot.

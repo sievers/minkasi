@@ -1,6 +1,6 @@
 import copy
 import sys
-from typing import TYPE_CHECKING, Optional, Sequence, Union
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from astropy import wcs
@@ -137,7 +137,7 @@ class PolMap:
         ref_equ : bool, default: False
             Use equtorial reference.
         """
-        pols: Optional[list[str]] = _poltag2pols(poltag)
+        pols: Optional[List[str]] = _poltag2pols(poltag)
         if pols is None:
             print("Unrecognized polarization state " + poltag + " in PolMap.__init__")
             return
@@ -178,7 +178,7 @@ class PolMap:
             self.primes = primes[:]
         self.npol: int = npol
         self.poltag: str = poltag
-        self.pols: list[str] = pols
+        self.pols: List[str] = pols
         self.lims: Union[Sequence[float], NDArray[np.floating]] = lims
         self.tag: str = tag
         self.purge_pixellization: bool = purge_pixellization
@@ -543,7 +543,7 @@ class PolMap:
         if self.purge_pixellization:
             tod.clear_saved_pix(self.tag)
 
-    def r_th_maps(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    def r_th_maps(self) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Get polor coordinates for this map.
         Origin is at center of map.
@@ -787,7 +787,7 @@ class HealPolMap(PolMap):
         if not (have_healpy):
             print("Healpix map requested, but healpy not found.")
             return
-        pols: Optional[list[str]] = _poltag2pols(poltag)
+        pols: Optional[List[str]] = _poltag2pols(poltag)
         if pols is None:
             print("Unrecognized polarization state " + poltag + " in PolMap.__init__")
             return
@@ -797,7 +797,7 @@ class HealPolMap(PolMap):
         self.nx: int = healpy.nside2npix(self.nside)
         self.ny: int = 1
         self.poltag: str = poltag
-        self.pols: list[str] = pols
+        self.pols: List[str] = pols
         self.caches: Optional[NDArray[np.floating]] = None
         self.tag: str = tag
         self.purge_pixellization: bool = purge_pixellization

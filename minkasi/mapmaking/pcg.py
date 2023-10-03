@@ -1,6 +1,6 @@
 import sys
 import time
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, List, Optional, cast
 
 from ..parallel import myrank
 
@@ -28,10 +28,10 @@ def run_pcg_wprior(
     precon: Optional["Mapset"] = None,
     maxiter: int = 25,
     outroot: str = "map",
-    save_iters: list = [-1],
+    save_iters: List[int] = [-1],
     save_ind: int = 0,
     save_tail: str = ".fits",
-    plot_iters: list = [],
+    plot_iters: List[int] = [],
     plot_info: Optional[dict] = None,
     plot_ind: int = 0,
 ) -> "Mapset":
@@ -205,10 +205,10 @@ def run_pcg(
     precon: Optional["Mapset"] = None,
     maxiter: int = 25,
     outroot: str = "map",
-    save_iters: list = [-1],
+    save_iters: List[int] = [-1],
     save_ind: int = 0,
     save_tail: str = ".fits",
-    plot_iters: list = [],
+    plot_iters: List[int] = [],
     plot_info: Optional[dict] = None,
     plot_ind: int = 0,
 ) -> "Mapset":

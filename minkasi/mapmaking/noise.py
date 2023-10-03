@@ -8,8 +8,8 @@ from scipy.special import erfinv
 from ..fitting.power_spectrum import fit_ts_ps
 from ..tools import fft
 from ..tools.array_ops import axpy_in_place, have_numba, scale_matrix_by_vector
-from ..tools.smooth import smooth_many_vecs
 from ..tools.map_io import read_fits_map
+from ..tools.smooth import smooth_many_vecs
 from .tod2map import make_hits
 
 if TYPE_CHECKING:

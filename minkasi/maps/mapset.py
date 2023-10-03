@@ -1,5 +1,5 @@
 import sys
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, List, Union
 
 from ..parallel import have_mpi
 from .polmap import PolMap
@@ -35,7 +35,7 @@ class _MapsetBase:
         By default nmap is 0 and maps in empty.
         """
         self.nmap: int = 0
-        self.maps: list[Union[MapType, "SkyMapTwoRes"]] = []
+        self.maps: List[Union[MapType, "SkyMapTwoRes"]] = []
 
     def add_map(self, map: Union[MapType, "SkyMapTwoRes"]):
         """
@@ -77,7 +77,7 @@ class Mapset(_MapsetBase):
         Maps stored in this set.
     """
 
-    maps: list["MapType"]
+    maps: List["MapType"]
 
     def clear(self):
         """
@@ -243,7 +243,7 @@ class MapsetTwoRes(_MapsetBase):
         Maps stored in this set.
     """
 
-    maps: list["SkyMapTwoRes"]
+    maps: List["SkyMapTwoRes"]
 
     def apply_prior(self, x: Mapset, Ax: Mapset):
         """

@@ -1,4 +1,13 @@
-from typing import TYPE_CHECKING, Literal, Optional, Sequence, Union, overload
+from typing import (
+    TYPE_CHECKING,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    overload,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -26,7 +35,7 @@ def _linfit_2mat(dat, mat1, mat2):
 
 def find_spikes(
     dat: NDArray[np.floating], inner: float = 1, outer: float = 10, thresh: float = 8
-) -> tuple[list[list[int]], NDArray[np.floating]]:
+) -> Tuple[List[List[int]], NDArray[np.floating]]:
     """
     Find spikes in a block of timestreams using a difference of gaussians filter.
 
@@ -85,7 +94,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: Literal[False] = False,
-) -> list[list[int]]:
+) -> List[List[int]]:
     ...
 
 
@@ -97,7 +106,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: Literal[True] = True,
-) -> tuple[list[list[int]], NDArray[np.floating]]:
+) -> Tuple[List[List[int]], NDArray[np.floating]]:
     ...
 
 
@@ -109,7 +118,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> Union[list[list[int]], tuple[list[list[int]], NDArray[np.floating]]]:
+) -> Union[List[List[int]], Tuple[List[List[int]], NDArray[np.floating]]]:
     ...
 
 
@@ -120,7 +129,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> Union[list[list[int]], tuple[list[list[int]], NDArray[np.floating]]]:
+) -> Union[List[List[int]], Tuple[List[List[int]], NDArray[np.floating]]]:
     """
     Find jumps in a block of timestreams, preferably with the common mode removed.
 
@@ -206,7 +215,7 @@ def find_jumps(
 
 def fit_jumps_from_cm(
     dat: NDArray[np.floating],
-    jumps: list[list[int]],
+    jumps: List[List[int]],
     cm: NDArray[np.floating],
     cm_order: int = 1,
     poly_order: int = 1,
@@ -408,7 +417,7 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: Literal[True] = True,
-) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
+) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     ...
 
 
@@ -422,7 +431,7 @@ def fit_cm_plus_poly(
     full_out: bool = False,
 ) -> Union[
     NDArray[np.floating],
-    tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
+    Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
 ]:
     ...
 
@@ -436,7 +445,7 @@ def fit_cm_plus_poly(
     full_out: bool = False,
 ) -> Union[
     NDArray[np.floating],
-    tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
+    Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
 ]:
     """
     Fit the common mode with polynomials for drifts across the focal plane.
@@ -501,7 +510,7 @@ def fit_cm_plus_poly(
 
 def find_bad_skew_kurt(
     dat: NDArray[np.floating], skew_thresh: float = 6.0, kurt_thresh: float = 5.0
-) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.bool_]]:
+) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.bool_]]:
     """
     Find detectors with high skew or kurtosis.
 
@@ -605,7 +614,7 @@ def fit_mat_vecs_poly_nonoise(
     mat: NDArray[np.floating],
     order: int,
     cm_order: Optional[int] = None,
-) -> tuple[
+) -> Tuple[
     NDArray[np.floating],
     NDArray[np.floating],
     NDArray[np.floating],

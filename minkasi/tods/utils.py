@@ -1,5 +1,5 @@
 import sys
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -71,7 +71,7 @@ def mask_dict(mydict: dict, mask: NDArray[np.bool_]) -> dict:
     return mydict
 
 
-def split_dict(mydict: dict, vec: NDArray, thresh: float) -> list[dict]:
+def split_dict(mydict: dict, vec: NDArray, thresh: float) -> List[dict]:
     """
     Split a dictionary into sub-dictionaries wherever a gap in vec is larger than thresh.
     Useful for e.g. splitting TODs where there's a large time gap due to cuts.

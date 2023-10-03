@@ -1,7 +1,7 @@
 """
 Functions for loading TODs from disk.
 """
-from typing import Any, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
 from astropy.io import fits
@@ -37,7 +37,7 @@ def read_tod_from_fits_cbass(
     lon: float = -118.2941,
     v34: bool = True,
     nm20: bool = False,
-) -> dict:
+) -> Dict:
     """
     Read a CBASS TOD from a FITS file.
 
@@ -152,7 +152,7 @@ def read_tod_from_fits_cbass(
 
 def read_tod_from_fits(
     fname: str, hdu: int = 1, branch: Optional[float] = None
-) -> dict:
+) -> Dict:
     """
     Read a TOD from a FITS file.
     This function nominally runs on MUSTANG TODs.
@@ -179,7 +179,7 @@ def read_tod_from_fits(
     if raw.names is None:
         raise ValueError("TOD seems to be empty")
     # print 'sum of cut elements is ',np.sum(raw['UFNU']<9e5)
-    calinfo: dict[str, Any] = {"calinfo": False}
+    calinfo: Dict[str, Any] = {"calinfo": False}
     try:  # read in calinfo (per-scan beam volumes etc) if present
         calinfo["calinfo"] = True
         kwds = (
@@ -330,7 +330,7 @@ def todvec_from_files_octave(fnames: Iterable[str]) -> TodVec:
     return todvec
 
 
-def cut_blacklist(tod_names: Iterable[str], blacklist: Iterable[str]) -> list[str]:
+def cut_blacklist(tod_names: Iterable[str], blacklist: Iterable[str]) -> List[str]:
     """
     Remove blacklisted TODs from a list of paths.
 

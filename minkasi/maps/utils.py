@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 from astropy import wcs
@@ -72,7 +72,7 @@ def get_aligned_map_subregion_car(
     fname: Optional[str] = None,
     big_wcs: Optional[wcs.WCS] = None,
     osamp: int = 1,
-) -> tuple[wcs.WCS, NDArray[np.floating], NDArray[np.integer]]:
+) -> Tuple[wcs.WCS, NDArray[np.floating], NDArray[np.integer]]:
     """
     Get a wcs for a subregion of a map, with optionally finer pixellization.
     Designed for use in e.g. combining ACT maps and Mustang data.

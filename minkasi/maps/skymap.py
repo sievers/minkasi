@@ -1,6 +1,6 @@
 import copy
 import sys
-from typing import TYPE_CHECKING, Callable, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from astropy import wcs
@@ -79,7 +79,7 @@ class SkyMap:
         pixsize: float,
         proj: str = "CAR",
         pad: int = 2,
-        primes: Optional[list[int]] = None,
+        primes: Optional[List[int]] = None,
         cosdec: Optional[float] = None,
         nx: Optional[int] = None,
         ny: Optional[int] = None,
@@ -160,7 +160,7 @@ class SkyMap:
         else:
             self.nx = int(pix_corners[:, 0].max() + pad)
             self.ny = int(pix_corners[:, 1].max() + pad)
-        self.primes: Optional[list[int]]
+        self.primes: Optional[List[int]]
         if primes is None:
             self.primes = primes
         else:
@@ -576,7 +576,7 @@ class SkyMap:
         if self.purge_pixellization:
             tod.clear_saved_pix(self.tag)
 
-    def r_th_maps(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    def r_th_maps(self) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Get polor coordinates for this map.
         Origin is at center of map.

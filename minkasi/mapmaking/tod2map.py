@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -239,7 +239,12 @@ def tod2mapbowl(vecs: NDArray[np.floating], mat: NDArray[np.floating]):
 
 
 @nb.njit(parallel=True)
-def tod2map_destriped(mat, pars, lims, do_add=True):
+def tod2map_destriped(
+    mat: NDArray[np.floating],
+    pars: NDArray[np.floating],
+    lims: NDArray[np.int_],
+    do_add: bool = True,
+):
     """
     Bin a TOD into destriper params.
 
@@ -298,7 +303,14 @@ def __tod2map_binned_det_loop(
         pars[det][inds[0:ndata]] += mat[det][0:ndata]
 
 
-def tod2map_binned_det(mat, binned, vec, lims, nbin, do_add=True):
+def tod2map_binned_det(
+    mat: NDArray[np.floating],
+    binned: NDArray[np.floating],
+    vec: NDArray[np.floating],
+    lims: Tuple[float, float],
+    nbin: int,
+    do_add: bool = True,
+):
     """
     Bin a TOD into a map with additional sample binning.
 

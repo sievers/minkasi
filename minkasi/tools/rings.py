@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,7 +17,7 @@ def _prep_rings(
     ],
     amps: Optional[Union[Sequence[float], NDArray[np.floating]]],
     iswcs: bool,
-) -> tuple[
+) -> Tuple[
     NDArray[np.floating],
     NDArray[np.floating],
     NDArray[np.floating],

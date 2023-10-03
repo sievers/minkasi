@@ -6,12 +6,13 @@ import numpy as np
 from astropy import wcs
 from numpy.typing import NDArray
 
+from ..mapmaking.noise import MapNoiseWhite
 from ..tools.map_io import read_fits_map
 from .skymap import SkyMap, SkyMapCoarse
 from .utils import get_aligned_map_subregion_car, get_ft_vec
 
 if TYPE_CHECKING:
-    from .mapset import MapsetTwoRes
+    from .mapset import Mapset
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -544,17 +545,17 @@ class SkyMapTwoRes:
                 mapset.maps[fine_ind].map[self.mask] + fine[self.mask] / self.osamp**2
             )
 
-    def apply_prior(self, mapset: "MapsetTwoRes", outmapset: "MapsetTwoRes"):
+    def apply_prior(self, mapset: "Mapset", outmapset: "Mapset"):
         """
         Apply priors to outmapset.
         I don't really understand what this function is doing.
 
         Parameters
         ----------
-        mapset : MapsetTwoRes
+        mapset : Mapset
             Mapset containing a fine and coarse map.
-        outmapset : MapsetTwoRes
-            Mpaset storing maps with priors applied.
+        outmapset : Mapset
+            Mapset storing maps with priors applied.
 
         Raises
         ------
