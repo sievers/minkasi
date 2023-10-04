@@ -1,7 +1,7 @@
 import numpy
 from matplotlib import pyplot as plt
 import minkasi.minkasi_all as minkasi
-import minkasi_jax.presets_by_source as pbs
+
 import pyfftw
 import time
 import glob
@@ -9,13 +9,8 @@ import glob
 plt.ion()
 
 #find tod files we want to map
-dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
+dir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/"
 tod_names=glob.glob(dir+'Sig*.fits')
-
-bad_tod, addtag = pbs.get_bad_tods("MS0735", ndo=False, odo=False)
-#bad_tod.append('Signal_TOD-AGBT21A_123_03-s20.fits')
-tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
-
 
 #if running MPI, you would want to split up files between processes
 #one easy way is to say to this:
@@ -80,6 +75,7 @@ mapset.add_map(map)
 #hence putting make_rhs in the vector of TODs. 
 #Again, make_rhs is MPI-aware, so this should do the right thing
 #if you run with many processes.
+print('pre rhs')
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
