@@ -75,7 +75,7 @@ mapset.add_map(map)
 #hence putting make_rhs in the vector of TODs. 
 #Again, make_rhs is MPI-aware, so this should do the right thing
 #if you run with many processes.
-print('pre rhs')
+
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
