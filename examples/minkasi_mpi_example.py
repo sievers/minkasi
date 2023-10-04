@@ -9,8 +9,8 @@ import glob
 plt.ion()
 
 #find tod files we want to map
-dir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/"
-tod_names=glob.glob(dir+'Sig*.fits')
+idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+tod_names=glob.glob(idir+'Sig*.fits')
 
 #if running MPI, you would want to split up files between processes
 #one easy way is to say to this:
@@ -94,9 +94,12 @@ tmp[ii]=1.0/tmp[ii]
 precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
+
+outpath = "/scratch/r/rbond/jorlo/M2-TODs/" #CHANGE ME!
+
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('first_map_precon_mpi.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outpath+'first_map_precon_mpi.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
