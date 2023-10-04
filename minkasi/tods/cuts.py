@@ -1,11 +1,14 @@
 import sys
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ..lib.minkasi import cuts2tod_c, tod2cuts_c
-from ..maps import MapType
-from . import Tod
+
+if TYPE_CHECKING:
+    from ..maps import MapType
+    from . import Tod
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -15,7 +18,7 @@ else:
 
 def segs_from_vec(
     vec: NDArray[np.bool_], pad: bool = True
-) -> tuple[int, list[int], list[int]]:
+) -> Tuple[int, List[int], List[int]]:
     """
     Return the starting/stopping points of regions marked False in vec.  For use in e.g. generating
     cuts from a vector/array.
@@ -70,7 +73,7 @@ class Cuts:
         If True then map2tod adds to the TOD.
     """
 
-    def __init__(self, tod: Tod | Self, do_add: bool = True):
+    def __init__(self, tod: Union["Tod", Self], do_add: bool = True):
         """
         Initialize the Cuts class.
 
@@ -97,10 +100,11 @@ class Cuts:
             self.nsamp = tod.nsamp
             self.do_add = tod.do_add
             return
-        if not isinstance(tod, Tod):
-            raise ValueError("tod must either be a Tod or Cuts object")
-        bad_inds = np.where(tod.info["bad_samples"])
-        dims = tod.get_data_dims()
+        try:
+            bad_inds = np.where(tod.info["bad_samples"])
+            dims = tod.get_data_dims()
+        except AttributeError as exc:
+            raise ValueError("tod must either be a Tod or Cuts object") from exc
         bad_inds = np.ravel_multi_index(bad_inds, dims)
         self.nsamp = len(bad_inds)
         self.inds = bad_inds
@@ -127,7 +131,7 @@ class Cuts:
         """
         self.map[:] = self.map[:] + a * cuts.map[:]
 
-    def map2tod(self, tod: Tod, dat: NDArray[np.floating] | None = None):
+    def map2tod(self, tod: "Tod", dat: Optional[NDArray[np.floating]] = None):
         """
         Put the cuts map into a TOD.
 
@@ -148,7 +152,7 @@ class Cuts:
             dd[self.inds] += self.map
         dat = dd.reshape(dat.shape)
 
-    def tod2map(self, tod: Tod, dat: NDArray[np.floating] | None = None):
+    def tod2map(self, tod: "Tod", dat: Optional[NDArray[np.floating]] = None):
         """
         Fill the cuts map from a TOD.
 
@@ -220,8 +224,8 @@ class CutsCompact:
         self.ndet: int
         self.nseg: NDArray[np.integer]
         self.imax: int
-        self.istart: list[list[int]]
-        self.istop: list[list[int]]
+        self.istart: List[List[int]]
+        self.istop: List[List[int]]
         self.map: NDArray[np.floating]
         self.imap: NDArray[np.int64]
         if isinstance(tod, CutsCompact):
@@ -344,13 +348,19 @@ class CutsCompact:
                 icur = icur + nn
         self.map = np.zeros(len(self.imap))
 
-    def tod2map(self, tod, mat=None, do_add=True, do_omp=False):
+    def tod2map(
+        self,
+        tod: Optional["Tod"],
+        mat: Optional[NDArray[np.floating]] = None,
+        do_add: bool = True,
+        do_omp: bool = False,
+    ):
         """
         Fill the cuts map from a TOD.
 
         Parameters
         ----------
-        tod : Tod
+        tod : Tod | None
             The Tod to use.
             Data is loaded from this unless mat is not None.
         mat : NDArray[np.floating] | None
@@ -361,6 +371,8 @@ class CutsCompact:
             Unused variable. Presumably for compatibility.
         """
         if mat is None:
+            if tod is None:
+                raise ValueError("Both tod and mat cannot be none")
             mat = tod.get_data()
         tod2cuts_c(
             self.map.ctypes.data,
@@ -370,13 +382,19 @@ class CutsCompact:
             do_add,
         )
 
-    def map2tod(self, tod, mat=None, do_add=True, do_omp=False):
+    def map2tod(
+        self,
+        tod: Optional["Tod"],
+        mat: Optional[NDArray[np.floating]] = None,
+        do_add: bool = True,
+        do_omp: bool = False,
+    ):
         """
         Fill a TOD from the cuts map.
 
         Parameters
         ----------
-        tod : Tod
+        tod : Tod | None
             The Tod to use.
             Data is loaded from this unless mat is not None.
         mat : NDArray[np.floating] | None
@@ -387,6 +405,8 @@ class CutsCompact:
             Unused variable. Presumably for compatibility.
         """
         if mat is None:
+            if tod is None:
+                raise ValueError("Both tod and mat cannot be none")
             mat = tod.get_data()
         cuts2tod_c(
             mat.ctypes.data,
@@ -403,7 +423,7 @@ class CutsCompact:
         """
         self.map[:] = 0
 
-    def dot(self, other: Self | None = None) -> float:
+    def dot(self, other: Optional[Self] = None) -> float:
         """
         Take the dot product of CutsCompact.
 
@@ -436,7 +456,7 @@ class CutsCompact:
         """
         self.map = self.map + a * common.map
 
-    def apply_prior(self, x: MapType, Ax: MapType):
+    def apply_prior(self, x: "MapType", Ax: "MapType"):
         """
         Apply prior using this CutsCompact.
         Prior is applied as Ax = Ax + self*x.
@@ -472,3 +492,7 @@ class CutsCompact:
         tt = self.copy()
         tt.map = self.map * to_mul.map
         return tt
+
+
+# Define a type for typehints
+CutsType = Union[Cuts, CutsCompact]

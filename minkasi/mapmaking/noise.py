@@ -1,17 +1,20 @@
 import sys
+from typing import TYPE_CHECKING, Optional, cast
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.special import erfinv
 
 from ..fitting.power_spectrum import fit_ts_ps
-from ..maps import MapType
-from ..maps.utils import read_fits_map
-from ..tods import Tod, TodVec
 from ..tools import fft
-from ..tools.array_ops import axpy_in_place, scale_matrix_by_vector
+from ..tools.array_ops import axpy_in_place, have_numba, scale_matrix_by_vector
+from ..tools.map_io import read_fits_map
 from ..tools.smooth import smooth_many_vecs
 from .tod2map import make_hits
+
+if TYPE_CHECKING:
+    from ..maps import MapType
+    from ..tods import Tod, TodVec
 
 if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable
@@ -20,11 +23,11 @@ else:
 
 
 def get_grad_mask_2d(
-    map: MapType,
-    todvec: TodVec | None = None,
+    map: "MapType",
+    todvec: Optional["TodVec"] = None,
     thresh: float = 4.0,
-    noisemap: MapType | None = None,
-    hitsmap: MapType | None = None,
+    noisemap: Optional["MapType"] = None,
+    hitsmap: Optional["MapType"] = None,
 ) -> NDArray[np.floating]:
     """
     Make a mask that has an estimate of the gradient within a pixel.
@@ -54,10 +57,14 @@ def get_grad_mask_2d(
         Gradients that are too high are set to 0 (see thresh for details).
     """
     if noisemap is None:
+        if todvec is None:
+            raise ValueError("todvec must be provided if noisemap is not")
         noisemap = make_hits(todvec, map, do_weights=True)
         noisemap.invert()
         noisemap.map = np.sqrt(noisemap.map)
     if hitsmap is None:
+        if todvec is None:
+            raise ValueError("todvec must be provided if hitsmap is not")
         hitsmap = make_hits(todvec, map, do_weights=False)
 
     grad = (map.map - np.roll(map.map, 1, axis=0)) ** 2
@@ -87,7 +94,6 @@ class NoiseModelType(Protocol):
         return np.empty(0)
 
 
-@runtime_checkable
 class WithDetWeights(NoiseModelType):
     def get_det_weights(self) -> NDArray[np.floating]:
         return np.empty(0)
@@ -195,7 +201,9 @@ class NoiseWhiteNotch:
         Index corresponding to the end of the notch in the FFT.
     """
 
-    def __init__(self, dat: NDArray[np.floating], numin: float, numax: float, tod: Tod):
+    def __init__(
+        self, dat: NDArray[np.floating], numin: float, numax: float, tod: "Tod"
+    ):
         """
         Initialize an instance of NoiseWhiteNotch.
         This is where sigs and weights are computed and the notch indices are figured out.
@@ -290,7 +298,7 @@ class NoiseCMWhite:
         self.mywt: NDArray[np.floating] = 1.0 / myvar
 
     def apply_noise(
-        self, dat: NDArray[np.floating], dd: NDArray[np.floating] | None = None
+        self, dat: NDArray[np.floating], dd: Optional[NDArray[np.floating]] = None
     ) -> NDArray[np.floating]:
         """
         Apply the noise model.
@@ -315,7 +323,7 @@ class NoiseCMWhite:
         elif dd.shape != dat.shape:
             print("Provided dd has incorrect shape, initializing a new one")
             dd = np.empty(dat.shape)
-        dd = np.array(dd)
+        dd = cast(NDArray[np.floating], dd)
 
         mat = np.dot(self.v, np.diag(self.mywt))
         lhs = np.dot(self.v, mat.T)
@@ -331,6 +339,7 @@ class NoiseCMWhite:
             scale_matrix_by_vector(dd, self.mywt)
         else:
             dd = dat - np.outer(self.v, cm)
+            dd = cast(NDArray[np.floating], dd)
             tmp = np.repeat([self.mywt], len(cm), axis=0).T
             dd *= tmp
 
@@ -597,7 +606,7 @@ class NoiseSmoothedSVD:
         fwhm: float = 50.0,
         prewhiten: bool = False,
         fit_powlaw: bool = False,
-        u_in: NDArray[np.floating] | None = None,
+        u_in: Optional[NDArray[np.floating]] = None,
     ):
         """
         Initialize an instance of NoiseSmoothedSVD.
@@ -626,7 +635,7 @@ class NoiseSmoothedSVD:
             The left singular vectors of the TOD.
             If None they will be computed via the SVD in this function.
         """
-        self.noisevec: NDArray[np.floating] | None
+        self.noisevec: Optional[NDArray[np.floating]]
         if prewhiten:
             noisevec = np.median(np.abs(np.diff(dat_use, axis=1)), axis=1)
             dat_use = dat_use / (

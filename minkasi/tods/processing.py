@@ -1,11 +1,22 @@
-from typing import Literal, Sequence, overload
+from typing import (
+    TYPE_CHECKING,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    overload,
+)
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ..tools.array_ops import downsample_array_r2r
 from ..tools.fft import find_good_fft_lens
-from . import CutsCompact, Tod
+
+if TYPE_CHECKING:
+    from . import CutsCompact, Tod
 
 
 def _linfit_2mat(dat, mat1, mat2):
@@ -24,7 +35,7 @@ def _linfit_2mat(dat, mat1, mat2):
 
 def find_spikes(
     dat: NDArray[np.floating], inner: float = 1, outer: float = 10, thresh: float = 8
-) -> tuple[list[list[int]], NDArray[np.floating]]:
+) -> Tuple[List[List[int]], NDArray[np.floating]]:
     """
     Find spikes in a block of timestreams using a difference of gaussians filter.
 
@@ -83,7 +94,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: Literal[False] = False,
-) -> list[list[int]]:
+) -> List[List[int]]:
     ...
 
 
@@ -95,7 +106,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: Literal[True] = True,
-) -> tuple[list[list[int]], NDArray[np.floating]]:
+) -> Tuple[List[List[int]], NDArray[np.floating]]:
     ...
 
 
@@ -107,7 +118,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> list[list[int]] | tuple[list[list[int]], NDArray[np.floating]]:
+) -> Union[List[List[int]], Tuple[List[List[int]], NDArray[np.floating]]]:
     ...
 
 
@@ -118,7 +129,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> list[list[int]] | tuple[list[list[int]], NDArray[np.floating]]:
+) -> Union[List[List[int]], Tuple[List[List[int]], NDArray[np.floating]]]:
     """
     Find jumps in a block of timestreams, preferably with the common mode removed.
 
@@ -204,7 +215,7 @@ def find_jumps(
 
 def fit_jumps_from_cm(
     dat: NDArray[np.floating],
-    jumps: list[list[int]],
+    jumps: List[List[int]],
     cm: NDArray[np.floating],
     cm_order: int = 1,
     poly_order: int = 1,
@@ -271,13 +282,13 @@ def fit_jumps_from_cm(
 
 def gapfill_eig(
     dat: NDArray[np.floating],
-    cuts: CutsCompact,
-    tod: Tod | None = None,
+    cuts: "CutsCompact",
+    tod: Optional["Tod"] = None,
     thresh: float = 5.0,
     niter_eig: int = 3,
     niter_inner: int = 3,
     insert_cuts: bool = False,
-) -> CutsCompact:
+) -> "CutsCompact":
     """
     Use eigenmodes to fill in gaps.
 
@@ -332,7 +343,7 @@ def gapfill_eig(
             cuts_cur.tod2map(tod, pred, do_add=False)
             cuts_cur.map2tod(tod, tmp, do_add=False)
     if insert_cuts:
-        cuts_cur.map2tod(dat)
+        cuts_cur.map2tod(tod, dat)
     return cuts_cur
 
 
@@ -406,7 +417,7 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: Literal[True] = True,
-) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
+) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     ...
 
 
@@ -418,10 +429,10 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: bool = False,
-) -> (
-    NDArray[np.floating]
-    | tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]
-):
+) -> Union[
+    NDArray[np.floating],
+    Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
+]:
     ...
 
 
@@ -432,10 +443,10 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: bool = False,
-) -> (
-    NDArray[np.floating]
-    | tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]
-):
+) -> Union[
+    NDArray[np.floating],
+    Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
+]:
     """
     Fit the common mode with polynomials for drifts across the focal plane.
 
@@ -499,7 +510,7 @@ def fit_cm_plus_poly(
 
 def find_bad_skew_kurt(
     dat: NDArray[np.floating], skew_thresh: float = 6.0, kurt_thresh: float = 5.0
-) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.bool_]]:
+) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.bool_]]:
     """
     Find detectors with high skew or kurtosis.
 
@@ -554,7 +565,10 @@ def downsample_tod(tod_info: dict, fac: int = 10):
     ndata = tod_info["dat_calib"].shape[1]
     for key in tod_info.keys():
         if hasattr(tod_info[key], "shape"):
-            if tod_info[key].shape[-1] != ndata:
+            shape = tod_info[key].shape
+            if len(shape) == 0:
+                continue
+            if shape[-1] != ndata:
                 continue
             tod_info[key] = downsample_array_r2r(tod_info[key], fac)
 
@@ -574,28 +588,33 @@ def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11]):
     """
     if "dat_calib" not in tod_info:
         return
-    n = tod_info["dat_calib"].shape[1]
-    lens = find_good_fft_lens(n - 1, primes)
-    n_new = lens.max() + 1
-    if n_new >= n:
+    if len(tod_info["dat_calib"].shape) != 2:
+        raise ValueError("dat_calib not 2d")
+    ndata = tod_info["dat_calib"].shape[1]
+    lens = find_good_fft_lens(ndata - 1, primes)
+    ndata_new = lens.max() + 1
+    if ndata_new >= ndata:
         return
-    print("truncating from ", n, " to ", n_new)
+    print("truncating from ", ndata, " to ", ndata_new)
     for key in tod_info.keys():
         if not hasattr(tod_info[key], "shape"):
             continue
-        axes = np.where(np.array(tod_info[key].shape) == n)[0]
+        shape = tod_info[key].shape
+        if len(shape) == 0:
+            continue
+        axes = np.where(np.array(shape) == ndata)[0]
         if len(axes) == 0:
             continue
         axis = axes[0]
-        tod_info[key] = np.take(tod_info[key], indices=range(0, n_new), axis=axis)
+        tod_info[key] = np.take(tod_info[key], indices=range(0, ndata_new), axis=axis)
 
 
 def fit_mat_vecs_poly_nonoise(
     dat: NDArray[np.floating],
     mat: NDArray[np.floating],
     order: int,
-    cm_order: int | None = None,
-) -> tuple[
+    cm_order: Optional[int] = None,
+) -> Tuple[
     NDArray[np.floating],
     NDArray[np.floating],
     NDArray[np.floating],
@@ -629,8 +648,8 @@ def fit_mat_vecs_poly_nonoise(
     """
     if cm_order is None:
         cm_order = order
-    n = dat.shape[1]
-    x = np.linspace(-1, 1, n)
+    ndata = dat.shape[1]
+    x = np.linspace(-1, 1, ndata)
     polys = np.polynomial.legendre.legvander(x, order).transpose()
     cm_polys = np.polynomial.legendre.legvander(x, cm_order).transpose()
     v1 = np.sum(dat, axis=0)

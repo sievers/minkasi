@@ -8,7 +8,7 @@ from astropy.coordinates import Angle
 from astropy import units as u
 from astropy.io import fits
 
-import minkasi
+import minkasi.minkasi_all as minkasi
 from minkasi.needlet.needlet import WavSkyMap
 from minkasi.needlet.needlet import needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
@@ -18,7 +18,7 @@ from minkasi.needlet.needlet import wav2map_real, map2wav_real
 
 dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
 tod_names=glob.glob(dir+'Sig*.fits')
-n_tods = 999999
+n_tods = 2
 
 tod_names = tod_names[:n_tods]
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]

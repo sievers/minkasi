@@ -1,6 +1,8 @@
 """
 Functions for beam smoothing.
 """
+from typing import Tuple
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -9,7 +11,7 @@ from . import fft
 
 def smooth_spectra(
     spec: NDArray[np.floating], fwhm: float
-) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
     """
     Smooth spectra with a gaussian.
 

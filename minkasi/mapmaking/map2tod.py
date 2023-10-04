@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -218,7 +220,7 @@ def map2tod_binned_det(
     mat: NDArray[np.floating],
     binned: NDArray[np.floating],
     vec: NDArray[np.floating],
-    lims: tuple[float, float],
+    lims: Tuple[float, float],
     nbin: int,
     do_add: bool = True,
 ):

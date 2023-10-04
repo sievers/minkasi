@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, Tuple, cast
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -12,9 +14,11 @@ from ..lib.minkasi import (
     tod2map_qu_simple_c,
     tod2map_simple_c,
 )
-from ..maps import MapType, PolMap
 from ..parallel import get_nthread, have_mpi
-from ..tods import TodVec
+
+if TYPE_CHECKING:
+    from ..maps import MapType, PolMap
+    from ..tods import TodVec
 
 try:
     import numba as nb
@@ -235,7 +239,12 @@ def tod2mapbowl(vecs: NDArray[np.floating], mat: NDArray[np.floating]):
 
 
 @nb.njit(parallel=True)
-def tod2map_destriped(mat, pars, lims, do_add=True):
+def tod2map_destriped(
+    mat: NDArray[np.floating],
+    pars: NDArray[np.floating],
+    lims: NDArray[np.int_],
+    do_add: bool = True,
+):
     """
     Bin a TOD into destriper params.
 
@@ -294,7 +303,14 @@ def __tod2map_binned_det_loop(
         pars[det][inds[0:ndata]] += mat[det][0:ndata]
 
 
-def tod2map_binned_det(mat, binned, vec, lims, nbin, do_add=True):
+def tod2map_binned_det(
+    mat: NDArray[np.floating],
+    binned: NDArray[np.floating],
+    vec: NDArray[np.floating],
+    lims: Tuple[float, float],
+    nbin: int,
+    do_add: bool = True,
+):
     """
     Bin a TOD into a map with additional sample binning.
 
@@ -324,7 +340,7 @@ def tod2map_binned_det(mat, binned, vec, lims, nbin, do_add=True):
     __tod2map_binned_det_loop(binned, inds, mat, ndet, ndata)
 
 
-def make_hits(todvec: TodVec, map: MapType, do_weights: bool = False) -> MapType:
+def make_hits(todvec: "TodVec", map: "MapType", do_weights: bool = False) -> "MapType":
     """
     Make the hits map (or a weights map).
 
@@ -345,7 +361,11 @@ def make_hits(todvec: TodVec, map: MapType, do_weights: bool = False) -> MapType
         The hits map. Will be the same type as map.
     """
     hits = map.copy()
-    if isinstance(hits, PolMap) and isinstance(map, PolMap):
+    if hasattr(map, "poltag"):
+        # Cast to poltag, does nothing at runtime
+        map = cast("PolMap", map)
+        hits = cast("PolMap", hits)
+
         if map.npol > 1:
             hits.set_polstate(map.poltag + "_PRECON")
     hits.clear()

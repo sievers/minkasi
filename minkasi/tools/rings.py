@@ -1,20 +1,23 @@
-from typing import Sequence
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
 
-from ..maps import MapType
+if TYPE_CHECKING:
+    from ..maps import MapType
 
 
 def _prep_rings(
-    edges: Sequence[float] | NDArray[np.floating],
-    cent: Sequence[float] | NDArray[np.floating],
-    map: MapType,
+    edges: Union[Sequence[float], NDArray[np.floating]],
+    cent: Union[Sequence[float], NDArray[np.floating]],
+    map: "MapType",
     pixsize: float,
-    fwhm: int | float | Sequence[int | float] | NDArray[np.integer | np.floating],
-    amps: None | Sequence[float] | NDArray[np.floating],
+    fwhm: Union[
+        int, float, Sequence[Union[int, float]], NDArray[Union[np.integer, np.floating]]
+    ],
+    amps: Optional[Union[Sequence[float], NDArray[np.floating]]],
     iswcs: bool,
-) -> tuple[
+) -> Tuple[
     NDArray[np.floating],
     NDArray[np.floating],
     NDArray[np.floating],
@@ -76,15 +79,14 @@ def _prep_rings(
 
 
 def make_rings(
-    edges: Sequence[float] | NDArray[np.floating],
-    cent: Sequence[float] | NDArray[np.floating],
-    map: MapType,
-    pixsize: float = 2.0,
-    fwhm: int
-    | float
-    | Sequence[int | float]
-    | NDArray[np.integer | np.floating] = 10.0,
-    amps: None | Sequence[float] | NDArray[np.floating] = None,
+    edges: Union[Sequence[float], NDArray[np.floating]],
+    cent: Union[Sequence[float], NDArray[np.floating]],
+    map: "MapType",
+    pixsize: float,
+    fwhm: Union[
+        int, float, Sequence[Union[int, float]], NDArray[Union[np.integer, np.floating]]
+    ],
+    amps: Optional[Union[Sequence[float], NDArray[np.floating]]],
     iswcs: bool = True,
 ) -> NDArray[np.floating]:
     """
@@ -131,16 +133,15 @@ def make_rings(
 
 
 def make_rings_wSlope(
-    edges: Sequence[float] | NDArray[np.floating],
-    cent: Sequence[float] | NDArray[np.floating],
+    edges: Union[Sequence[float], NDArray[np.floating]],
+    cent: Union[Sequence[float], NDArray[np.floating]],
     vals: NDArray[np.floating],
-    map: MapType,
+    map: "MapType",
     pixsize: float = 2.0,
-    fwhm: int
-    | float
-    | Sequence[int | float]
-    | NDArray[np.integer | np.floating] = 10.0,
-    amps: None | Sequence[float] | NDArray[np.floating] = None,
+    fwhm: Union[
+        int, float, Sequence[Union[int, float]], NDArray[Union[np.integer, np.floating]]
+    ] = 10,
+    amps: Optional[Union[Sequence[float], NDArray[np.floating]]] = None,
     aa: float = 1.0,
     bb: float = 1.0,
     rot: float = 0.0,

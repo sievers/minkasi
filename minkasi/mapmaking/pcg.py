@@ -1,9 +1,12 @@
 import sys
 import time
+from typing import TYPE_CHECKING, List, Optional, cast
 
-from ..maps import Mapset, PolMap, SkyMap
 from ..parallel import myrank
-from ..tods import TodVec
+
+if TYPE_CHECKING:
+    from ..maps import Mapset, SkyMap
+    from ..tods import TodVec
 
 if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable
@@ -18,20 +21,20 @@ class HasPrior(Protocol):
 
 
 def run_pcg_wprior(
-    b: Mapset,
-    x0: Mapset,
-    tods: TodVec,
-    prior: HasPrior | None = None,
-    precon: Mapset | None = None,
+    b: "Mapset",
+    x0: "Mapset",
+    tods: "TodVec",
+    prior: Optional[HasPrior] = None,
+    precon: Optional["Mapset"] = None,
     maxiter: int = 25,
     outroot: str = "map",
-    save_iters: list = [-1],
+    save_iters: List[int] = [-1],
     save_ind: int = 0,
     save_tail: str = ".fits",
-    plot_iters: list = [],
-    plot_info: dict | None = None,
+    plot_iters: List[int] = [],
+    plot_info: Optional[dict] = None,
     plot_ind: int = 0,
-) -> Mapset:
+) -> "Mapset":
     """
     Function which runs preconditioned conjugate gradient on a bundle of tods to generate a map.
     PCG iteratively approximates the solution to the linear equation Ax = b,
@@ -176,11 +179,12 @@ def run_pcg_wprior(
             x.maps[save_ind].write(outroot + "_" + repr(iter) + save_tail)
         if i in plot_iters and myrank == 0:
             to_plot = x.maps[plot_ind]
-            if isinstance(to_plot, SkyMap):
+            if hasattr(to_plot, "plot"):
+                to_plot = cast("SkyMap", to_plot)
                 print("plotting on iteration ", i)
                 to_plot.plot(plot_info)
-            elif isinstance(to_plot, PolMap):
-                print("Warning: Can't plot as SkyMap has no plot function implemented")
+            else:
+                print("Warning: Can't plot as PolMap has no plot function implemented")
 
     tave = (time.time() - tloop) / maxiter
     print(
@@ -195,19 +199,19 @@ def run_pcg_wprior(
 
 
 def run_pcg(
-    b: Mapset,
-    x0: Mapset,
-    tods: TodVec,
-    precon: Mapset | None = None,
+    b: "Mapset",
+    x0: "Mapset",
+    tods: "TodVec",
+    precon: Optional["Mapset"] = None,
     maxiter: int = 25,
     outroot: str = "map",
-    save_iters: list = [-1],
+    save_iters: List[int] = [-1],
     save_ind: int = 0,
     save_tail: str = ".fits",
-    plot_iters: list = [],
-    plot_info: dict | None = None,
+    plot_iters: List[int] = [],
+    plot_info: Optional[dict] = None,
     plot_ind: int = 0,
-) -> Mapset:
+) -> "Mapset":
     """
     Wrapper function that just calls run_pcg_wprior with no prior.
     This exists for convenience/compatibility reasons,

@@ -1,5 +1,6 @@
 import copy
 import sys
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from astropy import wcs
@@ -9,9 +10,11 @@ from numpy.typing import NDArray
 from ..mapmaking.map2tod import map2tod, polmap2tod
 from ..mapmaking.tod2map import tod2map_cached, tod2map_omp, tod2map_simple, tod2polmap
 from ..parallel import comm, get_nthread, have_mpi
-from ..tods import Tod
 from ..tools.fft import find_good_fft_lens
 from .utils import get_wcs
+
+if TYPE_CHECKING:
+    from ..tods import Tod
 
 try:
     have_healpy = True
@@ -48,7 +51,7 @@ class PolMap:
     ----------
     wcs : wcs.WCS
         The WCS for this map.
-    primes : list[int]
+    primes : Sequence[int]
         Prime numbers to use when calculating good fft lengths.
     nx : int
         The number of pixels in the x-axis.
@@ -60,7 +63,7 @@ class PolMap:
         String that lists the polarization states.
     pols : list[str]
         List of polarizations in this map.
-    lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+    lims : Sequence[float] | NDArray[np.floating]
         The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
     tag : str
         Name to store pixellization under.
@@ -83,16 +86,16 @@ class PolMap:
 
     def __init__(
         self,
-        lims: tuple[float, ...] | list[float] | NDArray[np.floating],
+        lims: Union[Sequence[float], NDArray[np.floating]],
         pixsize: float,
         poltag: str = "I",
         proj: str = "CAR",
         pad: int = 2,
-        primes: list[int] | None = None,
-        cosdec: float | None = None,
-        nx: int | None = None,
-        ny: int | None = None,
-        mywcs: wcs.WCS | None = None,
+        primes: Optional[Sequence[int]] = None,
+        cosdec: Optional[float] = None,
+        nx: Optional[int] = None,
+        ny: Optional[int] = None,
+        mywcs: Optional[wcs.WCS] = None,
         tag: str = "ipix",
         purge_pixellization: bool = False,
         ref_equ: bool = False,
@@ -102,7 +105,7 @@ class PolMap:
 
         Parameters
         ----------
-        lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+        lims : Sequence[float] | NDArray[np.floating]
             The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
         pixsize : float
             The size of a pixel in radians.
@@ -112,7 +115,7 @@ class PolMap:
             The projection of the map.
         pad : int, default: 2
             Amount of pixels to pad the map outside of lims.
-        primes : list[int] | None, default: None
+        primes : Sequence[int] | None, default: None
             Prime numbers to use when calculating good fft lengths (modifies nx and ny).
             If None this is not performed.
         cosdec : float | None, default: None
@@ -134,7 +137,7 @@ class PolMap:
         ref_equ : bool, default: False
             Use equtorial reference.
         """
-        pols: list[str] | None = _poltag2pols(poltag)
+        pols: Optional[List[str]] = _poltag2pols(poltag)
         if pols is None:
             print("Unrecognized polarization state " + poltag + " in PolMap.__init__")
             return
@@ -165,7 +168,7 @@ class PolMap:
         else:
             self.nx = int(pix_corners[:, 0].max() + pad)
             self.ny = int(pix_corners[:, 1].max() + pad)
-        self.primes: None | list[int]
+        self.primes: Optional[Sequence[int]]
         if primes is None:
             self.primes = primes
         else:
@@ -175,8 +178,8 @@ class PolMap:
             self.primes = primes[:]
         self.npol: int = npol
         self.poltag: str = poltag
-        self.pols: list[str] = pols
-        self.lims: tuple[float, ...] | list[float] | NDArray[np.floating] = lims
+        self.pols: List[str] = pols
+        self.lims: Union[Sequence[float], NDArray[np.floating]] = lims
         self.tag: str = tag
         self.purge_pixellization: bool = purge_pixellization
         self.pixsize: float = pixsize
@@ -187,8 +190,8 @@ class PolMap:
             self.map = np.zeros([self.nx, self.ny])
         self.proj: str = proj
         self.pad: int = pad
-        self.caches: NDArray[np.floating] | None = None
-        self.cosdec: float | None = cosdec
+        self.caches: Optional[NDArray[np.floating]] = None
+        self.cosdec: Optional[float] = cosdec
 
     def get_caches(self):
         """
@@ -412,7 +415,7 @@ class PolMap:
         ipix: NDArray[np.int32] = np.asarray(xpix * self.ny + ypix, dtype="int32")
         return ipix
 
-    def get_pix(self, tod: Tod, savepix: bool = True) -> NDArray[np.int32]:
+    def get_pix(self, tod: "Tod", savepix: bool = True) -> NDArray[np.int32]:
         """
         Get pixellization of a TOD.
 
@@ -459,7 +462,7 @@ class PolMap:
 
     def map2tod(
         self,
-        tod: Tod,
+        tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
@@ -499,7 +502,7 @@ class PolMap:
 
     def tod2map(
         self,
-        tod: Tod,
+        tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
@@ -530,7 +533,7 @@ class PolMap:
                 tod.clear_saved_pix(self.tag)
             return
 
-        if not (self.caches is None):
+        if self.caches is not None:
             tod2map_cached(self.caches, dat, ipix)
         else:
             if do_omp:
@@ -540,7 +543,7 @@ class PolMap:
         if self.purge_pixellization:
             tod.clear_saved_pix(self.tag)
 
-    def r_th_maps(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    def r_th_maps(self) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Get polor coordinates for this map.
         Origin is at center of map.
@@ -576,7 +579,7 @@ class PolMap:
             The dot product
         """
         tot = np.sum(self.map * map.map)
-        return tot
+        return float(tot)
 
     def write(self, fname: str = "map.fits"):
         """
@@ -784,7 +787,7 @@ class HealPolMap(PolMap):
         if not (have_healpy):
             print("Healpix map requested, but healpy not found.")
             return
-        pols: list[str] | None = _poltag2pols(poltag)
+        pols: Optional[List[str]] = _poltag2pols(poltag)
         if pols is None:
             print("Unrecognized polarization state " + poltag + " in PolMap.__init__")
             return
@@ -794,8 +797,8 @@ class HealPolMap(PolMap):
         self.nx: int = healpy.nside2npix(self.nside)
         self.ny: int = 1
         self.poltag: str = poltag
-        self.pols: list[str] = pols
-        self.caches: NDArray[np.floating] | None = None
+        self.pols: List[str] = pols
+        self.caches: Optional[NDArray[np.floating]] = None
         self.tag: str = tag
         self.purge_pixellization: bool = purge_pixellization
         self.map: NDArray[np.floating]

@@ -1,14 +1,18 @@
 import copy
 import sys
+from typing import TYPE_CHECKING, Optional, Sequence, Union
 
 import numpy as np
 from astropy import wcs
 from numpy.typing import NDArray
 
 from ..mapmaking.noise import MapNoiseWhite
-from .mapset import MapsetTwoRes
+from ..tools.map_io import read_fits_map
 from .skymap import SkyMap, SkyMapCoarse
-from .utils import get_aligned_map_subregion_car, get_ft_vec, read_fits_map
+from .utils import get_aligned_map_subregion_car, get_ft_vec
+
+if TYPE_CHECKING:
+    from .mapset import Mapset
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -59,7 +63,7 @@ class SkyMapTwoRes:
     def __init__(
         self,
         map_lowres: str,
-        lims: tuple[float, ...] | list[float] | NDArray[np.floating],
+        lims: Union[Sequence[float], NDArray[np.floating]],
         osamp: int = 1,
         smooth_fac: float = 0.0,
     ):
@@ -70,7 +74,7 @@ class SkyMapTwoRes:
         ----------
         map_lowres : str
             Path to the FITS file containing the low res map.
-        lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+        lims : Sequence[float] | NDArray[np.floating]
             The limits of ra/dec (ra_low, ra_high, dec_low, dec_high) for the requested subregion.
         int : float, default: 1
             Factor to divide pixsize of larger WCS to get pixsize of subregion.
@@ -86,14 +90,14 @@ class SkyMapTwoRes:
         self.map: NDArray[np.floating] = read_fits_map(map_lowres)
         self.osamp: int = osamp
         self.map_corner: NDArray[np.integer] = map_corner
-        self.beamft: NDArray[np.complex128] | None = None
-        self.mask: NDArray[np.bool_] | None = None
-        self.map_deconvolved: NDArray[np.floating] | None = None
-        self.noise: MapNoiseWhite | None = None
-        self.fine_prior: NDArray[np.floating] | None = None
-        self.nx_coarse: int | None = None
-        self.ny_coarse: int | None = None
-        self.grid_facs: NDArray[np.floating] | None = None
+        self.beamft: Optional[NDArray[np.complex128]] = None
+        self.mask: Optional[NDArray[np.bool_]] = None
+        self.map_deconvolved: Optional[NDArray[np.floating]] = None
+        self.noise: Optional[MapNoiseWhite] = None
+        self.fine_prior: Optional[NDArray[np.floating]] = None
+        self.nx_coarse: Optional[int] = None
+        self.ny_coarse: Optional[int] = None
+        self.grid_facs: Optional[NDArray[np.floating]] = None
         self.isglobal_prior: bool = True
         self.smooth_fac: float = smooth_fac
 
@@ -182,16 +186,14 @@ class SkyMapTwoRes:
         mapft = mapft * self.beamft
         return np.fft.irfft2(mapft)
 
-    def set_noise_white(
-        self, ivar_map: NDArray[np.floating], isinv: bool = True, nfac: float = 1.0
-    ):
+    def set_noise_white(self, ivar_map: str, isinv: bool = True, nfac: float = 1.0):
         """
         Create a MapNoiseWhite object and set it as the noise.
 
         Parameters
         ----------
-        ivar_map : NDArray[np.floating]
-            Inverse variance map.
+        ivar_map : str
+            Path to inverse variance map.
         isinv : bool, default: True
             Set to false if ivar_map is actually a variance map.
         nfac : float, default: 1.0
@@ -480,7 +482,7 @@ class SkyMapTwoRes:
         coarse, fine = self.coarse2maps(mm)
         return coarse, fine
 
-    def get_rhs(self, mapset: MapsetTwoRes):
+    def get_rhs(self, mapset: "MapsetTwoRes"):
         """
         Solve for right hand side from mapset.
         I don't really understand what this function is doing.
@@ -543,17 +545,17 @@ class SkyMapTwoRes:
                 mapset.maps[fine_ind].map[self.mask] + fine[self.mask] / self.osamp**2
             )
 
-    def apply_prior(self, mapset, outmapset):
+    def apply_prior(self, mapset: "Mapset", outmapset: "Mapset"):
         """
         Apply priors to outmapset.
         I don't really understand what this function is doing.
 
         Parameters
         ----------
-        mapset : MapsetTwoRes
+        mapset : Mapset
             Mapset containing a fine and coarse map.
-        outmapset : MapsetTwoRes
-            Mpaset storing maps with priors applied.
+        outmapset : Mapset
+            Mapset storing maps with priors applied.
 
         Raises
         ------

@@ -1,14 +1,8 @@
-from typing import Sequence
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 from astropy import wcs
-from astropy.io import fits
 from numpy.typing import NDArray
-
-from .polmap import PolMap
-from .skymap import SkyMap
-
-MapType = SkyMap | PolMap
 
 try:
     import numba as nb
@@ -16,66 +10,11 @@ except ImportError:
     from ..tools import no_numba as nb
 
 
-def read_fits_map(
-    fname: str, hdu: int = 0, do_trans: bool = True
-) -> NDArray[np.floating]:
-    """
-    Read a map from a FITs file.
-
-    Parameters
-    ----------
-    fname : str
-        The path to the fits file.
-    hdu : int, default: 0
-        Index of the map in the file.
-    do_trans : bool, default: True
-        Transpose the map before returning.
-
-    Returns
-    -------
-    opened_map : NDArray[np.floating]
-        Array representing the map.
-    """
-    f: fits.HDUList = fits.open(fname)
-    raw: NDArray[np.floating] = f[hdu].data
-    tmp: NDArray[np.floating] = raw.copy()
-    f.close()
-    if do_trans:
-        tmp = (tmp.T).copy()
-    return tmp
-
-
-def write_fits_map_wheader(
-    map: NDArray[np.floating], fname: str, header: fits.Header, do_trans: bool = True
-):
-    """
-    Write out a map to a fits file.
-
-    Parameters
-    ----------
-    map : NDArray[np.floating]
-        Array with the map data.
-    fname : str
-        Path to save map at.
-    header : fits.Header
-        Header to save with map.
-    do_trans : bool, default: True
-        Transpose the map before saving.
-    """
-    if do_trans:
-        map = (map.T).copy()
-    hdu: fits.PrimaryHDU = fits.PrimaryHDU(map, header=header)
-    try:
-        hdu.writeto(fname, overwrite=True)
-    except:
-        hdu.writeto(fname, clobber=True)
-
-
 def get_wcs(
-    lims: tuple[float, ...] | list[float] | NDArray[np.floating],
+    lims: Union[Sequence[float], NDArray[np.floating]],
     pixsize: float,
     proj: str = "CAR",
-    cosdec: float | None = None,
+    cosdec: Optional[float] = None,
     ref_equ: bool = False,
 ) -> wcs.WCS:
     """
@@ -83,7 +22,7 @@ def get_wcs(
 
     Parameters
     ----------
-    lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+    lims : Sequence[float] | NDArray[np.floating]
         The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
     pixsize : float
         The size of a pixel.
@@ -129,18 +68,18 @@ def get_wcs(
 
 
 def get_aligned_map_subregion_car(
-    lims: tuple[float, ...] | list[float] | NDArray[np.floating],
-    fname: str | None = None,
-    big_wcs: wcs.WCS | None = None,
+    lims: Union[Sequence[float], NDArray[np.floating]],
+    fname: Optional[str] = None,
+    big_wcs: Optional[wcs.WCS] = None,
     osamp: int = 1,
-) -> tuple[wcs.WCS, NDArray[np.floating], NDArray[np.integer]]:
+) -> Tuple[wcs.WCS, NDArray[np.floating], NDArray[np.integer]]:
     """
     Get a wcs for a subregion of a map, with optionally finer pixellization.
     Designed for use in e.g. combining ACT maps and Mustang data.
 
     Parameters
     ----------
-    lims : tuple[float, ...] | list[float] | NDArray[np.floating]
+    lims : Sequence[float] | NDArray[np.floating]
         The limits of ra/dec for the subregion (ra_low, ra_high, dec_low, dec_high).
         Will be tweaked as needed.
     fname : str | None, default: None

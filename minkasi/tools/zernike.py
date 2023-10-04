@@ -1,10 +1,12 @@
+from typing import List, Tuple
+
 import numpy as np
 from numpy.typing import NDArray
 
 
 def zernike_column(
     m: int, nmax: int, rmat: NDArray[np.floating]
-) -> tuple[NDArray[np.floating], NDArray[np.int_]]:
+) -> Tuple[NDArray[np.floating], NDArray[np.int_]]:
     """
     Generate the radial part of zernike polynomials for all n from m up to nmax.
 
@@ -64,7 +66,7 @@ def zernike_column(
 
 def all_zernike(
     n: int, r: NDArray[np.floating], th: NDArray[np.floating]
-) -> tuple[NDArray[np.floating], list]:
+) -> Tuple[NDArray[np.floating], List]:
     """
     Compute full Zernikes from 0 to n.
 
@@ -84,9 +86,9 @@ def all_zernike(
     znvec : list
         The radial part of each zernike.
     """
-    znvec: list = [None] * (n + 1)
-    nvec: list = [None] * (n + 1)
-    mvec: list = [None] * (n + 1)
+    znvec: List = [None] * (n + 1)
+    nvec: List = [None] * (n + 1)
+    mvec: List = [None] * (n + 1)
     nzer = 0
     for m in range(0, n + 1):
         znvec[m], nvec[m] = zernike_column(m, n, r)

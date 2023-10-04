@@ -1,7 +1,7 @@
 """
 Functions for loading TODs from disk.
 """
-from typing import Any, Iterable
+from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
 from astropy.io import fits
@@ -37,7 +37,7 @@ def read_tod_from_fits_cbass(
     lon: float = -118.2941,
     v34: bool = True,
     nm20: bool = False,
-) -> dict:
+) -> Dict:
     """
     Read a CBASS TOD from a FITS file.
 
@@ -150,7 +150,9 @@ def read_tod_from_fits_cbass(
     return dat
 
 
-def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) -> dict:
+def read_tod_from_fits(
+    fname: str, hdu: int = 1, branch: Optional[float] = None
+) -> Dict:
     """
     Read a TOD from a FITS file.
     This function nominally runs on MUSTANG TODs.
@@ -171,14 +173,13 @@ def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) ->
         Dict containing TOD info.
         Can be passed into the Tod class.
     """
-    with fits.open(fname) as hdul:
-        loaded_hdu: fits.hdu.TableHDU = hdul[hdu]
-    raw = loaded_hdu.data
+    hdul = fits.open(fname)
+    raw = hdul[hdu].data
 
     if raw.names is None:
         raise ValueError("TOD seems to be empty")
     # print 'sum of cut elements is ',np.sum(raw['UFNU']<9e5)
-    calinfo: dict[str, Any] = {"calinfo": False}
+    calinfo: Dict[str, Any] = {"calinfo": False}
     try:  # read in calinfo (per-scan beam volumes etc) if present
         calinfo["calinfo"] = True
         kwds = (
@@ -198,7 +199,7 @@ def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) ->
             "beamvunc",
         )  # for now just hardwired ones we want
         for kwd in kwds:
-            calinfo[kwd] = loaded_hdu.header[kwd]
+            calinfo[kwd] = hdul[hdu].header[kwd]
     except KeyError:
         print(
             "WARNING - calinfo information not found in fits file header - to track JytoK etc you may need to reprocess the fits files using mustangidl > revision 932"
@@ -271,6 +272,8 @@ def read_tod_from_fits(fname: str, hdu: int = 1, branch: float | None = None) ->
         ymax,
     )
 
+    hdul.close()
+
     return dat
 
 
@@ -327,7 +330,7 @@ def todvec_from_files_octave(fnames: Iterable[str]) -> TodVec:
     return todvec
 
 
-def cut_blacklist(tod_names: Iterable[str], blacklist: Iterable[str]) -> list[str]:
+def cut_blacklist(tod_names: Iterable[str], blacklist: Iterable[str]) -> List[str]:
     """
     Remove blacklisted TODs from a list of paths.
 
