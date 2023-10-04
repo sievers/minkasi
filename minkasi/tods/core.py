@@ -74,7 +74,7 @@ class Tod:
         self.noise_kwargs: dict = {}
         self.noise_modelclass: type[NoiseModelType]
 
-    def lims(self) -> Tuple[float, float, float, float]:
+    def lims(self) -> list[float, float, float, float]:
         """
         Get RA/dec limits of this TOD.
 
@@ -93,7 +93,7 @@ class Tod:
         xmax: float = self.info["dx"].max()
         ymin: float = self.info["dy"].min()
         ymax: float = self.info["dy"].max()
-        return xmin, xmax, ymin, ymax
+        return [xmin, xmax, ymin, ymax]
 
     def set_apix(self):
         """
@@ -788,7 +788,7 @@ class TodVec:
         self.tods[-1].set_tag(self.ntod)
         self.ntod = self.ntod + 1
 
-    def lims(self) -> Optional[Tuple[float, float, float, float]]:
+    def lims(self) -> Optional[list[float, float, float, float]]:
         """
         Get global limits of all TODs.
         This function is MPI aware, so the limits are the same across processes.
@@ -821,7 +821,7 @@ class TodVec:
             ymin = comm.allreduce(ymin, op=MPI.MIN)
             ymax = comm.allreduce(ymax, op=MPI.MAX)
             print("after reduction lims are ", [xmin, xmax, ymin, ymax])
-        return xmin, xmax, ymin, ymax
+        return [xmin, xmax, ymin, ymax]
 
     def get_nsamp(self, reduce: bool = True) -> int:
         """
