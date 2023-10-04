@@ -649,7 +649,7 @@ class SkyMap:
         Parameters
         ----------
         map : SkyMap
-            Map to tahe dot product with.
+            Map to take dot product with.
 
         Returns
         -------
@@ -722,12 +722,12 @@ class SkyMap:
 
         Parameters
         ----------
-        map : SKyMap
+        map : SkyMap
             Map to multiply by.
 
         Returns
         -------
-        new_map : PolMap
+        new_map : SkylMap
             The result of the multiplication.
         """
         new_map = map.copy()
