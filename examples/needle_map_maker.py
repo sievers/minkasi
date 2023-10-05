@@ -59,12 +59,12 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
-wmap = WavSkyMap(lims, np.zeros(1), pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
 need = needlet(np.arange(10), lightcone=wmap, L=300)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
-wmap = WavSkyMap(lims, need.filters, pixsize, square = True, multiple=2)
+wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -105,7 +105,7 @@ save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 40
 outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
 
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=500, save_iters=save_iters, outroot = outroot)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50, save_iters=save_iters, outroot = outroot)
 if minkasi.myrank==0:
     mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/MS0735_needle.fits') #and write out the map as a FITS file
 else:
