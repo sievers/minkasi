@@ -93,19 +93,19 @@ x0.clear()
 
 #preconditioner is 1/ hit count map.  helps a lot for
 #convergence.
-precon=mapset.copy()
-tmp=hits.map.copy()
-ii=tmp>0
-tmp[ii]=1.0/tmp[ii]
+#precon=mapset.copy()
+#tmp=hits.map.copy()
+#ii=tmp>0
+#tmp[ii]=1.0/tmp[ii]
 #precon.maps[0].map[:]=numpy.sqrt(tmp)
-tmp = map2wav_real(tmp, need.filters)
-precon.maps[0].wmap[:]=tmp[:]
+#tmp = map2wav_real(tmp, need.filters)
+#precon.maps[0].wmap[:]=tmp[:]
 
 save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 400, 450, 499]
 outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
 
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50, save_iters=save_iters, outroot = outroot)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)
 if minkasi.myrank==0:
     mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/MS0735_needle.fits') #and write out the map as a FITS file
 else:
