@@ -58,8 +58,8 @@ minkasi.barrier()
 
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
-wmap = _WavSkyMap(lims, np.zeros(1), pixsize, square = True, multiple=2).map
-#wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+
+wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
 need = needlet(np.arange(10), lightcone=wmap, L=300)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
