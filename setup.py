@@ -1,4 +1,4 @@
-from setuptools import Extension, setup
+from setuptools import Extension, setup, find_packages
 import subprocess
 
 from distutils.core import setup, Extension
@@ -76,7 +76,8 @@ def get_extensions():
 
 setup(
     name="minkasi",
-    packages=["minkasi"],
+    # packages=["minkasi"],
+    packages=find_packages(where="."),
     version="2.0.0",
     install_requires=[
         "requests",
