@@ -9,7 +9,7 @@ from astropy import units as u
 from astropy.io import fits
 
 import minkasi.minkasi_all as minkasi
-from minkasi.needlet.needlet import _WavSkyMap, WavSkyMap
+from minkasi.needlet.needlet import WavSkyMap
 from minkasi.needlet.needlet import needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
 
