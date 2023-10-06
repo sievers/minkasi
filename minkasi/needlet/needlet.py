@@ -50,8 +50,10 @@ class WavSkyMap(SkyMap):
         An array specifying the needlet filter response from needlet class
     nfilt : int
         Number of needlet filters
-    wmap : NDArray[np.floating]
+    map : NDArray[np.floating]
         Array of wavelet coefficients. Can also be thought of as the wavelet space map.
+    real_map : ~minkasi.maps.SkyMap
+        SkyMap object containing the real sky counterpart to map.
     """
 
     def __init__(
@@ -99,65 +101,9 @@ class WavSkyMap(SkyMap):
             ref_equ,
         )
         self.nfilt = len(self.filters)
-        self.wmap = np.zeros([self.nfilt, self.nx, self.ny])
-
-    def axpy(self, map, a):
-        """
-        Apply a*x + y to wavelet map.
-
-        Parameters
-        ----------
-        map : WavSkyMap
-             The map to act as y
-
-        a : float
-            Number to mutiply the map by.
-        """
-        self.wmap[:] = self.wmap[:] + a * map.wmap[:]
-
-    def clear(self):
-        """
-        Zero out the wmap.
-        """
-        self.wmap[:] = 0
-        self.map[:] = 0
-    def clear_real_map(self):
-        """
-        Zero out the realspace map.
-        """
-        self.map[:] = 0
-
-    def assign(self, arr: NDArray[np.floating]):
-        """
-        Assign new values to wmap.
-
-        Parameters
-        ----------
-        arr : NDArray[np.floating]
-            Array of values to assign to wmap.
-            Should be the same shape as self.wmap.
-        """
-        assert arr.shape[0] == self.nfilt
-        assert arr.shape[1] == self.nx
-        assert arr.shape[2] == self.ny
-
-        self.map[:] = arr
-
-    def assign_real_map(self, arr: NDArray[np.floating]):
-        """
-        Assign new values to realspace map.
-
-        Parameters
-        ----------
-        arr : NDArray[np.floating]
-            Array of values to assign to map.
-            Should be the same shape as self.map.
-        """
-        assert arr.shape[0] == self.nx
-        assert arr.shape[1] == self.ny
-
-        self.map[:] = arr
-
+        self.map = np.zeros([self.nfilt, self.nx, self.ny])
+        self.real_map = SkyMap(lims, pixsize, proj, pad, square, multiple, primes, cosdec, nx, ny, mywcs, tag, purge_pixellization, ref_equ,)#This is very slightly inefficient as it redoes the ssquaring but is safer in avoiding getting a real_map and wave_map with different shapes
+    
     def map2tod(
         self,
         tod: "Tod",
@@ -183,10 +129,10 @@ class WavSkyMap(SkyMap):
             Use omp to parallelize
         """
         ipix = self.get_pix(tod)
-        self.map = np.squeeze(
-            wav2map_real(self.wmap, self.filters), axis=0
+        self.real_map.map = np.squeeze(
+            wav2map_real(self.map, self.filters), axis=0
         )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
-        map2tod(dat, self.map, ipix, do_add, do_omp)
+        map2tod(dat, self.real_map.map, ipix, do_add, do_omp)
 
     def tod2map(
         self,
@@ -220,31 +166,21 @@ class WavSkyMap(SkyMap):
         if not (self.caches is None):
             tod2map_cached(self.caches, dat, ipix)
 
-        self.map[:] = 0 #clear real map before conversion
-        tod2map_simple(self.map, dat, ipix)
-        self.wmap = np.squeeze(
-            map2wav_real(self.map, self.filters), axis=0
-        )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
+        self.real_map.clear()
+         
+        tod2map_simple(self.real_map.map, dat, ipix)
+        if not do_add:
+            self.map = np.squeeze(
+                map2wav_real(self.real_map.map, self.filters), axis=0
+            )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
+
+        else:
+            self.map += np.squeeze(
+                map2wav_real(self.real_map.map, self.filters), axis=0
+            )
 
         if self.purge_pixellization:
             tod.clear_saved_pix(self.tag)
-
-    def dot(self, map: Self) -> float:
-        """
-        Take dot product of this wmap with another.
-
-        Parameters
-        ----------
-        map : WavSkyMap
-            Map to take dot product with.
-
-        Returns
-        -------
-        tot : float
-            The dot product
-        """
-        tot = np.sum(self.wmap * map.wmap)
-        return tot
 
     def write(self, fname: str = "map.fits"):
         """
@@ -255,42 +191,17 @@ class WavSkyMap(SkyMap):
         fname : str, default: 'map.fits'
             The path to save the map to.
         """
-        self.map = np.squeeze(wav2map_real(self.wmap, self.filters), axis=0)
+        self.real_map.map = np.squeeze(wav2map_real(self.map, self.filters), axis=0)
         header = self.wcs.to_header()
         if True:  # try a patch to fix the wcs xxx
-            tmp = self.map.transpose().copy()
+            tmp = self.real_map.map.transpose().copy()
             hdu = fits.PrimaryHDU(tmp, header=header)
         else:
-            hdu = fits.PrimaryHDU(self.map, header=header)
+            hdu = fits.PrimaryHDU(self.real_map.map, header=header)
         try:
             hdu.writeto(fname, overwrite=True)
         except:
             hdu.writeto(fname, clobber=True)
-
-    def __mul__(self, map: Self) -> Self:
-        """
-        Multiply this map with another.
-
-        Parameters
-        ----------
-        map : WavSkyMap
-            Map to multiply by.
-
-        Returns
-        -------
-        new_map : WavSkylMap
-            The result of the multiplication.
-        """
-        new_map = map.copy()
-        new_map.wmap[:] = self.wmap[:] * map.wmap[:]
-        return new_map
-
-    def invert(self):
-        """
-        Invert the map. Note that the inverted map is stored in self.map.
-        """
-        mask = np.abs(self.wmap) > 0
-        self.wmap[mask] = 1.0 / self.wmap[mask]
 
 class needlet:
     """

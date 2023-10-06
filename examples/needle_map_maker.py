@@ -16,16 +16,20 @@ from minkasi.needlet.needlet import wav2map_real, map2wav_real
 #%load_ext autoreload
 #%autoreload 2
 
-dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
-tod_names=glob.glob(dir+'Sig*.fits')
-n_tods = 2
+#find tod files we want to map
+idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+tod_names=glob.glob(idir+'Sig*.fits')
+
+
+n_tods = 999999
 
 tod_names = tod_names[:n_tods]
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 
 todvec=minkasi.TodVec()
 
-flatten = True
+flatten = False
+
 
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
@@ -85,29 +89,29 @@ rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
 if minkasi.myrank==0:
-    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needle_rhs.fits')
+    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/needle_rhs.fits')
 #this is our starting guess.  Default to starting at 0,
 #but you could start with a better guess if you have one.
 x0=rhs.copy()
 x0.clear()
 
-#preconditioner is 1/ hit count map.  helps a lot for
+#preconditioner is 1/ hit count map.  helps a lot for 
 #convergence.
-precon=mapset.copy()
-tmp=hits.map.copy()
-ii=tmp>0
-tmp[ii]=1.0/tmp[ii]
+#precon=mapset.copy()
+#tmp=hits.map.copy()
+#ii=tmp>0
+#tmp[ii]=1.0/tmp[ii]
 #precon.maps[0].map[:]=numpy.sqrt(tmp)
-tmp = map2wav_real(tmp, need.filters)
-precon.maps[0].wmap[:]=tmp[:]
+#precon.maps[0].map[:]=tmp[:]
 
-save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 400, 450, 499]
 outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
 
+
+save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50, save_iters=save_iters, outroot = outroot)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,maxiter=500, save_iters=save_iters, outroot = outroot)
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/MS0735_needle.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/MS0735_needle.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
