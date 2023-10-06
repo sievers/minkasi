@@ -1,14 +1,16 @@
 import numpy
 from matplotlib import pyplot as plt
-import minkasi,pyfftw
+import minkasi.minkasi_all as minkasi
+
+import pyfftw
 import time
 import glob
-reload(minkasi)
+#reload(minkasi)
 plt.ion()
 
 #find tod files we want to map
-dir='../data/m0717_raw/'
-tod_names=glob.glob(dir+'*.fits')  
+idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+tod_names=glob.glob(idir+'Sig*.fits')
 
 #if running MPI, you would want to split up files between processes
 #one easy way is to say to this:
@@ -56,7 +58,7 @@ map=minkasi.SkyMap(lims,pixsize)
 for tod in todvec.tods:
     ipix=map.get_pix(tod)
     tod.info['ipix']=ipix
-    tod.set_noise_smoothed_svd()
+    tod.set_noise(minkasi.NoiseSmoothedSVD) 
 
 #get the hit count map.  We use this as a preconditioner
 #which helps small-scale convergence quite a bit.
@@ -73,6 +75,7 @@ mapset.add_map(map)
 #hence putting make_rhs in the vector of TODs. 
 #Again, make_rhs is MPI-aware, so this should do the right thing
 #if you run with many processes.
+
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
@@ -91,9 +94,12 @@ tmp[ii]=1.0/tmp[ii]
 precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
+
+outpath = "/scratch/r/rbond/jorlo/M2-TODs/" #CHANGE ME!
+
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('first_map_precon_mpi.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outpath+'first_map_precon_mpi.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 

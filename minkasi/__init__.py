@@ -1,1 +1,1 @@
-from .minkasi import *
+from .parallel import *
