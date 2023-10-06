@@ -176,7 +176,7 @@ def run_pcg_wprior(
         t3 = time.time()
 
         if i in save_iters and myrank == 0:
-            x.maps[save_ind].write(outroot + "_" + repr(iter) + save_tail)
+            x.maps[save_ind].write(outroot + "_" + str(i) + save_tail)
         if i in plot_iters and myrank == 0:
             to_plot = x.maps[plot_ind]
             if hasattr(to_plot, "plot"):
