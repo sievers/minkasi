@@ -12,6 +12,7 @@ import minkasi.minkasi_all as minkasi
 from minkasi.needlet.needlet import WavSkyMap
 from minkasi.needlet.needlet import needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
+from minkasi.maps.mapset import WavMapset
 
 #%load_ext autoreload
 #%autoreload 2
@@ -68,6 +69,13 @@ need = needlet(np.arange(10), lightcone=wmap, L=300)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
+map_size = pixsize * wmap.shape[0] * ( 180 * 60 ) / np.pi #in arcmin
+fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
+
+cut_arcmin = 2 #put a prior on scales larger than this
+
+flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
+
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
 
 for tod in todvec.tods:
@@ -77,8 +85,18 @@ for tod in todvec.tods:
 
 hits=minkasi.make_hits(todvec,wmap)
 
-mapset=minkasi.Mapset()
+mapset=WavMapset()
 mapset.add_map(wmap)
+
+prior = wmap.copy()
+
+for i in range(len(prior.map)):
+    prior.map[i, flags] = 1e-3
+
+prior.isglobal_prior = True
+
+mapset.add_map(prior)
+
 
 #make A^T N^1 d.  TODs need to understand what to do with maps
 #but maps don't necessarily need to understand what to do with TODs,

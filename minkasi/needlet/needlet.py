@@ -54,6 +54,8 @@ class WavSkyMap(SkyMap):
         Array of wavelet coefficients. Can also be thought of as the wavelet space map.
     real_map : ~minkasi.maps.SkyMap
         SkyMap object containing the real sky counterpart to map.
+    isglobal_prior : bool
+       True if this map is a prior to be applied to other maps.
     """
 
     def __init__(
@@ -73,6 +75,7 @@ class WavSkyMap(SkyMap):
         tag: str = "ipix",
         purge_pixellization: bool = False,
         ref_equ: bool = False,
+        isglobal_prior : bool = False,
     ):
         """
         Initialize the SkyMap.
@@ -81,9 +84,12 @@ class WavSkyMap(SkyMap):
         ----------
         filters: NDArray[np.floating]
             An array specifying the needlet filter response from needlet class
-        See SkyMap docstring for remainer
+        isglobal_prior: bool = False
+            Specifies if this map is a prior to be applied to other maps.
+        See SkyMap docstring for remainder
         """
         self.filters = filters
+        self.isglobal_prior = isglobal_prior
         super().__init__(
             lims,
             pixsize,
@@ -202,6 +208,28 @@ class WavSkyMap(SkyMap):
             hdu.writeto(fname, overwrite=True)
         except:
             hdu.writeto(fname, clobber=True)
+
+    def apply_prior(self, p, Ap):
+        """
+        Apply prior to the wavelet map. In the ML framework, adding a prior equates to:
+        chi^2 -> chi^2 + m^TQ^-1m
+        for m the map, Q the prior map. Per Jon, the modified the map equation to:
+        (A^T N^-1 A - Q^-1)m = A^T N^-1d
+        Note (A^T N^-1 A)m is the output of tods.dot(p). This function then simply performs
+        (A^T N^-1 A)m - Q^-1m, although the signage is confusing.
+
+        Parameters
+        ----------
+        p : WavSkyMap
+            Wavelet SkyMap of the conjugate vector p.
+        Ap : WavSkyMap
+            The result of tods.dot(p)
+        
+        Outputs
+        -------
+        Modifies Ap in place by Q^-1 m
+        """
+        Ap.map=Ap.map+self.map*p.map
 
 class needlet:
     """
