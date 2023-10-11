@@ -12,7 +12,7 @@ import minkasi.minkasi_all as minkasi
 from minkasi.needlet.needlet import WavSkyMap
 from minkasi.needlet.needlet import needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
-from minkasi.maps.mapset import WavMapset
+from minkasi.maps.mapset import PriorMapset, Mapset
 
 #%load_ext autoreload
 #%autoreload 2
@@ -69,12 +69,12 @@ need = needlet(np.arange(10), lightcone=wmap, L=300)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
-map_size = pixsize * wmap.shape[0] * ( 180 * 60 ) / np.pi #in arcmin
+map_size = pixsize * wmap.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
 fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
 
 cut_arcmin = 2 #put a prior on scales larger than this
-
-flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
+fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e10, 0)
+#flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
 
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
 
@@ -85,17 +85,23 @@ for tod in todvec.tods:
 
 hits=minkasi.make_hits(todvec,wmap)
 
-mapset=WavMapset()
+mapset=Mapset()
 mapset.add_map(wmap)
 
 prior = wmap.copy()
+#prior.map[0] = prior_map
+#prior.map[0][:] = 1e3
+#prior.map[1][:] = 1e-3
+#for i in range(len(prior.map)):
+    #prior.map[i] = prior_map*need.filters[i]
 
-for i in range(len(prior.map)):
-    prior.map[i, flags] = 1e-3
+real_prior = np.fft.fftshift(np.fft.ifftn(fourier_prior).real)
 
-prior.isglobal_prior = True
+prior.map = map2wav_real(real_prior, need.filters)
 
-mapset.add_map(prior)
+prior_mapset = PriorMapset()
+
+prior_mapset.add_map(prior)
 
 
 #make A^T N^1 d.  TODs need to understand what to do with maps
@@ -127,7 +133,7 @@ outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
 
 save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,maxiter=500, save_iters=save_iters, outroot = outroot)
+mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=500, save_iters=save_iters, outroot = outroot, prior = prior_mapset)
 if minkasi.myrank==0:
     mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/MS0735_needle.fits') #and write out the map as a FITS file
 else:
