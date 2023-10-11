@@ -442,15 +442,17 @@ class needlet:
     # ====================================== plotting functions ====================================#
     # ==============================================================================================#
 
-    def plot_bands(self):
+    def plot_bands(self, scale = None):
         fig, ax = plt.subplots()
 
         self.sum_sq = np.zeros_like(self.k_arr)
+        x_arr = self.k_arr
+        if scale: x_arr *= scale
         for j, b in enumerate(self.bands):
-            ax.plot(self.k_arr, b, label=f"j={j}")
+            ax.plot(x_arr, b, label=f"j={j}")
             self.sum_sq += b**2
-
-        ax.plot(self.k_arr, self.sum_sq, label=f"$\sum b^2$", color="k")
+        
+        ax.plot(x_arr, self.sum_sq, label=f"$\sum b^2$", color="k")
         ax.set_xscale("log")
         ax.legend(loc="lower right", ncols=self.nfilt // 2)
         ax.set_xlabel("k [dimless]")
@@ -547,8 +549,8 @@ def map2wav_real(imaps, filters):
         return
     filtered_slices_real = []
 
-    npix = imaps.shape[-2] * imaps.shape[-1]
-    weights = np.array([np.sum(f**2) / npix for f in filters])
+    #npix = imaps.shape[-2] * imaps.shape[-1]
+    #weights = np.array([np.sum(f**2) / npix for f in filters])
 
     for i in range(len(imaps)):
         lightcone_ft = np.fft.fftn(np.fft.fftshift(imaps[i]))
@@ -584,7 +586,7 @@ def wav2map_real(wav_mapset, filters):
         for b in wav_mapset[nu]:
             fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
 
-        npix_f = fourier_boxes[0].shape[-1] * fourier_boxes[0].shape[-2]
+        #npix_f = fourier_boxes[0].shape[-1] * fourier_boxes[0].shape[-2]
 
         back_transform = np.zeros_like(fourier_boxes[0])
         for i in range(wav_mapset.shape[1]):
