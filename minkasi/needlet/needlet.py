@@ -296,6 +296,7 @@ class needlet:
             self.lightcone_box = cosmo_box(lightcone, L)
             self.kmax_dimless = self.lightcone_box.kmax_dimless
         self.nfilt = len(self.js)
+       
         self.k_arr = np.append(
             np.array([0]),
             np.logspace(0, np.log10(self.kmax_dimless), int(10 * self.kmax_dimless)),
@@ -542,11 +543,13 @@ def map2wav_real(imaps, filters):
         multimap of wavelet coefficients
     """
 
-    if len(imaps.shape) == 2:
-        imaps = np.expand_dims(imaps, axis=0)
-    elif len(imaps.shape) != 3:
-        print("Error: input map must have dim = 2 or 3")
-        return
+    #if len(imaps.shape) == 2:
+    #    imaps = np.expand_dims(imaps, axis=0)
+
+    #elif len(imaps.shape) != 3:
+    #    print("Error: input map must have dim = 2 or 3")
+    #    return
+    #print(imaps.shape)
     filtered_slices_real = []
 
     #npix = imaps.shape[-2] * imaps.shape[-1]
@@ -570,22 +573,22 @@ def map2wav_real(imaps, filters):
 
 
 def wav2map_real(wav_mapset, filters):
-    if len(wav_mapset.shape) == 3:
-        wav_mapset = np.expand_dims(wav_mapset, axis=0)
+    #if len(wav_mapset.shape) == 3:
+    #    wav_mapset = np.expand_dims(wav_mapset, axis=0)
 
-    elif len(wav_mapset.shape) != 4:
-        print("Error: input wave mapset must have dim = 3 or 4")
-        return
+    #elif len(wav_mapset.shape) != 4:
+    #    print("Error: input wave mapset must have dim = 3 or 4")
+    #    return
 
-    npix = wav_mapset.shape[-2] * wav_mapset.shape[-1]
-    weights = np.array([np.sum(f**2) / npix for f in filters])
+    #npix = wav_mapset.shape[-2] * wav_mapset.shape[-1]
+    #weights = np.array([np.sum(f**2) / npix for f in filters])
 
     back_transformed = []
     for nu in range(len(wav_mapset)):
         fourier_boxes = []
         for b in wav_mapset[nu]:
             fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
-
+e
         #npix_f = fourier_boxes[0].shape[-1] * fourier_boxes[0].shape[-2]
 
         back_transform = np.zeros_like(fourier_boxes[0])
