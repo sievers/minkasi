@@ -266,6 +266,7 @@ class needlet:
         lightcone: NDArray[np.floating],
         B: Union[None, np.floating] = None,
         kmax_dimless: Union[None, int] = None,
+        basis: Callable[[NDArray[np.floating]], NDArray[np.floating]] = Standard()
     ):
         """
         Init function.
@@ -285,6 +286,12 @@ class needlet:
         kmax_dimless : None | int
             The maximum k mode for which the filters will be constructed. Dimensionless units!
             If None it is calculated.
+        basis : Callable[[NDArray[np.floating]], NDArray[np.floating]]
+            Basis needlet functions b to use. Several are defined in this file but your own can be used. 
+            Note this class does not check that your basis function is valid, i.e. that it satisfies
+            b^2 has support in [1/B, B]
+            b is infinitiely differentiable in [0, inf]
+            sum(b^2) = 1
         """
 
         ####### init attributes
@@ -308,13 +315,14 @@ class needlet:
                 self.k_arr[-1] ** (1 / self.js[-1]) * 1.01
             )  # Set needlet width to just cover k_arr
         self.bands = self.get_needlet_bands_1d()
-
+        self.basis = basis
+    
     def get_needlet_bands_1d(self):
         """
         Get 1D needlet response given parameters
         """
         needs = []
-        bl2 = np.vectorize(self.__b2_need) #b2_need is a function
+        bl2 = np.vectorize(self.basis)
 
         for j in self.js:
             xi = self.k_arr / self.B**j
@@ -361,49 +369,8 @@ class needlet:
         if return_filt:
             return self.filters
 
-    def filter_lightcone(
-        self, return_fourier=False, plot=False, plot_norm="lin", n_nu_plot=None
-    ):
-        filtered_slices_real = []
-        filtered_slices_fourier = []
-        fourier_radii = self.lightcone_box.get_grid_dimless_2d(return_grid=True)
-        self.get_needlet_filters_2d(fourier_radii)
 
-        for i in range(len(self.lightcone)):
-            lightcone_ft = np.fft.fftn(np.fft.fftshift(self.lightcone[i]))
-
-            filtered_slice_real = []
-            filtered_slice_fourier = []
-            for filt in self.filters:
-                fourier_filtered = np.fft.fftshift(filt) * lightcone_ft
-                filtered_slice_fourier.append(fourier_filtered)
-                filtered_slice_real.append(
-                    np.fft.fftshift(np.real(np.fft.ifftn(fourier_filtered)))
-                )  # should maybe catch if imag(fourier_filtered)!=0 here
-
-            filtered_slices_real.append(np.array(filtered_slice_real))
-            filtered_slices_fourier.append(np.array(filtered_slice_fourier))
-
-        if return_fourier:
-            return np.array(filtered_slices_real), np.array(filtered_slices_fourier)
-        else:
-            return np.array(filtered_slices_real)
-
-    def back_transform(self, filtered_boxes):
-        back_transformed = []
-        for nu in range(len(self.lightcone)):
-            fourier_boxes = []
-            for b in filtered_boxes[nu]:
-                fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
-
-            back_transform = np.zeros_like(fourier_boxes[0])
-            for i in range(self.nfilt):
-                back_transform += np.fft.fftshift(fourier_boxes[i]) * self.filters[i]
-            back_transform = np.fft.fftshift(
-                np.real(np.fft.ifftn(np.fft.fftshift(back_transform)))
-            )
-            back_transformed.append(back_transform)
-        return np.array(back_transformed)
+def Standard(xi, B):
 
     def __f_need(self, t):
         """Auxiliar function f to define the standard needlet"""
