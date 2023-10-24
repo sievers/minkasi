@@ -25,7 +25,7 @@ from ..tods import Tod, TodVec
 from ..tools.fft import find_good_fft_lens
 from ..maps.skymap import SkyMap
 
-from pixell import enmap
+#from pixell import enmap
 
 import matplotlib.pyplot as plt
 
@@ -266,7 +266,7 @@ class needlet:
         lightcone: NDArray[np.floating],
         B: Union[None, np.floating] = None,
         kmax_dimless: Union[None, int] = None,
-        basis: Callable[[NDArray[np.floating]], NDArray[np.floating]] = Standard()
+        basis: Callable[..., NDArray[np.floating]] = Standard()
     ):
         """
         Init function.
@@ -286,7 +286,7 @@ class needlet:
         kmax_dimless : None | int
             The maximum k mode for which the filters will be constructed. Dimensionless units!
             If None it is calculated.
-        basis : Callable[[NDArray[np.floating]], NDArray[np.floating]]
+        basis : Callable[..., NDArray[np.floating]]
             Basis needlet functions b to use. Several are defined in this file but your own can be used. 
             Note this class does not check that your basis function is valid, i.e. that it satisfies
             b^2 has support in [1/B, B]
