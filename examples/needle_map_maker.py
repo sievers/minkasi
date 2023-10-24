@@ -73,7 +73,7 @@ map_size = pixsize * wmap.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
 fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
 
 cut_arcmin = 2 #put a prior on scales larger than this
-fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e10, 0)
+fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e12, 0)
 #flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
 
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
@@ -98,6 +98,12 @@ prior = wmap.copy()
 real_prior = np.fft.fftshift(np.fft.ifftn(fourier_prior).real)
 
 prior.map = map2wav_real(real_prior, need.filters)
+
+k_arr_phys = need.k_arr* 2*np.pi / map_size
+
+for i in range(len(prior.map)):
+    if np.max(k_arr_phys[np.where(need.bands[i] > 0)]) >= (2 * np.pi / cut_arcmin): #0 out prior map below the cut scale
+        prior.map[i][:] = 0
 
 prior_mapset = PriorMapset()
 
@@ -134,6 +140,7 @@ outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
 save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
 mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=500, save_iters=save_iters, outroot = outroot, prior = prior_mapset)
+
 if minkasi.myrank==0:
     mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/MS0735_needle.fits') #and write out the map as a FITS file
 else:
@@ -164,4 +171,43 @@ print(np.sum(omap_sq))
 '''
 
 
+"""
+nws, nxs, nys = 10, 100, 100
+
+temp_need = needlet(np.arange(nws), lightcone = np.zeros((nxs, nys)), L=300)
+temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
+temp_need.get_needlet_filters_2d(temp_four_radii)
+
+to_ret = np.zeros((nxs*nys, nxs*nys))
+
+n_wav = 0
+for n_wav in range(nws):
+    for nx in range(nxs):
+        for ny in range(nys):
+            idx = nys*nx + ny
+            temp = np.zeros((nxs,nys))
+            temp[nx,ny] = 1
+            cur_filts = np.expand_dims(temp_need.filters[n_wav], axis = 0)
+            to_ret[:,idx] = np.ravel(np.squeeze(map2wav_real(temp, cur_filts)))
+    cur_svd = np.linalg.svd(to_ret)
+
+nws, nxs, nys = 2, 100, 100
+
+temp_need = needlet(np.arange(10), lightcone = np.zeros((nxs, nys)), L=300)
+temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
+temp_need.get_needlet_filters_2d(temp_four_radii)
+
+to_ret = np.zeros((nws*nxs*nys, nxs*nys))
+
+for nx in range(nxs):
+    for ny in range(nys):
+        idx = nys*nx + ny
+        temp = np.zeros((nxs,nys))
+        temp[nx,ny] = 1
+        to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:2])))
+svd = np.lingalg.svd(to_ret[:10000,:], 0)
+
+
+
+"""
 
