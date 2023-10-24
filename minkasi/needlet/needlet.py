@@ -372,7 +372,7 @@ class needlet:
 
 def Standard(xi, B):
 
-    def __f_need(self, t):
+    def __f_need(t):
         """Auxiliar function f to define the standard needlet"""
         if t <= -1.0:
             return 0.0
@@ -381,16 +381,16 @@ def Standard(xi, B):
         else:
             return np.exp(1.0 / (t**2.0 - 1.0))
 
-    def __psi(self, u):
+    def __psi(u):
         """Auxiliar function psi to define the standard needlet"""
         return (
-            integrate.quad(self.__f_need, -1, u)[0]
-            / integrate.quad(self.__f_need, -1, 1)[0]
+            integrate.quad(__f_need, -1, u)[0]
+            / integrate.quad(__f_need, -1, 1)[0]
         )
 
-    def __phi(self, q):
+    def __phi(q):
         """Auxiliar function phi to define the standard needlet"""
-        B = float(self.B)
+        B = float(B)
         if q < 0.0:
             raise ValueError("The multipole should be a non-negative value")
         elif q <= 1.0 / B:
@@ -398,13 +398,13 @@ def Standard(xi, B):
         elif q >= 1.0:
             return 0
         else:
-            return self.__psi(1.0 - (2.0 * B / (B - 1.0) * (q - 1.0 / B)))
+            return __psi(1.0 - (2.0 * B / (B - 1.0) * (q - 1.0 / B)))
 
-    def __b2_need(self, xi):
-        """Auxiliar function b^2 to define the standard needlet"""
-        b2 = self.__phi(xi / self.B) - self.__phi(xi)
-        return np.max([0.0, b2])
-        ## np.max in order to avoid negative roots due to precision errors
+
+    """Auxiliar function b^2 to define the standard needlet"""
+    b2 = self.__phi(xi / self.B) - self.__phi(xi)
+    return np.max([0.0, b2])
+
 
     # ==============================================================================================#
     # ====================================== plotting functions ====================================#
