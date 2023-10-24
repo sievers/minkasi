@@ -37,6 +37,44 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import Self
 
+################################################################
+#                       Basis Functions                        #
+################################################################
+
+def Standard(xi, B):
+
+    def __f_need(t):
+        """Auxiliar function f to define the standard needlet"""
+        if t <= -1.0:
+            return 0.0
+        elif t >= 1.0:
+            return 0.0
+        else:
+            return np.exp(1.0 / (t**2.0 - 1.0))
+
+    def __psi(u):
+        """Auxiliar function psi to define the standard needlet"""
+        return (
+            integrate.quad(__f_need, -1, u)[0]
+            / integrate.quad(__f_need, -1, 1)[0]
+        )
+
+    def __phi(q):
+        """Auxiliar function phi to define the standard needlet"""
+        B = float(B)
+        if q < 0.0:
+            raise ValueError("The multipole should be a non-negative value")
+        elif q <= 1.0 / B:
+            return 1.0
+        elif q >= 1.0:
+            return 0
+        else:
+            return __psi(1.0 - (2.0 * B / (B - 1.0) * (q - 1.0 / B)))
+
+
+    """Auxiliar function b^2 to define the standard needlet"""
+    b2 = __phi(xi / B) - self.__phi(xi)
+    return np.max([0.0, b2])
 
 class WavSkyMap(SkyMap):
     """
@@ -264,9 +302,9 @@ class needlet:
         js: NDArray[int],
         L: np.floating,
         lightcone: NDArray[np.floating],
+        basis: Callable[..., NDArray[np.floating]] = Standard,
         B: Union[None, np.floating] = None,
         kmax_dimless: Union[None, int] = None,
-        basis: Callable[..., NDArray[np.floating]] = Standard()
     ):
         """
         Init function.
@@ -369,41 +407,6 @@ class needlet:
         if return_filt:
             return self.filters
 
-
-def Standard(xi, B):
-
-    def __f_need(t):
-        """Auxiliar function f to define the standard needlet"""
-        if t <= -1.0:
-            return 0.0
-        elif t >= 1.0:
-            return 0.0
-        else:
-            return np.exp(1.0 / (t**2.0 - 1.0))
-
-    def __psi(u):
-        """Auxiliar function psi to define the standard needlet"""
-        return (
-            integrate.quad(__f_need, -1, u)[0]
-            / integrate.quad(__f_need, -1, 1)[0]
-        )
-
-    def __phi(q):
-        """Auxiliar function phi to define the standard needlet"""
-        B = float(B)
-        if q < 0.0:
-            raise ValueError("The multipole should be a non-negative value")
-        elif q <= 1.0 / B:
-            return 1.0
-        elif q >= 1.0:
-            return 0
-        else:
-            return __psi(1.0 - (2.0 * B / (B - 1.0) * (q - 1.0 / B)))
-
-
-    """Auxiliar function b^2 to define the standard needlet"""
-    b2 = self.__phi(xi / self.B) - self.__phi(xi)
-    return np.max([0.0, b2])
 
 
     # ==============================================================================================#
