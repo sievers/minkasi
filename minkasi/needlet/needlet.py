@@ -84,9 +84,9 @@ def Mexican(k_arr, B, j, p = 1):
             raise ValueError("The multipole should be a non-negative value")
         if q <= 1.0 / B:
             return 1.0
-        elif q >= 1.0
+        elif q >= 1.0:
             return 0
-        else
+        else:
             return (q / B**j)**p * np.exp(-1/2*(q/B**j)**2)
    
     xi = k_arr / B**j 
