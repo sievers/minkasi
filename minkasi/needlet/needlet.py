@@ -41,7 +41,7 @@ else:
 #                       Basis Functions                        #
 ################################################################
 
-def Standard(xi, B):
+def Standard(k_arr, B, j):
 
     def __f_need(t):
         """Auxiliar function f to define the standard needlet"""
@@ -72,11 +72,15 @@ def Standard(xi, B):
             return __psi(1.0 - (2.0 * B / (B - 1.0) * (q - 1.0 / B)))
 
 
-    """Auxiliar function b^2 to define the standard needlet"""
+    xi = k_arr / B**j
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-#def Mexican(xi, B):
+def Mexican(xi, B, j, p = 1):
+    
+    b = (xi / B **j)**p * np.exp(-1/2*(xi/B**j)**2)
+
+    return b**2 #wasteful
 
 
 
@@ -373,8 +377,7 @@ class needlet:
         bl2 = np.vectorize(self.basis)
 
         for j in self.js:
-            xi = self.k_arr / self.B**j
-            bl = np.sqrt(bl2(xi, self.B)) #This will need to be fixed for Sigurd's basis
+            bl = np.sqrt(bl2(self.k_arr, self.B, j)) #This will need to be fixed for Sigurd's basis
             needs.append(bl)
         needs = np.squeeze(needs)
         needs[0][0] = 1  # Want the k=0 mode to get the map average
