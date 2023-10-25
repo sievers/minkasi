@@ -59,7 +59,7 @@ def Standard(xi, B):
             / integrate.quad(__f_need, -1, 1)[0]
         )
 
-    def __phi(q):
+    def __phi(q, B):
         """Auxiliar function phi to define the standard needlet"""
         B = float(B)
         if q < 0.0:
@@ -73,8 +73,16 @@ def Standard(xi, B):
 
 
     """Auxiliar function b^2 to define the standard needlet"""
-    b2 = __phi(xi / B) - self.__phi(xi)
+    b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
+
+#def Mexican(xi, B):
+
+
+
+################################################################
+#                         Core Classes                         #
+################################################################
 
 class WavSkyMap(SkyMap):
     """
@@ -337,6 +345,8 @@ class needlet:
         self.lightcone = lightcone
         self.kmax_dimless = kmax_dimless
 
+        self.basis = basis
+
         if self.lightcone is not None:
             self.lightcone_box = cosmo_box(lightcone, L)
             self.kmax_dimless = self.lightcone_box.kmax_dimless
@@ -353,7 +363,7 @@ class needlet:
                 self.k_arr[-1] ** (1 / self.js[-1]) * 1.01
             )  # Set needlet width to just cover k_arr
         self.bands = self.get_needlet_bands_1d()
-        self.basis = basis
+        
     
     def get_needlet_bands_1d(self):
         """
@@ -364,7 +374,7 @@ class needlet:
 
         for j in self.js:
             xi = self.k_arr / self.B**j
-            bl = np.sqrt(bl2(xi))
+            bl = np.sqrt(bl2(xi, self.B)) #This will need to be fixed for Sigurd's basis
             needs.append(bl)
         needs = np.squeeze(needs)
         needs[0][0] = 1  # Want the k=0 mode to get the map average
