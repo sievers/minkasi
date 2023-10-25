@@ -76,11 +76,22 @@ def Standard(k_arr, B, j):
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-def Mexican(xi, B, j, p = 1):
+def Mexican(k_arr, B, j, p = 1):
     
-    b = (xi / B **j)**p * np.exp(-1/2*(xi/B**j)**2)
-
-    return b**2 #wasteful
+    def __phi(q, B, p = 1):
+        B = float(B)
+        if q < 0.0:
+            raise ValueError("The multipole should be a non-negative value")
+        if q <= 1.0 / B:
+            return 1.0
+        elif q >= 1.0
+            return 0
+        else
+            return (q / B**j)**p * np.exp(-1/2*(q/B**j)**2)
+   
+    xi = k_arr / B**j 
+    b2 = __phi(xi / B, B, p) - __phi(xi, B, p)
+    return b2
 
 
 
