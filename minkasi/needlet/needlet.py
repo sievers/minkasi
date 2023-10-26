@@ -76,11 +76,27 @@ def Standard(k_arr, j, B):
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-def Mexican(xi, j, B, p = 1):
+def Mexican(xi, js, jmin, B, p = 1):
+    bs = np.zeros((len(js), len(xi)))
+    for j in range(len(js)):
+        u = xi / B**j
+        bs[j] = u**p * np.exp(-1/2*u**2)
+    bs[0][0] = 1
+    #norm = np.sqrt(np.sum(bs**2, axis = 0))    
+    #bs /= norm
+
+    to_ret = np.zeros((len(js) - jmin, len(xi)))
+
+    to_ret[0] = np.sqrt(np.sum(bs[:jmin]**2, axis = 0))
     
-    b = (xi / B **j)**p * np.exp(-1/2*(xi/B**j)**2)
-    
-    return b**2 
+    for j in range(1, len(js) - jmin):
+       
+        to_ret[j] = bs[jmin + j]
+
+    norm = np.sqrt(np.sum(to_ret**2, axis = 0))
+    to_ret /= norm
+
+    return to_ret 
 
 def CosNeed(k_arr, j, cs):
     to_ret = np.zeros(len(k_arr))
