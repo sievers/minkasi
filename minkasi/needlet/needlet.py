@@ -76,7 +76,6 @@ def Standard(k_arr, j, B):
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-
 def Mexican(xi, j, B, p = 1):
     
     b = (xi / B **j)**p * np.exp(-1/2*(xi/B**j)**2)
@@ -94,7 +93,7 @@ def CosNeed(k_arr, j, cs):
         to_ret[flag] = np.cos((np.pi * (k_arr[flag]-cs[j]))/(2*(cs[j+1] - cs[j])))    
     
     return to_ret
->>>>>>> 4faf2d4 (Adding cos needlets and making needlet class play nicer with basis funcs)
+
 
 
 ################################################################
