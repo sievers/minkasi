@@ -79,7 +79,7 @@ def Standard(k_arr, j, B):
 def Mexican(xi, j, B, p = 1):
     
     b = (xi / B **j)**p * np.exp(-1/2*(xi/B**j)**2)
-    b2 = b**2 / np.sqrt(np.mean())
+    
     return b**2 
 
 def CosNeed(k_arr, j, cs):
