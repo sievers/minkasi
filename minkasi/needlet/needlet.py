@@ -41,7 +41,7 @@ else:
 #                       Basis Functions                        #
 ################################################################
 
-def Standard(k_arr, B, j):
+def Standard(k_arr, j, B):
 
     def __f_need(t):
         """Auxiliar function f to define the standard needlet"""
@@ -76,23 +76,25 @@ def Standard(k_arr, B, j):
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-def Mexican(k_arr, B, j, p = 1):
-    
-    def __phi(q, B, p = 1):
-        B = float(B)
-        if q < 0.0:
-            raise ValueError("The multipole should be a non-negative value")
-        if q <= 1.0 / B:
-            return 1.0
-        elif q >= 1.0:
-            return 0
-        else:
-            return (q / B**j)**p * np.exp(-1/2*(q/B**j)**2)
-   
-    xi = k_arr / B**j 
-    b2 = __phi(xi / B, B, p) - __phi(xi, B, p)
-    return b2
 
+def Mexican(xi, j, B, p = 1):
+    
+    b = (xi / B **j)**p * np.exp(-1/2*(xi/B**j)**2)
+    b2 = b**2 / np.sqrt(np.mean())
+    return b**2 
+
+def CosNeed(k_arr, j, cs):
+    to_ret = np.zeros(len(k_arr))
+    if j == 0:
+        to_ret[k_arr <= cs[1]] = np.cos((np.pi*k_arr[k_arr <= cs[1]]/(2*cs[1]-cs[0])))
+    else:
+        flag = np.where((cs[j-1] < k_arr) & (k_arr < cs[j]))
+        to_ret[flag] = np.cos((np.pi * (cs[j] - k_arr[flag]))/(2*(cs[j] - cs[j-1])))
+        flag = np.where((cs[j] < k_arr) & (k_arr < cs[j+1]))
+        to_ret[flag] = np.cos((np.pi * (k_arr[flag]-cs[j]))/(2*(cs[j+1] - cs[j])))    
+    
+    return to_ret
+>>>>>>> 4faf2d4 (Adding cos needlets and making needlet class play nicer with basis funcs)
 
 
 ################################################################
@@ -325,6 +327,7 @@ class needlet:
         js: NDArray[int],
         L: np.floating,
         lightcone: NDArray[np.floating],
+        basisKwargs: dict = {},
         basis: Callable[..., NDArray[np.floating]] = Standard,
         B: Union[None, np.floating] = None,
         kmax_dimless: Union[None, int] = None,
@@ -377,18 +380,30 @@ class needlet:
             self.B = (
                 self.k_arr[-1] ** (1 / self.js[-1]) * 1.01
             )  # Set needlet width to just cover k_arr
-        self.bands = self.get_needlet_bands_1d()
+        if self.basis.__name__ == "Standard" and "B" not in basisKwargs.keys():
+            basisKwargs["B"] = self.B
+
+        if self.basis.__name__ == "CosNeed" and "cs" not in basisKwargs.keys(): #strangely self.basis == CosNeed does not evaluate correctly
+            basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15cs , len(js)+1)
+
+        self.bands = self.get_needlet_bands_1d(basisKwargs)
         
     
-    def get_needlet_bands_1d(self):
+    def get_needlet_bands_1d(self, basisKwargs):
         """
         Get 1D needlet response given parameters
         """
         needs = []
-        bl2 = np.vectorize(self.basis)
+        if self.basis == Standard:
+            bl2 = np.vectorize(self.basis)
+        else:
+            bl2 = self.basis
 
         for j in self.js:
-            bl = np.sqrt(bl2(self.k_arr, self.B, j)) #This will need to be fixed for Sigurd's basis
+            if self.basis == Standard:
+                bl = np.sqrt(bl2(self.k_arr, j, **basisKwargs)) #Should probably just do this sqrt in Standard
+            else:
+                bl = bl2(self.k_arr, j, **basisKwargs)
             needs.append(bl)
         needs = np.squeeze(needs)
         needs[0][0] = 1  # Want the k=0 mode to get the map average
