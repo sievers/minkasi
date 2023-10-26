@@ -384,7 +384,7 @@ class needlet:
             basisKwargs["B"] = self.B
 
         if self.basis.__name__ == "CosNeed" and "cs" not in basisKwargs.keys(): #strangely self.basis == CosNeed does not evaluate correctly
-            basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15cs , len(js)+1)
+            basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15 , len(js)+1)
 
         self.bands = self.get_needlet_bands_1d(basisKwargs)
         
