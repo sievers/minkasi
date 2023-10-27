@@ -403,13 +403,16 @@ class needlet:
             self.B = (
                 self.k_arr[-1] ** (1 / self.js[-1]) * 1.01
             )  # Set needlet width to just cover k_arr
-        if self.basis.__name__ == "Standard" and "B" not in basisKwargs.keys():
-            basisKwargs["B"] = self.B
 
-        if self.basis.__name__ == "CosNeed" and "cs" not in basisKwargs.keys(): #strangely self.basis == CosNeed does not evaluate correctly
-            basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15 , len(js)+1)
+        self.basisKwargs = basisKwargs
+
+        if self.basis.__name__ == "Standard" and "B" not in self.basisKwargs.keys():
+            self.basisKwargs["B"] = self.B
+
+        if self.basis.__name__ == "CosNeed" and "cs" not in self.basisKwargs.keys(): #strangely self.basis == CosNeed does not evaluate correctly
+            self.basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15 , len(js)+1)
         
-        self.bands = self.get_needlet_bands_1d(basisKwargs)
+        self.bands = self.get_needlet_bands_1d(self.basisKwargs)
         if self.basis.__name__ == "Mexican":
             #Shrink js for Mexican
             self.js = np.arange(self.bands.shape[0])      
