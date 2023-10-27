@@ -41,7 +41,7 @@ else:
 #                       Basis Functions                        #
 ################################################################
 
-def Standard(k_arr, j, B):
+def __Standard(k_arr, j, B):
 
     def __f_need(t):
         """Auxiliar function f to define the standard needlet"""
@@ -76,21 +76,25 @@ def Standard(k_arr, j, B):
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-def Mexican(xi, js, jmin, B, p = 1):
+def Standard(k_arr, js, B):
+    to_ret = []
+    bl2 = np.vectorize(__Standard)
+    for j in js:
+        to_ret.append(np.sqrt(bl2(k_arr, j, B)))
+
+    return np.array(to_ret)
+def Mexican(xi, js, jmin=1, B=1.5, p = 1):
     bs = np.zeros((len(js), len(xi)))
+
     for j in range(len(js)):
         u = xi / B**j
         bs[j] = u**p * np.exp(-1/2*u**2)
+
     bs[0][0] = 1
-    #norm = np.sqrt(np.sum(bs**2, axis = 0))    
-    #bs /= norm
-
     to_ret = np.zeros((len(js) - jmin, len(xi)))
-
     to_ret[0] = np.sqrt(np.sum(bs[:jmin]**2, axis = 0))
     
     for j in range(1, len(js) - jmin):
-       
         to_ret[j] = bs[jmin + j]
 
     norm = np.sqrt(np.sum(to_ret**2, axis = 0))
@@ -98,7 +102,7 @@ def Mexican(xi, js, jmin, B, p = 1):
 
     return to_ret 
 
-def CosNeed(k_arr, j, cs):
+def __CosNeed(k_arr, j, cs):
     to_ret = np.zeros(len(k_arr))
     if j == 0:
         to_ret[k_arr <= cs[1]] = np.cos((np.pi*k_arr[k_arr <= cs[1]]/(2*cs[1]-cs[0])))
@@ -110,7 +114,12 @@ def CosNeed(k_arr, j, cs):
     
     return to_ret
 
+def CosNeed(k_arr, js, cs):
+    to_ret = [] 
+    for j in js:
+        to_ret.append(__CosNeed(k_arr, j, cs))
 
+    return np.array(to_ret)
 
 ################################################################
 #                         Core Classes                         #
@@ -383,7 +392,6 @@ class needlet:
         if self.lightcone is not None:
             self.lightcone_box = cosmo_box(lightcone, L)
             self.kmax_dimless = self.lightcone_box.kmax_dimless
-        self.nfilt = len(self.js)
        
         self.k_arr = np.append(
             np.array([0]),
@@ -400,27 +408,19 @@ class needlet:
 
         if self.basis.__name__ == "CosNeed" and "cs" not in basisKwargs.keys(): #strangely self.basis == CosNeed does not evaluate correctly
             basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15 , len(js)+1)
-
-        self.bands = self.get_needlet_bands_1d(basisKwargs)
         
-    
+        self.bands = self.get_needlet_bands_1d(basisKwargs)
+        if self.basis.__name__ == "Mexican":
+            #Shrink js for Mexican
+            self.js = np.arange(self.bands.shape[0])      
+
+        self.nfilt = len(self.js)
+
     def get_needlet_bands_1d(self, basisKwargs):
         """
         Get 1D needlet response given parameters
         """
-        needs = []
-        if self.basis == Standard:
-            bl2 = np.vectorize(self.basis)
-        else:
-            bl2 = self.basis
-
-        for j in self.js:
-            if self.basis == Standard:
-                bl = np.sqrt(bl2(self.k_arr, j, **basisKwargs)) #Should probably just do this sqrt in Standard
-            else:
-                bl = bl2(self.k_arr, j, **basisKwargs)
-            needs.append(bl)
-        needs = np.squeeze(needs)
+        needs = self.basis(self.k_arr, self.js, **basisKwargs)    
         needs[0][0] = 1  # Want the k=0 mode to get the map average
         return needs
 
@@ -429,7 +429,7 @@ class needlet:
         Turns 1D needlet response into 2D response.
         """ 
         filters = []
-        for j in self.js:
+        for j in self.js:        
             interp_func = interp1d(
                 self.k_arr, self.bands[j], fill_value="extrapolate"
             )  # interpolating is faster than computing bands for every row.
@@ -486,7 +486,6 @@ class needlet:
 
 
 ###############################################################################################
-
 
 class cosmo_box:
     def __init__(self, box, L):
