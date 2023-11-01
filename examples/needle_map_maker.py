@@ -226,9 +226,18 @@ for nx in range(nxs):
         temp = np.zeros((nxs,nys))
         temp[nx,ny] = 1
         to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:2])))
-svd = np.linalg.svd(to_ret[:10000,:], 0)
+#svd = np.linalg.svd(to_ret[:10000,:], 0)
 
 
-
+temp_map = wmap.copy()
+toc2 = time.time()
+for i in range(len(to_ret)):
+    print(np.round(100*i/len(to_ret),2), end = '\r')
+    wmapset = Mapset()
+    temp_map.clear()
+    temp_map.maps[0] = np.reshape(to_ret[i], [306, 306])
+    wmapset.add_map(temp_map)
+    todvec.dot(wmapset)
+tic2 = time.time()
 """
 
