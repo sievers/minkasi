@@ -19,6 +19,7 @@ from minkasi.maps.mapset import PriorMapset, Mapset
 
 #find tod files we want to map
 idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+#idir = "/scratch/r/rbond/jorlo/M2-TODs/A399-401/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
@@ -69,6 +70,25 @@ need = needlet(np.arange(10), lightcone=wmap, L=300)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
+wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
+
+delta_x, delta_y = wmap.lims[1]-wmap.lims[0], wmap.lims[3]-wmap.lims[2]
+
+new_lims = wmap.lims
+new_lims[0] -= 0.5 * delta_x
+new_lims[1] += 0.5 * delta_x
+new_lims[2] -= 0.5 * delta_y
+new_lims[3] += 0.5 * delta_y
+
+lims = new_lims
+
+wmap = WavSkyMap(np.zeros(1), new_lims, pixsize, square = True, multiple=2).map
+need = needlet(np.arange(10), lightcone=wmap, L=300)
+fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
+need.get_needlet_filters_2d(fourier_radii)
+
+
+
 map_size = pixsize * wmap.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
 fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
 
@@ -77,6 +97,7 @@ fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e12,
 #flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
 
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
+
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -139,10 +160,10 @@ outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
 
 save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
-mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=500, save_iters=save_iters, outroot = outroot, prior = prior_mapset)
+mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)#, prior = prior_mapset)
 
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/MS0735_needle.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/big_MS0735_needle.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
@@ -205,7 +226,7 @@ for nx in range(nxs):
         temp = np.zeros((nxs,nys))
         temp[nx,ny] = 1
         to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:2])))
-svd = np.lingalg.svd(to_ret[:10000,:], 0)
+svd = np.linalg.svd(to_ret[:10000,:], 0)
 
 
 
