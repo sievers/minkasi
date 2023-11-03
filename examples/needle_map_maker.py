@@ -18,8 +18,8 @@ from minkasi.maps.mapset import PriorMapset, Mapset
 #%autoreload 2
 
 #find tod files we want to map
-idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
-#idir = "/scratch/r/rbond/jorlo/M2-TODs/A399-401/"
+#idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+idir = "/scratch/r/rbond/jorlo/M2-TODs/A399-401/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
@@ -155,15 +155,15 @@ x0.clear()
 #precon.maps[0].map[:]=numpy.sqrt(tmp)
 #precon.maps[0].map[:]=tmp[:]
 
-outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
-
+#outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
+outroot = '/scratch/r/rbond/jorlo/A399-401'
 
 save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
 mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)#, prior = prior_mapset)
 
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/big_MS0735_needle.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/A399-401/A399-401_needle.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
@@ -239,5 +239,28 @@ for i in range(len(to_ret)):
     wmapset.add_map(temp_map)
     todvec.dot(wmapset)
 tic2 = time.time()
+
+
+nxs, nys = 306, 306
+down_samp = 5
+to_ret = np.zeros((nxs*nys, nxs*nys))
+filt_num = 0
+for nx in range(nxs, step = down_samp):
+    for ny in range(nys, step = down_samp):
+        idx = nys*nx+ny
+        temp = np.zeros((nxs, nys))
+        temp[nx, ny] = 1
+        temp =  np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:filt_num])))
+        
+        for i in range(down_samp):
+            idx = nys*nx + +ny + nxs*i
+            to_ret[:, idx:idx+down_samp] = temp
+
+
+
+
+
+
+
 """
 
