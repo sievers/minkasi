@@ -66,7 +66,7 @@ lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
 wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
-need = needlet(np.arange(10), lightcone=wmap, L=300)
+need = needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
@@ -245,19 +245,16 @@ nxs, nys = 306, 306
 down_samp = 5
 to_ret = np.zeros((nxs*nys, nxs*nys))
 filt_num = 0
-for nx in range(nxs, step = down_samp):
-    for ny in range(nys, step = down_samp):
+for nx in range(0, nxs, down_samp):
+    for ny in range(0, nys, down_samp):
         idx = nys*nx+ny
         temp = np.zeros((nxs, nys))
         temp[nx, ny] = 1
-        temp =  np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:filt_num])))
-        
+        temp =  np.expand_dims(np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:1]))), axis = -1) #Horific
+
         for i in range(down_samp):
             idx = nys*nx + +ny + nxs*i
-            to_ret[:, idx:idx+down_samp] = temp
-
-
-
+            to_ret[:, idx:idx+down_samp] = temp #Check this indexing
 
 
 
