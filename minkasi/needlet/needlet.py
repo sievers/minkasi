@@ -318,6 +318,26 @@ class WavSkyMap(SkyMap):
         """
         Ap.map=Ap.map+self.map*p.map
 
+    def resize_maps(self, needlet):
+        """
+        Resizes maps so that the pixelization matches the smallest scale of the needlet, given a needlet basis.
+        That needlet basis should probably be the one associated with need.filt but for right now it doesn't need to be.
+        I should enfore this.
+
+        Parameters
+        ----------
+        need : needlet
+            The needlet basis to use to determine the map rescalings.
+        """
+        for i in range(needlet.nfilt):
+            lims = needlet.get_need_lims(i, real_space = True)
+            rescale = np.floor(lims[0] / needlet.pixsize) #vv awk taking pixsize from needlet but weirdly safer because needlet pixsize (should)
+                                                          #have same units as needlet.get_need_lims
+            if rescale > 1:
+                tmp = self.map.shape[-1]/rescale
+                tmp += 2-(tmp % 2)
+                print(tmp)
+
 class needlet:
     """
     Class for making needlet frame
@@ -338,12 +358,13 @@ class needlet:
     k_arr : NDArray[np.floating]
         Array of k at which to evaluate needlets.
     B : np.floating
-        Needlet scaling factor. See https://iopscience.iop.org/article/10.1088/0004-637X/723/1/1
+        Standard Needlet scaling factor. See https://iopscience.iop.org/article/10.1088/0004-637X/723/1/1
     bands : NDArray[np.floating]
         Needlet bands in 1D.
     filters : NDArray[np.floating]
         Needlet bands in 2D.
-
+    delta_k : np.floating
+        Dimensions of k spacing
     """
 
     def __init__(
@@ -351,6 +372,7 @@ class needlet:
         js: NDArray[int],
         L: np.floating,
         lightcone: NDArray[np.floating],
+        pixsize : np.floating,
         basisKwargs: dict = {},
         basis: Callable[..., NDArray[np.floating]] = Standard,
         B: Union[None, np.floating] = None,
@@ -365,9 +387,13 @@ class needlet:
             Resolution parameter; effectively sets central location of bandpass
             filter.
         L : np.floating
-            Realspace side length of lightcone.
+            Realspace side length of lightcone. Must be same units as pixsize.
         lightcone : NDArray[np.floating]
             Real space map to make needlets for.
+        pixsize : np.floating
+            pixsize corresponding to the pixels of lightcone. Must be same units as L.
+        basisKwargs : dict
+            Dictionary of keywords to be passed to basis. Different bases requrie different parameters.
         B :  None | np.floating
             The parameter B of the needlet which controls the width of the filters.
             Should be larger that 1. If none a suitible B is calculated
@@ -386,17 +412,21 @@ class needlet:
         self.js = js
         self.lightcone = lightcone
         self.kmax_dimless = kmax_dimless
-
+        self.L = L
         self.basis = basis
+        self.pixsize = pixsize
 
         if self.lightcone is not None:
-            self.lightcone_box = cosmo_box(lightcone, L)
+            self.lightcone_box = cosmo_box(lightcone, self.L)
             self.kmax_dimless = self.lightcone_box.kmax_dimless
        
         self.k_arr = np.append(
             np.array([0]),
             np.logspace(0, np.log10(self.kmax_dimless), int(10 * self.kmax_dimless)),
         )
+
+        self.delta_k = 2 * np.pi / self.L
+
         if B is not None:
             self.B = B
         else:
@@ -463,7 +493,37 @@ class needlet:
 
         if return_filt:
             return self.filters
+        
+    def get_need_lims(self, 
+                      N: int, 
+                      real_space: bool = False
+                      ):
+        """
+        Returns the limits of needlet
 
+        Arguments
+        ---------
+        N : int
+            Needlet of interest.
+        real_space : bool
+            Whether to return the limits in k or real space units
+        
+        Ouputs
+        ------
+        lims : NDArray[np.floating]
+            Lower and upper limit, respectively, of the needlet band
+        """
+
+        lim_idx = np.where((self.bands[N] != 0))[0]
+        lims = np.array([self.k_arr[lim_idx[0]], self.k_arr[lim_idx[-1]]])
+        if real_space:
+            lims *= self.delta_k
+            lims = np.flip(lims)
+            if N == 0 : 
+                lims[1] = 1e-12 #The first need has lower k limit = 0
+            lims = np.pi / (lims) #Unsure about this factor of pi
+        return lims
+                
 
 
     # ==============================================================================================#
