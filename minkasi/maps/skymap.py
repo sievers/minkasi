@@ -185,7 +185,7 @@ class SkyMap:
         if square:
             while nx != ny: #TODO: Fix this bug where it doesn't square right sometimes. This is a one time inefficency and it doesn't take much time anyway but could conceivably run forever.
                 nmax = max(nx, ny)
-                print(nmax)
+                
                 ratio_x = nmax/nx
                 ratio_y = nmax/ny
 
