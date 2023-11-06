@@ -157,7 +157,7 @@ class SkyMap:
             self.nx = lens[lens >= nx].min()
             self.ny = lens[lens >= ny].min()
             self.primes = primes[:]
-        
+        """        
         if square:
             if nx != ny:
                 nmax = max(nx, ny)
@@ -168,7 +168,7 @@ class SkyMap:
                 self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
 
                 nx, ny = self.get_npix(pad)
-
+        """
         if multiple:
             assert(type(multiple) == int)
 
@@ -179,8 +179,21 @@ class SkyMap:
             ymax = 2*np.ceil(ny / multiple)
             ydiff = self.lims[3] - self.lims[2]
             self.lims[3] = self.lims[2] + ydiff * ymax/ny
-
+            
             nx, ny = self.get_npix(pad) #This may be applying pad a bunch of times
+            
+        if square:
+            while nx != ny: #TODO: Fix this bug where it doesn't square right sometimes. This is a one time inefficency and it doesn't take much time anyway but could conceivably run forever.
+                nmax = max(nx, ny)
+                print(nmax)
+                ratio_x = nmax/nx
+                ratio_y = nmax/ny
+
+                self.lims[0] = self.lims[1] - ratio_x*(self.lims[1] - self.lims[0]) #note we are adjusting lims in place here
+                self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
+
+                nx, ny = self.get_npix(pad)
+
 
         self.nx = nx
         self.ny = ny

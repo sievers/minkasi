@@ -66,10 +66,11 @@ lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
 wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+wmap  = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #TODO: fix squaring issue
 need = needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
-
+'''
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
 
 delta_x, delta_y = wmap.lims[1]-wmap.lims[0], wmap.lims[3]-wmap.lims[2]
@@ -86,8 +87,7 @@ wmap = WavSkyMap(np.zeros(1), new_lims, pixsize, square = True, multiple=2).map
 need = needlet(np.arange(10), lightcone=wmap, L=10*np.sqrt(2)*60, pixsize = pixsize*(3600*180)/np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
-
-
+'''
 
 map_size = pixsize * wmap.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
 fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
