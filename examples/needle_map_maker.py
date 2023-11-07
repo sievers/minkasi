@@ -280,7 +280,11 @@ for nx in range(nxs_red):
         temp[nx*down_samp, ny*down_samp] = 1
         to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[filt_num:filt_num+1])))
 
-   
+A = np.zeros((306, 306))
+for i, S in enumerate(svd.S):
+if S[i] > 1e-6:
+     cur = np.dot(svd.U[...,0], np.dot(smat[0], svd.Vh[...,0]))
+     A += np.reshape(cur, [306, 306]))
 
 
 """
