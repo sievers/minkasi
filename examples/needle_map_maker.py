@@ -280,12 +280,38 @@ for nx in range(nxs_red):
         temp[nx*down_samp, ny*down_samp] = 1
         to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[filt_num:filt_num+1])))
 
-A = np.zeros((306, 306))
-for i, S in enumerate(svd.S):
-if S[i] > 1e-6:
-     cur = np.dot(svd.U[...,0], np.dot(smat[0], svd.Vh[...,0]))
-     A += np.reshape(cur, [306, 306]))
+svd = np.linalg.svd(to_ret, 0)
 
+temp_map = wmap.copy()
+toc2 = time.time()
+smat = np.diag(svd.S)
+for j, S in enumerate(svd.S):
+    if S > 1e-6:
+        wmapset = Mapset()
+        temp_map.clear()
+        cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
+        temp_map.map[filt_n] = np.reshape(cur, [306, 306])
+        wmapset.add_map(temp_map)
+        todvec.dot(wmapset)
+tic2 = time.time()
+
+toc = time.time()
+for i in range(len(need.filters)):
+    print(i, end = '\r')
+    if need.get_need_lims(i, real_space = True)[1] > 60:
+        svd = wmap.get_svd(i, down_samp = 10)
+        temp_map = wmap.copy()
+
+        smat = np.diag(svd.S)
+        for j, S in enumerate(svd.S):
+            if S > 1e-6:
+                wmapset = Mapset()
+                temp_map.clear()
+                cur = np.dot(svd.U[...,0], np.dot(smat[0], svd.Vh[...,0]))
+                temp_map.map[filt_n] = np.reshape(cur, [306, 306])
+                wmapset.add_map(temp_map)
+                todvec.dot(wmapset)
+tic = time.time()
 
 """
 
