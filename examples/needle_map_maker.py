@@ -173,145 +173,25 @@ else:
 #mapset_out2.maps[0].write('second_map.fits')
 
 '''
-npix = 100
-imap = np.zeros((npix, npix))
-dx, idy = np.random.randint(0, npix, 2)
-imap[idx][idy] = 1
-
-need = needlet(np.arange(10), lightcone=imap, L=300)
-fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
-need.get_needlet_filters_2d(fourier_radii)
-inter_map = map2wav_real(imap, need.filters)
-omap = wav2map_real(inter_map, need.filters)
-
-wmap_sq = inter_map**2
-print(np.sum(wmap_sq))
-
-omap_sq = omap**2
-print(np.sum(omap_sq))
-'''
-
-
-"""
-nws, nxs, nys = 10, 100, 100
-
-temp_need = needlet(np.arange(nws), lightcone = np.zeros((nxs, nys)), L=300)
-temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
-temp_need.get_needlet_filters_2d(temp_four_radii)
-
-to_ret = np.zeros((nxs*nys, nxs*nys))
-
-n_wav = 0
-for n_wav in range(nws):
-    for nx in range(nxs):
-        for ny in range(nys):
-            idx = nys*nx + ny
-            temp = np.zeros((nxs,nys))
-            temp[nx,ny] = 1
-            cur_filts = np.expand_dims(temp_need.filters[n_wav], axis = 0)
-            to_ret[:,idx] = np.ravel(np.squeeze(map2wav_real(temp, cur_filts)))
-    cur_svd = np.linalg.svd(to_ret)
-
-nws, nxs, nys = 2, 100, 100
-
-temp_need = needlet(np.arange(10), lightcone = np.zeros((nxs, nys)), L=300)
-temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
-temp_need.get_needlet_filters_2d(temp_four_radii)
-
-to_ret = np.zeros((nws*nxs*nys, nxs*nys))
-
-for nx in range(nxs):
-    for ny in range(nys):
-        idx = nys*nx + ny
-        temp = np.zeros((nxs,nys))
-        temp[nx,ny] = 1
-        to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:2])))
-#svd = np.linalg.svd(to_ret[:10000,:], 0)
-
-
-temp_map = wmap.copy()
-toc2 = time.time()
-for i in range(len(to_ret)):
-    print(np.round(100*i/len(to_ret),2), end = '\r')
-    wmapset = Mapset()
-    temp_map.clear()
-    temp_map.maps[0] = np.reshape(to_ret[i], [306, 306])
-    wmapset.add_map(temp_map)
-    todvec.dot(wmapset)
-tic2 = time.time()
-
-
-nxs, nys = 306, 306
-down_samp = 5
-to_ret = np.zeros((nxs*nys, nxs*nys))
-filt_num = 0
-
-temp_need = needlet(np.arange(10), lightcone = np.zeros((nxs, nys)), L=10*np.sqrt(2)*60, pixsize = pixsize*(3600*180)/np.pi)
-temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
-temp_need.get_needlet_filters_2d(temp_four_radii)
-
-for nx in range(0, nxs, down_samp):
-    for ny in range(0, nys, down_samp):
-        idx = nys*nx+ny
-        temp = np.zeros((nxs, nys))
-        temp[nx, ny] = 1
-        temp =  np.expand_dims(np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[:1]))), axis = -1) #Horific
-
-        for i in range(down_samp):
-            idx = nys*nx + +ny + nxs*i
-            to_ret[:, idx:idx+down_samp] = temp #Check this indexing
-
-
-nxs, nys = 306, 306
-down_samp = 5
-
-nxs_red, nys_red = int(nxs/down_samp), int(nys/down_samp)
-
-temp_need = needlet(np.arange(10), lightcone = np.zeros((nxs, nys)), L=10*np.sqrt(2)*60, pixsize = pixsize*(3600*180)/np.pi)
-temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
-temp_need.get_needlet_filters_2d(temp_four_radii)
-
-to_ret = np.zeros((nxs*nys, nxs_red*nys_red))
-filt_num = 0
-for nx in range(nxs_red):
-    for ny in range(nys_red):
-        idx = nys_red*nx + ny
-        temp = np.zeros((nxs, nys))
-        temp[nx*down_samp, ny*down_samp] = 1
-        to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[filt_num:filt_num+1])))
-
-svd = np.linalg.svd(to_ret, 0)
-
-temp_map = wmap.copy()
-toc2 = time.time()
-smat = np.diag(svd.S)
-for j, S in enumerate(svd.S):
-    if S > 1e-6:
-        wmapset = Mapset()
-        temp_map.clear()
-        cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
-        temp_map.map[filt_n] = np.reshape(cur, [306, 306])
-        wmapset.add_map(temp_map)
-        todvec.dot(wmapset)
-tic2 = time.time()
-
 toc = time.time()
 for i in range(len(need.filters)):
     print(i, end = '\r')
-    if need.get_need_lims(i, real_space = True)[1] > 60:
-        svd = wmap.get_svd(i, down_samp = 10)
-        temp_map = wmap.copy()
+    need_lims = need.get_need_lims(i, real_space = True)
+    if need_lims[0] > 180 or need_lims[1] < 60: continue #If small end of filter is larger than M2 recoverable (~3arcmin) or large end is smaller than ACT beamsize (1 arcsec), don't bother 
+    svd = wmap.get_svd(i, down_samp = 10)
+    temp_map = wmap.copy()
 
-        smat = np.diag(svd.S)
-        for j, S in enumerate(svd.S):
-            if S > 1e-6:
-                wmapset = Mapset()
-                temp_map.clear()
-                cur = np.dot(svd.U[...,0], np.dot(smat[0], svd.Vh[...,0]))
-                temp_map.map[filt_n] = np.reshape(cur, [306, 306])
-                wmapset.add_map(temp_map)
-                todvec.dot(wmapset)
+    smat = np.diag(svd.S)
+    for j, S in enumerate(svd.S): #parallelize here
+        if S > 1e-6:
+            wmapset = Mapset()
+            temp_map.clear()
+            cur = np.dot(svd.U[...,0], np.dot(smat[0], svd.Vh[...,0]))
+            temp_map.map[i] = np.reshape(cur, [306, 306])
+            wmapset.add_map(temp_map)
+            todvec.dot(wmapset)
+            #RN this doesn't do anything with the dot product
 tic = time.time()
+'''
 
-"""
 

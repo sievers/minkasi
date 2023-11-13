@@ -487,3 +487,37 @@ def apply_noise(tod, dat=None):
     dat[:, -1] = dat[:, -1] * 0.5
 
     return dat
+
+#Code for downsampling needlet and then forming the unit response matrix
+nxs, nys = 306, 306
+down_samp = 5
+
+nxs_red, nys_red = int(nxs/down_samp), int(nys/down_samp)
+
+temp_need = needlet(np.arange(10), lightcone = np.zeros((nxs, nys)), L=10*np.sqrt(2)*60, pixsize = pixsize*(3600*180)/np.pi)
+temp_four_radii = temp_need.lightcone_box.get_grid_dimless_2d(return_grid = True)
+temp_need.get_needlet_filters_2d(temp_four_radii)
+
+to_ret = np.zeros((nxs*nys, nxs_red*nys_red))
+filt_num = 0
+for nx in range(nxs_red):
+    for ny in range(nys_red):
+        idx = nys_red*nx + ny
+        temp = np.zeros((nxs, nys))
+        temp[nx*down_samp, ny*down_samp] = 1
+        to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, temp_need.filters[filt_num:filt_num+1])))
+
+svd = np.linalg.svd(to_ret, 0)
+
+temp_map = wmap.copy()
+toc2 = time.time()
+smat = np.diag(svd.S)
+for j, S in enumerate(svd.S):
+    if S > 1e-6:
+        wmapset = Mapset()
+        temp_map.clear()
+        cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
+        temp_map.map[filt_n] = np.reshape(cur, [306, 306])
+        wmapset.add_map(temp_map)
+        todvec.dot(wmapset)
+tic2 = time.time()
