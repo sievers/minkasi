@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 from matplotlib import pyplot as plt
 import minkasi.minkasi_all as minkasi
 
@@ -47,7 +47,7 @@ for fname in tod_names:
 #todvec.lims() is MPI-aware and will return global limits, not just
 #the ones from private TODs
 lims=todvec.lims()
-pixsize=3.0/3600*numpy.pi/180
+pixsize=3.0/3600*np.pi/180
 map=minkasi.SkyMap(lims,pixsize)
 
 #once we have a map, we can figure out the pixellization of the data.  Save that
@@ -90,7 +90,6 @@ precon=mapset.copy()
 tmp=hits.map.copy()
 ii=tmp>0
 tmp[ii]=1.0/tmp[ii]
-#precon.maps[0].map[:]=numpy.sqrt(tmp)
 precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
