@@ -98,7 +98,6 @@ fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e12,
 
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
 
-
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
     tod.info['ipix']=ipix
@@ -186,7 +185,7 @@ for i in range(len(need.filters)):
         if S > 1e-6:
             wmapset = Mapset()
             temp_map.clear()
-            cur = np.dot(svd.U[...,0], np.dot(smat[0], svd.Vh[...,0]))
+            cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
             temp_map.map[i] = np.reshape(cur, [306, 306])
             wmapset.add_map(temp_map)
             todvec.dot(wmapset)
