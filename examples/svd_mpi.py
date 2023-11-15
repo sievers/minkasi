@@ -50,8 +50,6 @@ tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 todvec=minkasi.TodVec()
 
 flatten = False
-
-
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
     if i > n_tods: break
@@ -99,10 +97,18 @@ for tod in todvec.tods:
 
 hits=minkasi.make_hits(todvec,wmap)
 
+
+#Subtract off modes outside the joint ACT+M2 window
 i = 4
 if minkasi.myrank==0:
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
-    svd = wmap.get_svd(i, down_samp = 10)
+    svd = wmap.get_svd(i, down_samp = 10) #TODO: Parallelize
+    tol = 1e-6
+    mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))
+    svd.U = svd.U[mask, :] #check if it's mask, : or :, mask
+    svd.Vh = svd.Vh[mask, :]
+    svd.S = svd.S[mask, :]
+
     smat = np.diag(svd.S)
     for i in range(1, minkasi.nproc):
         comm.send(svd, dest = i, tag = 0)
@@ -115,18 +121,33 @@ else:
 minkasi.barrier()
 toc = time.time()
 
+svd = np.stack(svd.U) #Stack up all svds for all wavelets in window
+
+svd_ANA = np.zeros([len(svd.S), len(svd.S)])
+
+
 for j in range(minkasi.myrank, len(svd.S), minkasi.nproc):
-    if j > 100: break
+    #if j > 100: break
     temp_map = wmap.copy()
     S = svd.S[j]
-    if S > 1e-6:
-        wmapset = Mapset()
-        temp_map.clear()
-        cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
-        temp_map.map[i] = np.reshape(cur, [306, 306])
-        wmapset.add_map(temp_map)
-        todvec.dot(wmapset)
+
+    cur = svd_comp_that_looks_like_map[:,j]
+ 
+    wmapset = Mapset()
+    temp_map.clear()
+    #cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
+    temp_map.map[i] = np.reshape(cur, [306, 306])
+    wmapset.add_map(temp_map)
+    mapout = todvec.dot(wmapset) #Dot this with whole vector of SVD componants that looks like maps
+    svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map), svd_comp_that_looks_like_map))
+
 minkasi.barrier()
+
+svd_ANA = comm.all_reduce(svd_ANA)
+
+#RHS = usual rhs with stacked svd.U
+#LHS = svd_ANA
+#chis2 = dot(lhs, rhs)
 
 tic = time.time()
 

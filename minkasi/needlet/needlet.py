@@ -339,18 +339,18 @@ class WavSkyMap(SkyMap):
                 print(tmp)
 
 
-    def get_svd(self, filt_num, down_samp = 1, tol = 1e-6):
+    def get_svd(self, filt_num, down_samp = 1, tol = 1e-6): #1e-4 maybe
         nxs_red, nys_red = int(self.nx/down_samp), int(self.ny/down_samp)
-        to_ret = np.zeros((self.nx*self.ny, nxs_red*nys_red))
+        to_ret = np.zeros((self.nx*self.ny, nxs_red*nys_red)) #Swap these dimensions
         for nx in range(nxs_red):
             for ny in range(nys_red):
                 idx = nys_red*nx + ny
                 temp = np.zeros((self.nx, self.ny))
-                temp[nx*down_samp, ny*down_samp] = 1
-                to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
+                temp[nx*down_samp, ny*down_samp] = 1 #np.linspace the indexes
+                to_ret[:, idx] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1]))) #Swap this too
         svd = np.linalg.svd(to_ret, 0)
 
-        if svd.S[-1] > tol:
+        if np.amin(np.abs(svd.S)) > np.amax(np.abs(svd.S)) * tol: 
             print("Warning: smallest mode is greater than tolerence. You may have under sampled this needlet. Try increasing down_samp.")
         return svd
 
