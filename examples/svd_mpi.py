@@ -37,8 +37,8 @@ except:
     myrank = 0
     nproc = 1
 
-idir = "/home/jack/M2-TODs/RXJ1347/"
-
+#idir = "/home/jack/M2-TODs/RXJ1347/"
+idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
@@ -103,12 +103,12 @@ i = 4
 if minkasi.myrank==0:
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
     svd = wmap.get_svd(i, down_samp = 10) #TODO: Parallelize
-    #tol = 1e-6
-    #mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))
-    #svd.U = svd.U[mask, :] #check if it's mask, : or :, mask
-    #svd.Vh = svd.Vh[mask, :]
-    #svd.S = svd.S[mask, :]
-
+    tol = 1e-6
+    mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))
+    U = svd.U[:, mask] #check if it's mask, : or :, mask
+    Vh = svd.Vh[:, mask]
+    S = svd.S[:, mask]
+    print(S.shape)
     smat = np.diag(svd.S)
     for i in range(1, minkasi.nproc):
         comm.send(svd, dest = i, tag = 0)
@@ -127,28 +127,34 @@ toc = time.time()
 
 
 for j in range(minkasi.myrank, len(svd.S), minkasi.nproc):
-    if j > 100: break
+    #if j >= 20: break
+
     temp_map = wmap.copy()
-    S = svd.S[j]
+
 
 #    cur = svd_comp_that_looks_like_map[:,j]
- 
+    cur = Vh[j,:]
+    print(cur.shape) 
     wmapset = Mapset()
     temp_map.clear()
-    cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
+
+#    cur = np.dot(svd.Vh[j,:], np.dot(smat[j], svd.U[j,:]))
     temp_map.map[i] = np.reshape(cur, [306, 306])
     wmapset.add_map(temp_map)
     mapout = todvec.dot(wmapset) #Dot this with whole vector of SVD componants that looks like maps
+    if minkasi.myrank == 0:
+        print("here")
     #svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map), svd_comp_that_looks_like_map))
-
-minkasi.barrier()
+    #comm.barrier()
+#comm.barrier()
 
 #svd_ANA = comm.all_reduce(svd_ANA)
 
 #RHS = usual rhs with stacked svd.U
 #LHS = svd_ANA
 #chis2 = dot(lhs, rhs)
-
+if minkasi.myrank == 0:
+    print("out")
 tic = time.time()
 
-print(tic-toc)
+#print(tic-toc)
