@@ -94,11 +94,16 @@ precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
 
-outpath = "/scratch/r/rbond/jorlo/M2-TODs/" #CHANGE ME!
+outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME! Note the end of this path is a filename, files will be written to 
+                                                              #RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
+save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 400, 450, 499]
 
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
+
+#run PCG!
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=500, save_iters=save_iters, outroot = outroot)
+
 if minkasi.myrank==0:
-    mapset_out.maps[0].write(outpath+'first_map_precon_mpi.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outroot+'_final.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
