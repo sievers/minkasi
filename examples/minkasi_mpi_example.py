@@ -94,11 +94,12 @@ precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
 
-outpath = "/scratch/r/rbond/jorlo/M2-TODs/" #CHANGE ME!
+outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME!
+save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
+mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=500, save_iters=save_iters, outroot = outroot)
 if minkasi.myrank==0:
-    mapset_out.maps[0].write(outpath+'first_map_precon_mpi.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outroot+'_final.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
