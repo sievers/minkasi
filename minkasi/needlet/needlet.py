@@ -354,7 +354,7 @@ class WavSkyMap(SkyMap):
                 temp = np.zeros((self.nx, self.ny)) 
                 temp[nx_space[nx], ny_space[ny]] = 1 
                 to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
-        print(to_ret.shape)
+      
         svd = np.linalg.svd(to_ret, 0)
 
         if np.amin(np.abs(svd.S)) > np.amax(np.abs(svd.S)) * tol: 
