@@ -99,55 +99,56 @@ hits=minkasi.make_hits(todvec,wmap)
 
 
 #Subtract off modes outside the joint ACT+M2 window
-i = 4
+filt = 4
 if minkasi.myrank==0:
+
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
-    svd = wmap.get_svd(i, down_samp = 10) #TODO: Parallelize
-    tol = 1e-6
-    mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))
-    U = svd.U[:, mask] #check if it's mask, : or :, mask
-    Vh = svd.Vh[:, mask]
-    S = svd.S[:, mask]
-    print(S.shape)
-    smat = np.diag(svd.S)
+    svd = wmap.get_svd(filt, down_samp = 10) #TODO: Parallelize
+    tol = 1e-1
+    mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
+
+    U = svd.U[mask, :] #check if it's mask, : or :, mask
+    Vh = svd.Vh[mask, :]
+    S = svd.S[mask]
+    print(U.shape, Vh.shape, S.shape)
+    smat = np.diag(S)
+
     for i in range(1, minkasi.nproc):
-        comm.send(svd, dest = i, tag = 0)
-        comm.send(smat, dest = i, tag = 1)
+        comm.send(U, dest = i, tag = 0)
+        comm.send(Vh, dest = i, tag = 1)
+        comm.send(smat, dest = i, tag = 2)
 else:
-    svd = comm.recv(source = 0, tag = 0)
-    smat = comm.recv(source = 0, tag = 1)
+    U = comm.recv(source = 0, tag = 0)
+    Vh = comm.recv(source = 0, tag = 1)
+    smat = comm.recv(source = 0, tag = 2)
 
 
 minkasi.barrier()
 toc = time.time()
 
-#svd = np.stack(svd.U) #Stack up all svds for all wavelets in window
+svd = np.stack(Vh).T #Stack up all svds for all wavelets in window. Shape [nSVDs, map.ravel]
+print(svd.shape)
+svd_ANA = np.zeros([len(smat), len(smat)])
 
-#svd_ANA = np.zeros([len(svd.S), len(svd.S)])
 
-
-for j in range(minkasi.myrank, len(svd.S), minkasi.nproc):
-    #if j >= 20: break
-
+for j in range(minkasi.myrank, len(smat), minkasi.nproc):
     temp_map = wmap.copy()
-
-
-#    cur = svd_comp_that_looks_like_map[:,j]
     cur = Vh[j,:]
-    print(cur.shape) 
+
     wmapset = Mapset()
     temp_map.clear()
-
-#    cur = np.dot(svd.Vh[j,:], np.dot(smat[j], svd.U[j,:]))
-    temp_map.map[i] = np.reshape(cur, [306, 306])
+    temp_map.map[filt] = np.reshape(cur, [306, 306])
     wmapset.add_map(temp_map)
     mapout = todvec.dot(wmapset) #Dot this with whole vector of SVD componants that looks like maps
-    if minkasi.myrank == 0:
-        print("here")
-    #svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map), svd_comp_that_looks_like_map))
-    #comm.barrier()
-#comm.barrier()
 
+    svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), svd))
+    print(j) 
+comm.barrier()
+import pickle as pk
+
+if minkasi.myrank == 0 :
+    with open("/scratch/r/rbond/jorlo/svd_ANA.pk", "wb") as f:
+        pk.dump(svd_ANA, f)
 #svd_ANA = comm.all_reduce(svd_ANA)
 
 #RHS = usual rhs with stacked svd.U
@@ -157,4 +158,4 @@ if minkasi.myrank == 0:
     print("out")
 tic = time.time()
 
-#print(tic-toc)
+print(tic-toc)
