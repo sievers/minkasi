@@ -107,6 +107,7 @@ if minkasi.myrank==0:
     tol = 1e-1
     mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
 
+    mask = mask[:(len(mask) // minkasi.nproc)*minkasi.nproc]
     U = svd.U[mask, :] #check if it's mask, : or :, mask
     Vh = svd.Vh[mask, :]
     S = svd.S[mask]
@@ -142,7 +143,8 @@ for j in range(minkasi.myrank, len(smat), minkasi.nproc):
     mapout = todvec.dot(wmapset) #Dot this with whole vector of SVD componants that looks like maps
 
     svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), svd))
-    print(j) 
+
+ 
 comm.barrier()
 import pickle as pk
 
@@ -159,3 +161,14 @@ if minkasi.myrank == 0:
 tic = time.time()
 
 print(tic-toc)
+imap = minkasi.SkyMap(lims, pixsize)
+
+mapset=minkasi.Mapset()
+mapset.add_map(imap)
+
+
+rhs=mapset.copy()
+todvec.make_rhs(svd)
+chis2 = np.dot(svd_ANA, rhs)
+print(chis2)
+
