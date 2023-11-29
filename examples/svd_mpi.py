@@ -107,7 +107,7 @@ if minkasi.myrank==0:
     tol = 1e-1
     mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
 
-    mask = mask[:(len(mask) // minkasi.nproc)*minkasi.nproc]
+    #mask = mask[:(len(mask) // minkasi.nproc)*minkasi.nproc]
     U = svd.U[mask, :] #check if it's mask, : or :, mask
     Vh = svd.Vh[mask, :]
     S = svd.S[mask]
@@ -140,7 +140,7 @@ for j in range(minkasi.myrank, len(smat), minkasi.nproc):
     temp_map.clear()
     temp_map.map[filt] = np.reshape(cur, [306, 306])
     wmapset.add_map(temp_map)
-    mapout = todvec.dot(wmapset) #Dot this with whole vector of SVD componants that looks like maps
+    mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
 
     svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), svd))
 
