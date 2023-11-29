@@ -934,6 +934,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
+        skip_reduce: bool = False,
     ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
         """
         Take dot of all the TODs in this TodVec.
@@ -951,6 +952,9 @@ class TodVec:
             If True return the time it takes to run dot on each TOD.
         cache_maps : bool, default: False
             Run TodVec.dot_cached.
+        skip_reduce : bool, default: False
+            Alows you to skip reducing manually. Used when calling dot with one process while having mpi
+            e.g. in a loop
 
         Returns
         -------
@@ -978,7 +982,8 @@ class TodVec:
             tot_times = tot_times + mytimes
             times[i] = t2 - t1
         if have_mpi:
-            mapset_out.mpi_reduce()
+            if not skip_reduce:
+                mapset_out.mpi_reduce()
         print(tot_times)
         if report_times:
             return mapset_out, times
