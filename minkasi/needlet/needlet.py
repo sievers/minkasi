@@ -339,7 +339,7 @@ class WavSkyMap(SkyMap):
                 print(tmp)
 
 
-    def get_svd(self, filt_num, down_samp = 1, tol = 1e-6): #1e-4 maybe
+    def get_svd(self, filt_num, down_samp = 1, tol = 1e-6, do_svd = True): #1e-4 maybe
         nxs_red, nys_red = int(self.nx/down_samp), int(self.ny/down_samp)
         to_ret = np.zeros((nxs_red*nys_red, self.nx*self.ny))
        
@@ -354,13 +354,15 @@ class WavSkyMap(SkyMap):
                 temp = np.zeros((self.nx, self.ny)) 
                 temp[nx_space[nx], ny_space[ny]] = 1 
                 to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
-      
-        svd = np.linalg.svd(to_ret, 0)
+        if do_svd:
+            svd = np.linalg.svd(to_ret, 0)
 
-        if np.amin(np.abs(svd.S)) > np.amax(np.abs(svd.S)) * tol: 
-            print("Warning: smallest mode is greater than tolerence. You may have under sampled this needlet. Try increasing down_samp.")
-        return svd
+            if np.amin(np.abs(svd.S)) > np.amax(np.abs(svd.S)) * tol: 
+                print("Warning: smallest mode is greater than tolerence. You may have under sampled this needlet. Try increasing down_samp.")
+            return svd
 
+        else:
+            return to_ret
 
 class needlet:
     """

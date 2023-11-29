@@ -38,7 +38,8 @@ except:
     nproc = 1
 
 #idir = "/home/jack/M2-TODs/RXJ1347/"
-idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
+#idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
+idir = "/scratch/r/rbond/jorlo//M2-TODs/A399-401/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
@@ -100,10 +101,12 @@ hits=minkasi.make_hits(todvec,wmap)
 
 #Subtract off modes outside the joint ACT+M2 window
 filt = 4
+print(wmap.map.shape)
 if minkasi.myrank==0:
 
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
-    svd = wmap.get_svd(filt, down_samp = 10) #TODO: Parallelize
+    svd = wmap.get_svd(filt, down_samp = 10, do_svd = False) #TODO: Parallelize
+    print(svd.shape)
     tol = 1e-1
     mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
 
