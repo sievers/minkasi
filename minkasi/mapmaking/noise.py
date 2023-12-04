@@ -94,7 +94,8 @@ class NoiseModelType(Protocol):
         return np.empty(0)
 
 
-class WithDetWeights(NoiseModelType):
+@runtime_checkable
+class WithDetWeights(NoiseModelType, Protocol):
     def get_det_weights(self) -> NDArray[np.floating]:
         return np.empty(0)
 
