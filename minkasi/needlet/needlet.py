@@ -20,7 +20,7 @@ from ..mapmaking.tod2map import (
     tod2map_omp,
     tod2map_simple,
 )
-from ..parallel import comm, get_nthread, have_mpi, nproc
+from ..parallel import comm, get_nthread, have_mpi, nproc, myrank, MPI
 from ..tods import Tod, TodVec
 from ..tools.fft import find_good_fft_lens
 from ..maps.skymap import SkyMap
@@ -348,12 +348,50 @@ class WavSkyMap(SkyMap):
 
         nx_space = np.array([int(n) for n in nx_space])
         ny_space = np.array([int(n) for n in ny_space])
-        for nx in range(nxs_red):
-            for ny in range(nys_red):
-                idx = nys_red*nx + ny
-                temp = np.zeros((self.nx, self.ny)) 
-                temp[nx_space[nx], ny_space[ny]] = 1 
-                to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
+        if have_mpi:
+            if myrank == 0:
+               
+                numSent = 0
+                toSend = nxs_red * nys_red
+                flags = np.zeros(nproc-1, dtype=bool)
+                #toSend = np.arange(nxs_red * nys_red)
+                """
+                for helperID in range(1, nproc):
+                    comm.send(helperID-1, dest = helperID, tag = helperID)
+                    numSent += 1
+                """
+                while not np.all(flags):
+                    status = MPI.Status()
+                    temp = comm.recv(source = MPI.ANY_SOURCE, tag = MPI.ANY_TAG, status = status)
+                    sender = status.Get_source()
+                    tag = status.Get_tag() 
+                    if type(temp) == str:
+                        print("Task ", sender, " is done")
+                        flags[sender-1] = temp
+                    else:
+                        to_ret[tag] = temp
+         
+            else:        
+                for nx in range(myrank-1, nxs_red, nproc-1): 
+                    for ny in range(nys_red):
+                        idx = nys_red*nx + ny
+                        temp = np.zeros((self.nx, self.ny)) 
+                        temp[nx_space[nx], ny_space[ny]] = 1 
+                        #to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
+                        temp = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
+                        comm.send(temp, dest = 0, tag = idx)
+                comm.send("Done", dest=0, tag = 0)
+                 
+            comm.barrier()
+
+        else:
+            for nx in range(nxs_red):
+                for ny in range(nys_red):
+                    idx = nys_red*nx + ny
+                    temp = np.zeros((self.nx, self.ny))
+                    temp[nx_space[nx], ny_space[ny]] = 1
+                    to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
+        
         if do_svd:
             svd = np.linalg.svd(to_ret, 0)
 
