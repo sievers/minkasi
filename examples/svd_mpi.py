@@ -101,51 +101,64 @@ hits=minkasi.make_hits(todvec,wmap)
 
 #Subtract off modes outside the joint ACT+M2 window
 filt = 4
-print(wmap.map.shape)
-if minkasi.myrank==0:
+do_svd = True 
+if not do_svd:
+    toc = time.time()
+    response_mat = wmap.get_svd(filt, down_samp = 10, do_svd = False)
+    tic = time.time()
+    print("Took ", tic-toc, " seconds to get response mat")
+    #DO I have to broadcast this?
+    svd_ANA = np.zeros([len(response_mat), len(response_mat)])
 
+else:
+    
+    
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
     svd = wmap.get_svd(filt, down_samp = 10, do_svd = False) #TODO: Parallelize
     print(svd.shape)
     tol = 1e-1
     mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
-
+    print("Number kept modes: ", len(mask))
     #mask = mask[:(len(mask) // minkasi.nproc)*minkasi.nproc]
     U = svd.U[mask, :] #check if it's mask, : or :, mask
     Vh = svd.Vh[mask, :]
     S = svd.S[mask]
     print(U.shape, Vh.shape, S.shape)
     smat = np.diag(S)
-
-    for i in range(1, minkasi.nproc):
-        comm.send(U, dest = i, tag = 0)
-        comm.send(Vh, dest = i, tag = 1)
-        comm.send(smat, dest = i, tag = 2)
-else:
-    U = comm.recv(source = 0, tag = 0)
-    Vh = comm.recv(source = 0, tag = 1)
-    smat = comm.recv(source = 0, tag = 2)
+    response_mat = np.stack(Vh).T #Stack up all svds for all wavelets in window. Shape [nSVDs, map.ravel]
+    svd_ana = np.zeros([len(smat), len(smat)])
 
 
 minkasi.barrier()
 toc = time.time()
 
-svd = np.stack(Vh).T #Stack up all svds for all wavelets in window. Shape [nSVDs, map.ravel]
-print(svd.shape)
-svd_ANA = np.zeros([len(smat), len(smat)])
+if not do_svd:
+    for j in range(minkasi.myrank, len(response_mat), minkasi.nproc):
+        temp_map = wmap.copy()
+        cur = response_mat[j,:]
+
+        wmapset = Mapset()
+        temp_map.clear()
+        temp_map.map[filt] = np.reshape(cur, temp_map.map.shape[1:])
+        wmapset.add_map(temp_map)
+        mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
+
+        svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), response_mat.T))
 
 
-for j in range(minkasi.myrank, len(smat), minkasi.nproc):
-    temp_map = wmap.copy()
-    cur = Vh[j,:]
 
-    wmapset = Mapset()
-    temp_map.clear()
-    temp_map.map[filt] = np.reshape(cur, [306, 306])
-    wmapset.add_map(temp_map)
-    mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
-
-    svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), svd))
+else:
+    print(Vh.shape, response_mat.shape)
+    for j in range(minkasi.myrank, len(smat), minkasi.nproc):
+        temp_map = wmap.copy()
+        cur = Vh[j,:]
+        wmapset = Mapset()
+        temp_map.clear()
+        temp_map.map[filt] = np.reshape(cur, [306, 306])
+        wmapset.add_map(temp_map)
+        mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
+    
+        svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), response_mat))
 
  
 comm.barrier()
