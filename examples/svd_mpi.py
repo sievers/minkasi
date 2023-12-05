@@ -101,12 +101,13 @@ hits=minkasi.make_hits(todvec,wmap)
 
 #Subtract off modes outside the joint ACT+M2 window
 filt = 4
-do_svd = True 
+do_svd = False 
 if not do_svd:
     toc = time.time()
-    response_mat = wmap.get_svd(filt, down_samp = 10, do_svd = False)
+    response_mat = wmap.get_svd(filt, down_samp = 20, do_svd = False)
     tic = time.time()
     print("Took ", tic-toc, " seconds to get response mat")
+    print(response_mat.shape)
     #DO I have to broadcast this?
     svd_ANA = np.zeros([len(response_mat), len(response_mat)])
 
@@ -114,7 +115,10 @@ else:
     
     
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
-    svd = wmap.get_svd(filt, down_samp = 10, do_svd = False) #TODO: Parallelize
+    toc = time.time()
+    svd = wmap.get_svd(filt, down_samp = 20, do_svd = True) #TODO: Parallelize
+    tic = time.time()
+    print("Took ", tic-toc, " seconds to get response mat")
     print(svd.shape)
     tol = 1e-1
     mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
