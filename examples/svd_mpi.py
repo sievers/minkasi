@@ -137,17 +137,17 @@ minkasi.barrier()
 toc = time.time()
 
 if not do_svd:
+    temp_map = WavSkyMap(np.expand_dims(need.filters[filt], axis = 0), lims, pixsize, square = True, multiple=2)
     for j in range(minkasi.myrank, len(response_mat), minkasi.nproc):
-        temp_map = wmap.copy()
         cur = response_mat[j,:]
 
         wmapset = Mapset()
         temp_map.clear()
-        temp_map.map[filt] = np.reshape(cur, temp_map.map.shape[1:])
+        temp_map.map[0] = np.reshape(cur, temp_map.map.shape[1:])
         wmapset.add_map(temp_map)
         mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
 
-        svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), response_mat.T))
+        svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[0]), response_mat.T))
 
 
 

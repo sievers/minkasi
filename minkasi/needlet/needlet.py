@@ -1,3 +1,5 @@
+import time
+
 from numba import jit
 
 from astropy.io import fits
@@ -203,6 +205,7 @@ class WavSkyMap(SkyMap):
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
+        n_filt = None, #TODO Fix type hinting
     ):
         """
         Project a wavelet map into a tod, adding or replacing the map contents.
@@ -220,10 +223,12 @@ class WavSkyMap(SkyMap):
             If False replace dat with it.
         do_omp : bool, default: False
             Use omp to parallelize
+        n_filt : Union[list[int], None] = None
+            Filters on which to perform map2tod. If none, then done over all 
         """
         ipix = self.get_pix(tod)
         self.real_map.map = np.squeeze(
-            wav2map_real(self.map, self.filters), axis=0
+            wav2map_real(self.map, self.filters, n_filt = n_filt), axis=0
         )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
         map2tod(dat, self.real_map.map, ipix, do_add, do_omp)
 
@@ -233,6 +238,7 @@ class WavSkyMap(SkyMap):
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
+        n_filt = None, #TODO Fix type hinting
     ):
         """
         Project a tod into the wmap. Frist projects tod onto real space map, then converts that to wmap.
@@ -249,6 +255,9 @@ class WavSkyMap(SkyMap):
             If False replace this map with it.
         do_omp : bool, default: True
             Use omp to parallelize.
+        n_filt : Union[list[int], None] = None
+            Filters on which to perform map2tod. If none, then done over all
+
         """
         if dat is None:
             dat = tod.get_data()
@@ -264,12 +273,12 @@ class WavSkyMap(SkyMap):
         tod2map_simple(self.real_map.map, dat, ipix)
         if not do_add:
             self.map = np.squeeze(
-                map2wav_real(self.real_map.map, self.filters), axis=0
+                map2wav_real(self.real_map.map, self.filters, n_filt = n_filt), axis=0
             )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
 
         else:
             self.map += np.squeeze(
-                map2wav_real(self.real_map.map, self.filters), axis=0
+                map2wav_real(self.real_map.map, self.filters, n_filt = n_filt), axis=0
             )
 
         if self.purge_pixellization:
@@ -676,7 +685,7 @@ def new_map2wav(imaps, filters):
     return to_return
 
 
-def map2wav_real(imaps, filters):
+def map2wav_real(imaps, filters, n_filt = None):
     """
     Transform from a regular map to a multimap of wavelet coefficients. Adapted from Joelles code + enmap.wavelets
 
@@ -692,7 +701,7 @@ def map2wav_real(imaps, filters):
     wmap: np.array
         multimap of wavelet coefficients
     """
-
+    toc = time.time()
     if len(imaps.shape) == 2:
         imaps = np.expand_dims(imaps, axis=0)
 
@@ -705,7 +714,10 @@ def map2wav_real(imaps, filters):
     #npix = imaps.shape[-2] * imaps.shape[-1]
     #weights = np.array([np.sum(f**2) / npix for f in filters])
 
-    for i in range(len(imaps)):
+    if n_filt is None:
+        n_filt = range(len(imaps))
+
+    for i in n_filt:
         lightcone_ft = np.fft.fftn(np.fft.fftshift(imaps[i]))
 
         filtered_slice_real = []
@@ -718,11 +730,13 @@ def map2wav_real(imaps, filters):
             )  # should maybe catch if imag(fourier_filtered)!=0 here
 
         filtered_slices_real.append(np.array(filtered_slice_real))
-
+    tic = time.time()
+    
     return np.array(filtered_slices_real)
 
 
-def wav2map_real(wav_mapset, filters):
+def wav2map_real(wav_mapset, filters, n_filt = None):
+    toc = time.time()
     if len(wav_mapset.shape) == 3:
         wav_mapset = np.expand_dims(wav_mapset, axis=0)
 
@@ -734,7 +748,9 @@ def wav2map_real(wav_mapset, filters):
     #weights = np.array([np.sum(f**2) / npix for f in filters])
 
     back_transformed = []
-    for nu in range(len(wav_mapset)):
+    if n_filt is None:
+        n_filt = range(len(wav_mapset)) #If not provided with filts to do, then do all
+    for nu in n_filt:
         fourier_boxes = []
         for b in wav_mapset[nu]:
             fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
@@ -749,4 +765,6 @@ def wav2map_real(wav_mapset, filters):
             np.real(np.fft.ifftn(np.fft.fftshift(back_transform)))
         )
         back_transformed.append(back_transform)
+    tic = time.time()
+    
     return np.array(back_transformed)
