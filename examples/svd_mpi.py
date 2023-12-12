@@ -13,6 +13,7 @@ from minkasi.needlet.needlet import WavSkyMap
 from minkasi.needlet.needlet import needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
 from minkasi.maps.mapset import PriorMapset, Mapset
+from minkasi.parallel import comm, get_nthread, have_mpi, nproc, myrank, MPI
 
 try:
     import mpi4py.rc
@@ -138,17 +139,31 @@ toc = time.time()
 
 if not do_svd:
     temp_map = WavSkyMap(np.expand_dims(need.filters[filt], axis = 0), lims, pixsize, square = True, multiple=2)
-    for j in range(minkasi.myrank, len(response_mat), minkasi.nproc):
-        cur = response_mat[j,:]
+    if myrank == 0:
+        flags  = np.zeros(nproc-1, dtype=bool)
+        while not np.all(flags):
+            status = MPI.Status()
+            temp = comm.recv(source = MPI.ANY_SOURCE, tag = MPI.ANY_TAG, status = status)
+            sender = status.Get_source()
+            tag = status.Get_tag()
+            if type(temp) == str:
+                print("Task ", sender, " is done")
+                flags[sender-1] = temp
+            else:
+                svd_ANA[: tag] = temp
+    else: 
+        for j in range(myrank-1, len(response_mat), nproc-1):
+            cur = response_mat[j,:]
 
-        wmapset = Mapset()
-        temp_map.clear()
-        temp_map.map[0] = np.reshape(cur, temp_map.map.shape[1:])
-        wmapset.add_map(temp_map)
-        mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
+            wmapset = Mapset()
+            temp_map.clear()
+            temp_map.map[0] = np.reshape(cur, temp_map.map.shape[1:])
+            wmapset.add_map(temp_map)
+            mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
 
-        svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[0]), response_mat.T))
-
+            temp = np.ravel(np.dot(np.ravel(mapout.maps[0].map[0]), response_mat.T))
+            comm.send(temp, dest = 0, tag = j)
+    comm.send("Done", dest = 0, tag = 0)
 
 
 else:
