@@ -905,6 +905,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[False] = False,
         cache_maps: bool = False,
+        skip_reduce: bool = False,
     ) -> "Mapset":
         ...
 
@@ -915,6 +916,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[True] = True,
         cache_maps: bool = False,
+        skip_reduce: bool = False,
     ) -> Tuple["Mapset", NDArray[np.floating]]:
         ...
 
@@ -925,6 +927,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
+        skip_reduce: bool = False,
     ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
         ...
 
