@@ -27,8 +27,6 @@ from ..tods import Tod, TodVec
 from ..tools.fft import find_good_fft_lens
 from ..maps.skymap import SkyMap
 
-#from pixell import enmap
-
 import matplotlib.pyplot as plt
 
 import copy
@@ -43,7 +41,27 @@ else:
 #                       Basis Functions                        #
 ################################################################
 
-def __Standard(k_arr, j, B):
+
+def __Standard(
+    k_arr: NDarray[np.floating], j: int, B: np.floating
+) -> NDarray[np.floating]:
+    """
+    Driver function for generating standard needlets
+
+    Parameters
+    ----------
+    k_arr : NDArray[np.floating]
+        Array of k at which to evaluate needlet.
+    j : int
+        The index of the needlet.
+    B : np.floating
+        Parameter which sets the needlet width
+
+    Returns
+    -------
+    to_ret : NDarray[np.floating]
+        1D standard needlet response function for index j
+    """
 
     def __f_need(t):
         """Auxiliar function f to define the standard needlet"""
@@ -56,10 +74,7 @@ def __Standard(k_arr, j, B):
 
     def __psi(u):
         """Auxiliar function psi to define the standard needlet"""
-        return (
-            integrate.quad(__f_need, -1, u)[0]
-            / integrate.quad(__f_need, -1, 1)[0]
-        )
+        return integrate.quad(__f_need, -1, u)[0] / integrate.quad(__f_need, -1, 1)[0]
 
     def __phi(q, B):
         """Auxiliar function phi to define the standard needlet"""
@@ -73,59 +88,165 @@ def __Standard(k_arr, j, B):
         else:
             return __psi(1.0 - (2.0 * B / (B - 1.0) * (q - 1.0 / B)))
 
-
     xi = k_arr / B**j
     b2 = __phi(xi / B, B) - __phi(xi, B)
     return np.max([0.0, b2])
 
-def Standard(k_arr, js, B):
+
+def Standard(
+    k_arr: NDarray[np.floating], js: NDarray[int], B: np.floating
+) -> NDarray[np.floating]:
+    """
+    Helper function for constructing standard needlet basis.
+    TODO: this might be cleaner with np.vectorize.
+
+    Parameters
+    ----------
+    k_arr : NDArray[np.floating]
+        Array of k at which to evaluate needlets.
+    js : NDArray[int]
+        The indicies of the needlets.
+    B : np.floating
+        Parameter which sets the needlet width
+
+    Returns
+    -------
+    to_ret : NDarray[np.floating]
+        1D standard needlet response functions
+    """
+
     to_ret = []
     bl2 = np.vectorize(__Standard)
     for j in js:
         to_ret.append(np.sqrt(bl2(k_arr, j, B)))
 
     return np.array(to_ret)
-def Mexican(xi, js, jmin=1, B=1.5, p = 1):
-    bs = np.zeros((len(js), len(xi)))
+
+
+def Mexican(
+    k_arr: NDarray[np.floating],
+    js: NDarray[int],
+    jmin: int = 1,
+    B: np.floating = 1.5,
+    p: np.floating = 1,
+) -> NDarray[np.floating]:
+    """
+    Function for constructing Mexican at needlets.
+
+    Parameters
+    ----------
+    k_arr : NDArray[np.floating]
+        Array of k at which to evaluate needlets.
+    js : NDArray[int]
+        The index of the needlets.
+    jmin : int, default: 1
+        Combine all needlets up to jmin into the first needlet.
+        The first needlets can have very thin support so it
+        sometimes helps to add up the first couple needlets.
+    B : np.floating, default: 1.5
+        Parameter which sets the needlet width
+    p : np.floating, default: 1
+        Another parameter which sets needlet shape.
+
+    Returns
+    -------
+    to_ret : NDarray[np.floating]
+        1D Mexican hat needlet response functions
+    """
+
+    bs = np.zeros((len(js), len(k_arr)))
 
     for j in range(len(js)):
-        u = xi / B**j
-        bs[j] = u**p * np.exp(-1/2*u**2)
+        u = k_arr / B**j
+        bs[j] = u**p * np.exp(-1 / 2 * u**2)
 
     bs[0][0] = 1
-    to_ret = np.zeros((len(js) - jmin, len(xi)))
-    to_ret[0] = np.sqrt(np.sum(bs[:jmin]**2, axis = 0))
-    
+    to_ret = np.zeros((len(js) - jmin, len(k_arr)))
+    to_ret[0] = np.sqrt(np.sum(bs[:jmin] ** 2, axis=0))
+
     for j in range(1, len(js) - jmin):
         to_ret[j] = bs[jmin + j]
 
-    norm = np.sqrt(np.sum(to_ret**2, axis = 0))
+    norm = np.sqrt(
+        np.sum(to_ret**2, axis=0)
+    )  # For Mexican hat filters you have to just force the normalization
     to_ret /= norm
 
-    return to_ret 
-
-def __CosNeed(k_arr, j, cs):
-    to_ret = np.zeros(len(k_arr))
-    if j == 0:
-        to_ret[k_arr <= cs[1]] = np.cos((np.pi*k_arr[k_arr <= cs[1]]/(2*cs[1]-cs[0])))
-    else:
-        flag = np.where((cs[j-1] < k_arr) & (k_arr < cs[j]))
-        to_ret[flag] = np.cos((np.pi * (cs[j] - k_arr[flag]))/(2*(cs[j] - cs[j-1])))
-        flag = np.where((cs[j] < k_arr) & (k_arr < cs[j+1]))
-        to_ret[flag] = np.cos((np.pi * (k_arr[flag]-cs[j]))/(2*(cs[j+1] - cs[j])))    
-    
     return to_ret
 
-def CosNeed(k_arr, js, cs):
-    to_ret = [] 
+
+def __CosNeed(
+    k_arr: NDArray[np.floating], j: int, cs: NDArray[np.floating]
+) -> NDarray[np.floating]:
+    """
+    Driver function for cosine needlet basis.
+    Parameters
+    ----------
+    k_arr : NDArray[np.floating]
+        Array of k at which to evaluate needlets.
+    j : NDArray[int]
+        The current filter being considered.
+    cs : NDArray[np.floating]
+        Centers of the cosine filters.
+    Returns
+    -------
+    to_ret : NDarray[np.floating]
+        One cosine needlet response function
+    """
+
+    to_ret = np.zeros(len(k_arr))
+    if j == 0:
+        to_ret[k_arr <= cs[1]] = np.cos(
+            (np.pi * k_arr[k_arr <= cs[1]] / (2 * cs[1] - cs[0]))
+        )
+    else:
+        flag = np.where((cs[j - 1] < k_arr) & (k_arr < cs[j]))
+        to_ret[flag] = np.cos(
+            (np.pi * (cs[j] - k_arr[flag])) / (2 * (cs[j] - cs[j - 1]))
+        )
+        flag = np.where((cs[j] < k_arr) & (k_arr < cs[j + 1]))
+        to_ret[flag] = np.cos(
+            (np.pi * (k_arr[flag] - cs[j])) / (2 * (cs[j + 1] - cs[j]))
+        )
+
+    return to_ret
+
+
+def CosNeed(
+    k_arr: NDArray[np.floating], js: NDarray[int], cs: NDArray[np.floating]
+) -> NDarray[np.floating]:
+    """
+    Helper function for constructing Cosine needlet basis.
+    TODO: This is probably cleaner with a np.vectorize.
+
+    Parameters
+    ----------
+    k_arr : NDArray[np.floating]
+        Array of k at which to evaluate needlets.
+    js : NDArray[int]
+        The index of the needlets. Unused except
+        that for Cosine needlets the 0th needlet
+        is treated differently.
+    cs : NDArray[np.floating]
+        Centers of the cosine filters.
+
+    Returns
+    -------
+    to_ret : NDarray[np.floating]
+        1D cosine needlet response functions
+    """
+
+    to_ret = []
     for j in js:
         to_ret.append(__CosNeed(k_arr, j, cs))
 
     return np.array(to_ret)
 
+
 ################################################################
 #                         Core Classes                         #
 ################################################################
+
 
 class WavSkyMap(SkyMap):
     """
@@ -164,7 +285,7 @@ class WavSkyMap(SkyMap):
         tag: str = "ipix",
         purge_pixellization: bool = False,
         ref_equ: bool = False,
-        isglobal_prior : bool = False,
+        isglobal_prior: bool = False,
     ):
         """
         Initialize the SkyMap.
@@ -197,15 +318,30 @@ class WavSkyMap(SkyMap):
         )
         self.nfilt = len(self.filters)
         self.map = np.zeros([self.nfilt, self.nx, self.ny])
-        self.real_map = SkyMap(lims, pixsize, proj, pad, square, multiple, primes, cosdec, nx, ny, mywcs, tag, purge_pixellization, ref_equ,)#This is very slightly inefficient as it redoes the ssquaring but is safer in avoiding getting a real_map and wave_map with different shapes
-    
+        self.real_map = SkyMap(
+            lims,
+            pixsize,
+            proj,
+            pad,
+            square,
+            multiple,
+            primes,
+            cosdec,
+            nx,
+            ny,
+            mywcs,
+            tag,
+            purge_pixellization,
+            ref_equ,
+        )  # This is very slightly inefficient as it redoes the ssquaring but is safer in avoiding getting a real_map and wave_map with different shapes
+
     def map2tod(
         self,
         tod: "Tod",
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
-        n_filt = None, #TODO Fix type hinting
+        n_filt: Optional[list[int]] = None,
     ):
         """
         Project a wavelet map into a tod, adding or replacing the map contents.
@@ -223,12 +359,12 @@ class WavSkyMap(SkyMap):
             If False replace dat with it.
         do_omp : bool, default: False
             Use omp to parallelize
-        n_filt : Union[list[int], None] = None
-            Filters on which to perform map2tod. If none, then done over all 
+        n_filt :  None | list[int], default: None
+            Filters on which to perform map2tod. If none, then done over all
         """
         ipix = self.get_pix(tod)
         self.real_map.map = np.squeeze(
-            wav2map_real(self.map, self.filters, n_filt = n_filt), axis=0
+            wav2map_real(self.map, self.filters, n_filt=n_filt), axis=0
         )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
         map2tod(dat, self.real_map.map, ipix, do_add, do_omp)
 
@@ -238,7 +374,7 @@ class WavSkyMap(SkyMap):
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
-        n_filt = None, #TODO Fix type hinting
+        n_filt: Optional[list[int]] = None,
     ):
         """
         Project a tod into the wmap. Frist projects tod onto real space map, then converts that to wmap.
@@ -255,7 +391,7 @@ class WavSkyMap(SkyMap):
             If False replace this map with it.
         do_omp : bool, default: True
             Use omp to parallelize.
-        n_filt : Union[list[int], None] = None
+        n_filt : None | list[int], default: None
             Filters on which to perform map2tod. If none, then done over all
 
         """
@@ -269,16 +405,16 @@ class WavSkyMap(SkyMap):
             tod2map_cached(self.caches, dat, ipix)
 
         self.real_map.clear()
-         
+
         tod2map_simple(self.real_map.map, dat, ipix)
         if not do_add:
             self.map = np.squeeze(
-                map2wav_real(self.real_map.map, self.filters, n_filt = n_filt), axis=0
+                map2wav_real(self.real_map.map, self.filters, n_filt=n_filt), axis=0
             )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
 
         else:
             self.map += np.squeeze(
-                map2wav_real(self.real_map.map, self.filters, n_filt = n_filt), axis=0
+                map2wav_real(self.real_map.map, self.filters, n_filt=n_filt), axis=0
             )
 
         if self.purge_pixellization:
@@ -305,7 +441,7 @@ class WavSkyMap(SkyMap):
         except:
             hdu.writeto(fname, clobber=True)
 
-    def apply_prior(self, p, Ap):
+    def apply_prior(self, p: "WavSkyMap", Ap: "WavSkyMap"):
         """
         Apply prior to the wavelet map. In the ML framework, adding a prior equates to:
         chi^2 -> chi^2 + m^TQ^-1m
@@ -320,96 +456,144 @@ class WavSkyMap(SkyMap):
             Wavelet SkyMap of the conjugate vector p.
         Ap : WavSkyMap
             The result of tods.dot(p)
-        
-        Outputs
+
+        Returns
         -------
         Modifies Ap in place by Q^-1 m
         """
-        Ap.map=Ap.map+self.map*p.map
+        Ap.map = Ap.map + self.map * p.map
 
     def resize_maps(self, needlet):
         """
         Resizes maps so that the pixelization matches the smallest scale of the needlet, given a needlet basis.
         That needlet basis should probably be the one associated with need.filt but for right now it doesn't need to be.
-        I should enfore this.
+        I should enfore this. Currently not used, downsampling is handled directly in get_response_matrix.
+        Keeping as this mostly works and may one day need it.
 
         Parameters
         ----------
         need : needlet
             The needlet basis to use to determine the map rescalings.
         """
+        print("Error: this method is depreciated")
+        return
         for i in range(needlet.nfilt):
-            lims = needlet.get_need_lims(i, real_space = True)
-            rescale = np.floor(lims[0] / needlet.pixsize) #vv awk taking pixsize from needlet but weirdly safer because needlet pixsize (should)
-                                                          #have same units as needlet.get_need_lims
+            lims = needlet.get_need_lims(i, real_space=True)
+            rescale = np.floor(
+                lims[0] / needlet.pixsize
+            )  # vv awk taking pixsize from needlet but weirdly safer because needlet pixsize (should)
+            # have same units as needlet.get_need_lims
             if rescale > 1:
-                tmp = self.map.shape[-1]/rescale
-                tmp += 2-(tmp % 2)
+                tmp = self.map.shape[-1] / rescale
+                tmp += 2 - (tmp % 2)
                 print(tmp)
 
+    def get_response_matrix(
+        self,
+        filt_num: int,
+        down_samp: Optional[int] = 1,
+        tol: Optional[np.floating] = 1e-6,
+        do_svd: Optional[bool] = False,
+    ) -> Union[NDarray[np.floating], np.namedtuple]:
+        """
+        Get the response matrix for needlet filt_num.
+        Each entry of the response matrix is the map that results from passing a map
+        that is 1 at uniquely one pixel thru map2wav with one needlet.
+        The map is flattened for convenience.
 
-    def get_svd(self, filt_num, down_samp = 1, tol = 1e-6, do_svd = True): #1e-4 maybe
-        nxs_red, nys_red = int(self.nx/down_samp), int(self.ny/down_samp)
-        to_ret = np.zeros((nxs_red*nys_red, self.nx*self.ny))
-       
-        nx_space = np.linspace(0, self.nx-1, nxs_red)
-        ny_space = np.linspace(0, self.ny-1, nys_red)
+        Parameters
+        ---------
+        filt_num : int
+            The needlet to compute the repsponse matrix for.
+        down_samp : int, default: 1
+            The amount to downsample the input map by.
+            You can downsample the map down to ~the needlet scale without loosing information
+        tol : np.floating, default: 1e-6
+            When do_svd is True, sets the minimum value of the smallest SVD value relative to the largest.
+            Essentially ensure we haven't over-downsampled
+        do_svd : bool, default: False
+            If True, return the SVD of the response matrix so that we can throw out some modes later.
+
+        Returns
+        -------
+        to_ret : NDarray[np.floating] | np.namedtuple
+            If do_svd is False, then returns the response matrix.
+            Otherwise returns the SVD of the response matrix.
+            See numpy documentation for SVD documentation.
+        """
+
+        nxs_red, nys_red = int(self.nx / down_samp), int(
+            self.ny / down_samp
+        )  # TODO: make this a good FFT number
+        to_ret = np.zeros((nxs_red * nys_red, self.nx * self.ny))
+
+        nx_space = np.linspace(
+            0, self.nx - 1, nxs_red
+        )  # Evenly sample the downsampled nx
+        ny_space = np.linspace(0, self.ny - 1, nys_red)
 
         nx_space = np.array([int(n) for n in nx_space])
         ny_space = np.array([int(n) for n in ny_space])
         if have_mpi:
             if myrank == 0:
-               
-                numSent = 0
-                toSend = nxs_red * nys_red
-                flags = np.zeros(nproc-1, dtype=bool)
-                #toSend = np.arange(nxs_red * nys_red)
-                """
-                for helperID in range(1, nproc):
-                    comm.send(helperID-1, dest = helperID, tag = helperID)
-                    numSent += 1
-                """
+                flags = np.zeros(
+                    nproc - 1, dtype=bool
+                )  # Flags to track which process are done
                 while not np.all(flags):
                     status = MPI.Status()
-                    temp = comm.recv(source = MPI.ANY_SOURCE, tag = MPI.ANY_TAG, status = status)
+                    temp = comm.recv(
+                        source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
+                    )
                     sender = status.Get_source()
-                    tag = status.Get_tag() 
+                    tag = status.Get_tag()
                     if type(temp) == str:
                         print("Task ", sender, " is done")
-                        flags[sender-1] = temp
+                        flags[sender - 1] = temp
                     else:
                         to_ret[tag] = temp
-         
-            else:        
-                for nx in range(myrank-1, nxs_red, nproc-1): 
+
+            else:
+                for nx in range(myrank - 1, nxs_red, nproc - 1):
                     for ny in range(nys_red):
-                        idx = nys_red*nx + ny
-                        temp = np.zeros((self.nx, self.ny)) 
-                        temp[nx_space[nx], ny_space[ny]] = 1 
-                        #to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
-                        temp = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
-                        comm.send(temp, dest = 0, tag = idx)
-                comm.send("Done", dest=0, tag = 0)
-                 
+                        idx = nys_red * nx + ny
+                        temp = np.zeros((self.nx, self.ny))
+                        temp[nx_space[nx], ny_space[ny]] = 1
+                        temp = np.ravel(
+                            np.squeeze(
+                                map2wav_real(
+                                    temp, self.filters[filt_num : filt_num + 1]
+                                )
+                            )
+                        )
+                        comm.send(temp, dest=0, tag=idx)
+                comm.send("Done", dest=0, tag=0)
+
             comm.barrier()
 
         else:
             for nx in range(nxs_red):
                 for ny in range(nys_red):
-                    idx = nys_red*nx + ny
+                    idx = nys_red * nx + ny
                     temp = np.zeros((self.nx, self.ny))
                     temp[nx_space[nx], ny_space[ny]] = 1
-                    to_ret[idx, :] = np.ravel(np.squeeze(map2wav_real(temp, self.filters[filt_num:filt_num+1])))
-        
-        if do_svd:
-            svd = np.linalg.svd(to_ret, 0)
+                    to_ret[idx, :] = np.ravel(
+                        np.squeeze(
+                            map2wav_real(temp, self.filters[filt_num : filt_num + 1])
+                        )
+                    )
 
-            if np.amin(np.abs(svd.S)) > np.amax(np.abs(svd.S)) * tol: 
-                print("Warning: smallest mode is greater than tolerence. You may have under sampled this needlet. Try increasing down_samp.")
-            return svd
+        if do_svd:
+            to_ret = np.linalg.svd(to_ret, 0)
+
+            if np.amin(np.abs(to_ret.S)) > np.amax(np.abs(to_ret.S)) * tol:
+                print(
+                    "Warning: smallest mode is greater than tolerence. You may have under sampled this needlet. Try increasing down_samp."
+                )
+            return to_ret
 
         else:
             return to_ret
+
 
 class needlet:
     """
@@ -445,7 +629,7 @@ class needlet:
         js: NDArray[int],
         L: np.floating,
         lightcone: NDArray[np.floating],
-        pixsize : np.floating,
+        pixsize: np.floating,
         basisKwargs: dict = {},
         basis: Callable[..., NDArray[np.floating]] = Standard,
         B: Union[None, np.floating] = None,
@@ -474,7 +658,7 @@ class needlet:
             The maximum k mode for which the filters will be constructed. Dimensionless units!
             If None it is calculated.
         basis : Callable[..., NDArray[np.floating]]
-            Basis needlet functions b to use. Several are defined in this file but your own can be used. 
+            Basis needlet functions b to use. Several are defined in this file but your own can be used.
             Note this class does not check that your basis function is valid, i.e. that it satisfies
             b^2 has support in [1/B, B]
             b is infinitiely differentiable in [0, inf]
@@ -492,7 +676,7 @@ class needlet:
         if self.lightcone is not None:
             self.lightcone_box = cosmo_box(lightcone, self.L)
             self.kmax_dimless = self.lightcone_box.kmax_dimless
-       
+
         self.k_arr = np.append(
             np.array([0]),
             np.logspace(0, np.log10(self.kmax_dimless), int(10 * self.kmax_dimless)),
@@ -512,30 +696,63 @@ class needlet:
         if self.basis.__name__ == "Standard" and "B" not in self.basisKwargs.keys():
             self.basisKwargs["B"] = self.B
 
-        if self.basis.__name__ == "CosNeed" and "cs" not in self.basisKwargs.keys(): #strangely self.basis == CosNeed does not evaluate correctly
-            self.basisKwargs["cs"] = np.linspace(0, self.kmax_dimless*1.15 , len(js)+1)
-        
+        if (
+            self.basis.__name__ == "CosNeed" and "cs" not in self.basisKwargs.keys()
+        ):  # strangely self.basis == CosNeed does not evaluate correctly
+            self.basisKwargs["cs"] = np.linspace(
+                0, self.kmax_dimless * 1.15, len(js) + 1
+            )
+
         self.bands = self.get_needlet_bands_1d(self.basisKwargs)
         if self.basis.__name__ == "Mexican":
-            #Shrink js for Mexican
-            self.js = np.arange(self.bands.shape[0])      
+            # Shrink js for Mexican
+            self.js = np.arange(self.bands.shape[0])
 
         self.nfilt = len(self.js)
 
     def get_needlet_bands_1d(self, basisKwargs):
         """
-        Get 1D needlet response given parameters
+        Get 1D needlet response given parameters in basisKwargs.
+
+        Parameters
+        ---------
+        basisKwargs : dict
+            Dictionary that defines the parameters used by he needlet basis.
+
+        Returns
+        -------
+        needs : NDarray[np.floating]
+            The 1D needlet response.
         """
-        needs = self.basis(self.k_arr, self.js, **basisKwargs)    
+        needs = self.basis(self.k_arr, self.js, **basisKwargs)
         needs[0][0] = 1  # Want the k=0 mode to get the map average
         return needs
 
-    def get_needlet_filters_2d(self, fourier_radii, return_filt=False, plot=False):
+    def get_needlet_filters_2d(
+        self,
+        fourier_radii: NDarray[np.floating],
+        return_filt: Optional[bool] = False,
+        plot: Optiona[bool] = False,
+    ) -> Optional[NDArray[np.floating]]:
         """
-        Turns 1D needlet response into 2D response.
-        """ 
+        Turns 1D needlet response into 2D response by revolving in k space
+
+        Parameters
+        ---------
+        Fourier_radii : NDarray[np.floating]
+            1D needlet responses
+        return_filt : bool, default: False
+            If true, return the 2D filters in addition to setting self.filters
+        plot : bool, default: False
+            If true, plot the 2D filter functions
+
+        Returns
+        ------
+        self.filters : NDArray[np.floating] | None
+            The 2D filter functions. None if return_filt is false.
+        """
         filters = []
-        for j in self.js:        
+        for j in self.js:
             interp_func = interp1d(
                 self.k_arr, self.bands[j], fill_value="extrapolate"
             )  # interpolating is faster than computing bands for every row.
@@ -566,21 +783,18 @@ class needlet:
 
         if return_filt:
             return self.filters
-        
-    def get_need_lims(self, 
-                      N: int, 
-                      real_space: bool = False
-                      ):
+
+    def get_need_lims(self, N: int, real_space: bool = False):
         """
         Returns the limits of needlet
 
-        Arguments
+        Parameters
         ---------
         N : int
             Needlet of interest.
         real_space : bool
             Whether to return the limits in k or real space units
-        
+
         Ouputs
         ------
         lims : NDArray[np.floating]
@@ -592,27 +806,34 @@ class needlet:
         if real_space:
             lims *= self.delta_k
             lims = np.flip(lims)
-            if N == 0 : 
-                lims[1] = 1e-12 #The first need has lower k limit = 0
-            lims = np.pi / (lims) #Unsure about this factor of pi
+            if N == 0:
+                lims[1] = 1e-12  # The first need has lower k limit = 0
+            lims = np.pi / (lims)  # Unsure about this factor of pi
         return lims
-                
-
 
     # ==============================================================================================#
     # ====================================== plotting functions ====================================#
     # ==============================================================================================#
 
-    def plot_bands(self, scale = None):
+    def plot_bands(self, scale: Optional[np.floating] = None):
+        """
+        Function that plots the needlets in k space, sometimes called the windows.
+
+        Parameters
+        ----------
+        scale : Optional[np.floating] | None, default: None
+            Inverse physical scale corresponding to k
+        """
         fig, ax = plt.subplots()
 
         self.sum_sq = np.zeros_like(self.k_arr)
         x_arr = self.k_arr
-        if scale: x_arr *= scale
+        if scale:
+            x_arr *= scale
         for j, b in enumerate(self.bands):
             ax.plot(x_arr, b, label=f"j={j}")
             self.sum_sq += b**2
-        
+
         ax.plot(x_arr, self.sum_sq, label=f"$\sum b^2$", color="k")
         ax.set_xscale("log")
         ax.legend(loc="lower right", ncols=self.nfilt // 2)
@@ -623,9 +844,44 @@ class needlet:
 
 ###############################################################################################
 
+
 class cosmo_box:
-    def __init__(self, box, L):
-        # initializing some attributes
+    """
+    Class that defines the fourier box our wavelets live in.
+    First dim is frequency, so redundant for M2
+
+    Attributes
+    ----------
+    box : NDarray(np.floating)
+        Realspace box with dim [nfreq, nx, ny]
+    L : np.floating
+        Physical side length of the box. Units arbitrary
+    dims : int
+        Dimensions of box
+    N : int
+        Box size in pixels
+    origin : int
+        FFT convention origin of the box in pixels.
+    delta_k : np.floating
+        kspace resolution of 1 pixel
+    kmax_dimless : np.floating
+        Maximum k of the cosmo box corresponding to box
+    kmax : np.floating
+        Dim-ful version of kmax
+    """
+
+    def __init__(self, box: NDarray(np.floating), L: np.floating):
+        """
+        Initialize the cosmo box
+
+        Parameters
+        ----------
+        box : NDarray(np.floating)
+            Realspace box with dim [nfreq, nx, ny]
+        L : np.floating
+            Physical side length of the box. Units arbitrary
+        """
+
         self.box = box
         self.L = L
 
@@ -645,13 +901,35 @@ class cosmo_box:
 
     # ======================= fourier functions ====================#
     def get_kmax_dimless(self):
+        """
+        Gets the maximum k in dimensionless fourier space specified
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        max_grid_dimless : np.floating
+            Maximum k of self.grid_dimless
+        """
+
         self.get_grid_dimless_2d()
         return np.max(self.grid_dimless)
 
-    def get_grid_dimless_2d(self, return_grid=False):
+    def get_grid_dimless_2d(self, return_grid: Optional[bool] = False):
         """
         Generates a fourier space dimensionless grid, finds
         radial distance of each pixel from origin.
+
+        Parameters
+        ----------
+        return_grid : bool, default: False
+            If true, then return the grid in addition to setting self.grid_dimless
+
+        Returns
+        -------
+        self.grid_dimless : NDArray[np.floating]
+            Grid of dimensionless 2D k space
         """
 
         self.indices = np.indices((self.N, self.N)) - self.origin
@@ -662,14 +940,20 @@ class cosmo_box:
         if return_grid:
             return self.grid_dimless
 
-def map2wav_real(imaps: NDArray[np.floating], filters: NDArray[np.floating], n_filt: Optional[NDArray[np.floating]] = None, print_time: Optional[bool] = False) -> NDArray[np.floating]:
+
+def map2wav_real(
+    imaps: NDArray[np.floating],
+    filters: NDArray[np.floating],
+    n_filt: Optional[NDArray[np.floating]] = None,
+    print_time: Optional[bool] = False,
+) -> NDArray[np.floating]:
     """
     Transform from a regular map to a multimap of wavelet coefficients. Adapted from Joelles code + enmap.wavelets
 
     Parameters
     ----------
     imap : NDArray[np.floating]
-        Input map of the sky 
+        Input map of the sky
     filters : NDArray[np.floating]
         Feedlet basis filters, also called the filter windows
     n_filt : NDArray[np.floating] | None, default: None
@@ -700,21 +984,24 @@ def map2wav_real(imaps: NDArray[np.floating], filters: NDArray[np.floating], n_f
 
         filtered_slice_real = []
         for filt in filters:
-            fourier_filtered = (
-                np.fft.fftshift(filt) * lightcone_ft
-            )  
+            fourier_filtered = np.fft.fftshift(filt) * lightcone_ft
             filtered_slice_real.append(
                 np.fft.fftshift(np.real(np.fft.ifftn(fourier_filtered)))
-            )  
+            )
 
         wmap.append(np.array(filtered_slice_real))
     tic = time.time()
     if print_time:
-        print("map2wav takes ", tic-toc)
+        print("map2wav takes ", tic - toc)
     return np.array(wmap)
 
 
-def wav2map_real(wav_mapset: NDArray[np.floating], filters:  NDArray[np.floating], n_filt: Optional[NDArray[np.floating]] = None, print_time: Optional[bool] = False) -> NDArray[np.floating]:
+def wav2map_real(
+    wav_mapset: NDArray[np.floating],
+    filters: NDArray[np.floating],
+    n_filt: Optional[NDArray[np.floating]] = None,
+    print_time: Optional[bool] = False,
+) -> NDArray[np.floating]:
     """
     Transform from a regular map to a multimap of wavelet coefficients. Adapted from Joelles code + enmap.wavelets
 
@@ -744,23 +1031,20 @@ def wav2map_real(wav_mapset: NDArray[np.floating], filters:  NDArray[np.floating
 
     sky_map = []
     if n_filt is None:
-        n_filt = range(len(wav_mapset)) #If not provided with filts to do, then do all
+        n_filt = range(len(wav_mapset))  # If not provided with filts to do, then do all
     for nu in n_filt:
         fourier_boxes = []
         for b in wav_mapset[nu]:
             fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
 
-
         back_transform = np.zeros_like(fourier_boxes[0])
         for i in range(wav_mapset.shape[1]):
-            back_transform += (
-                np.fft.fftshift(fourier_boxes[i]) * filters[i]
-            )  
+            back_transform += np.fft.fftshift(fourier_boxes[i]) * filters[i]
         back_transform = np.fft.fftshift(
             np.real(np.fft.ifftn(np.fft.fftshift(back_transform)))
         )
         sky_map.append(back_transform)
     tic = time.time()
     if print_time:
-        print("wav2map took ", tic-toc)
+        print("wav2map took ", tic - toc)
     return np.array(sky_map)
