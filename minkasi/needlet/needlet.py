@@ -662,29 +662,6 @@ class cosmo_box:
         if return_grid:
             return self.grid_dimless
 
-
-def new_map2wav(imaps, filters):
-    npix = imaps.shape[-2] * imaps.shape[-1]
-    weights = np.array([np.sum(f**2) / npix for f in filters])
-
-    fmap = np.fft.fft(
-        imaps, norm="backward"
-    )  # We're gonna do a hack-y thing where we force numpy to un normalize the ffts by calling norm=backwards going forwards and norm=forwards going backwards. We are imposing our own norm
-    fmap_npix = 1
-    for dim in np.shape(imaps):
-        fmap_npix *= dim
-    to_return = np.zeros(
-        (imaps.shape[0], filters.shape[0], imaps.shape[-2], imaps.shape[-1])
-    )
-    for i in range(len(imaps)):
-        for j in range(len(filters)):
-            fsmall = fmap[i]
-            fsmall *= filters[j] / (weights[i] ** 0.5 * fmap_npix)
-
-            to_return[i][j] = np.fft.ifft(fsmall, norm="forward").real
-    return to_return
-
-
 def map2wav_real(imaps: NDArray[np.floating], filters: NDArray[np.floating], n_filt: Optional[NDArray[np.floating]] = None, print_time: Optional[bool] = False) -> NDArray[np.floating]:
     """
     Transform from a regular map to a multimap of wavelet coefficients. Adapted from Joelles code + enmap.wavelets
