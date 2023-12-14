@@ -685,21 +685,25 @@ def new_map2wav(imaps, filters):
     return to_return
 
 
-def map2wav_real(imaps, filters, n_filt = None):
+def map2wav_real(imaps: NDArray[np.floating], filters: NDArray[np.floating], n_filt: Optional[NDArray[np.floating]] = None, print_time: Optional[bool] = False) -> NDArray[np.floating]:
     """
     Transform from a regular map to a multimap of wavelet coefficients. Adapted from Joelles code + enmap.wavelets
 
     Parameters
     ----------
-    imap: np.array()
-        input map
-    basis:
-        needlet basis
-
+    imap : NDArray[np.floating]
+        Input map of the sky 
+    filters : NDArray[np.floating]
+        Feedlet basis filters, also called the filter windows
+    n_filt : NDArray[np.floating] | None, default: None
+        Which filters to perform the coeficient evaluation for.
+        By default does all filters
+    print_time : bool, default: False
+        If true, prints the time taken to perform map2wav
     Returns
     -------
-    wmap: np.array
-        multimap of wavelet coefficients
+    wmap : NDArray[np.floating]
+        Multimap of wavelet coefficients with shape [nfilt, nx, ny]
     """
     toc = time.time()
     if len(imaps.shape) == 2:
@@ -708,11 +712,8 @@ def map2wav_real(imaps, filters, n_filt = None):
     elif len(imaps.shape) != 3:
         print("Error: input map must have dim = 2 or 3")
         return
-    #print(imaps.shape)
-    filtered_slices_real = []
 
-    #npix = imaps.shape[-2] * imaps.shape[-1]
-    #weights = np.array([np.sum(f**2) / npix for f in filters])
+    wmap = []
 
     if n_filt is None:
         n_filt = range(len(imaps))
@@ -724,18 +725,38 @@ def map2wav_real(imaps, filters, n_filt = None):
         for filt in filters:
             fourier_filtered = (
                 np.fft.fftshift(filt) * lightcone_ft
-            )  # / (weights[i]**2 * lightcone_ft.shape[-1] * lightcone_ft.shape[-2])
+            )  
             filtered_slice_real.append(
                 np.fft.fftshift(np.real(np.fft.ifftn(fourier_filtered)))
-            )  # should maybe catch if imag(fourier_filtered)!=0 here
+            )  
 
-        filtered_slices_real.append(np.array(filtered_slice_real))
+        wmap.append(np.array(filtered_slice_real))
     tic = time.time()
-    
-    return np.array(filtered_slices_real)
+    if print_time:
+        print("map2wav takes ", tic-toc)
+    return np.array(wmap)
 
 
-def wav2map_real(wav_mapset, filters, n_filt = None):
+def wav2map_real(wav_mapset: NDArray[np.floating], filters:  NDArray[np.floating], n_filt: Optional[NDArray[np.floating]] = None, print_time: Optional[bool] = False) -> NDArray[np.floating]:
+    """
+    Transform from a regular map to a multimap of wavelet coefficients. Adapted from Joelles code + enmap.wavelets
+
+    Parameters
+    ----------
+    wav_mapset : NDArray[np.floating]
+        Input multimap of wavelet coefficients with shape [nfilt, nx, ny]
+    filters : NDArray[np.floating]
+        Feedlet basis filters, also called the filter windows
+    n_filt : NDArray[np.floating] | None, default: None
+        Which filters to perform the coeficient evaluation for.
+        By default does all filters
+    print_time : bool, default: False
+        If true, prints the time taken to perform map2wav
+    Returns
+    -------
+    skymap : NDArray[np.floating]
+        Skymap corresponding to input filters and wavelet coefficients
+    """
     toc = time.time()
     if len(wav_mapset.shape) == 3:
         wav_mapset = np.expand_dims(wav_mapset, axis=0)
@@ -744,27 +765,25 @@ def wav2map_real(wav_mapset, filters, n_filt = None):
         print("Error: input wave mapset must have dim = 3 or 4")
         return
 
-    #npix = wav_mapset.shape[-2] * wav_mapset.shape[-1]
-    #weights = np.array([np.sum(f**2) / npix for f in filters])
-
-    back_transformed = []
+    sky_map = []
     if n_filt is None:
         n_filt = range(len(wav_mapset)) #If not provided with filts to do, then do all
     for nu in n_filt:
         fourier_boxes = []
         for b in wav_mapset[nu]:
             fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
-        #npix_f = fourier_boxes[0].shape[-1] * fourier_boxes[0].shape[-2]
+
 
         back_transform = np.zeros_like(fourier_boxes[0])
         for i in range(wav_mapset.shape[1]):
             back_transform += (
                 np.fft.fftshift(fourier_boxes[i]) * filters[i]
-            )  # * (weights[i]**2 / npix_f)
+            )  
         back_transform = np.fft.fftshift(
             np.real(np.fft.ifftn(np.fft.fftshift(back_transform)))
         )
-        back_transformed.append(back_transform)
+        sky_map.append(back_transform)
     tic = time.time()
-    
-    return np.array(back_transformed)
+    if print_time:
+        print("wav2map took ", tic-toc)
+    return np.array(sky_map)
