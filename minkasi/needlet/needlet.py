@@ -8,7 +8,7 @@ from astropy import wcs
 import numpy as np
 from numpy.typing import NDArray
 
-from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
 from scipy.linalg import norm
 import scipy.integrate as integrate
@@ -43,8 +43,8 @@ else:
 
 
 def __Standard(
-    k_arr: NDarray[np.floating], j: int, B: np.floating
-) -> NDarray[np.floating]:
+    k_arr: NDArray[np.floating], j: int, B: np.floating
+) -> NDArray[np.floating]:
     """
     Driver function for generating standard needlets
 
@@ -59,7 +59,7 @@ def __Standard(
 
     Returns
     -------
-    to_ret : NDarray[np.floating]
+    to_ret : NDArray[np.floating]
         1D standard needlet response function for index j
     """
 
@@ -94,8 +94,8 @@ def __Standard(
 
 
 def Standard(
-    k_arr: NDarray[np.floating], js: NDarray[int], B: np.floating
-) -> NDarray[np.floating]:
+    k_arr: NDArray[np.floating], js: NDArray[int], B: np.floating
+) -> NDArray[np.floating]:
     """
     Helper function for constructing standard needlet basis.
     TODO: this might be cleaner with np.vectorize.
@@ -111,7 +111,7 @@ def Standard(
 
     Returns
     -------
-    to_ret : NDarray[np.floating]
+    to_ret : NDArray[np.floating]
         1D standard needlet response functions
     """
 
@@ -124,12 +124,12 @@ def Standard(
 
 
 def Mexican(
-    k_arr: NDarray[np.floating],
-    js: NDarray[int],
+    k_arr: NDArray[np.floating],
+    js: NDArray[int],
     jmin: int = 1,
     B: np.floating = 1.5,
     p: np.floating = 1,
-) -> NDarray[np.floating]:
+) -> NDArray[np.floating]:
     """
     Function for constructing Mexican at needlets.
 
@@ -150,7 +150,7 @@ def Mexican(
 
     Returns
     -------
-    to_ret : NDarray[np.floating]
+    to_ret : NDArray[np.floating]
         1D Mexican hat needlet response functions
     """
 
@@ -177,7 +177,7 @@ def Mexican(
 
 def __CosNeed(
     k_arr: NDArray[np.floating], j: int, cs: NDArray[np.floating]
-) -> NDarray[np.floating]:
+) -> NDArray[np.floating]:
     """
     Driver function for cosine needlet basis.
     Parameters
@@ -190,7 +190,7 @@ def __CosNeed(
         Centers of the cosine filters.
     Returns
     -------
-    to_ret : NDarray[np.floating]
+    to_ret : NDArray[np.floating]
         One cosine needlet response function
     """
 
@@ -213,8 +213,8 @@ def __CosNeed(
 
 
 def CosNeed(
-    k_arr: NDArray[np.floating], js: NDarray[int], cs: NDArray[np.floating]
-) -> NDarray[np.floating]:
+    k_arr: NDArray[np.floating], js: NDArray[int], cs: NDArray[np.floating]
+) -> NDArray[np.floating]:
     """
     Helper function for constructing Cosine needlet basis.
     TODO: This is probably cleaner with a np.vectorize.
@@ -232,7 +232,7 @@ def CosNeed(
 
     Returns
     -------
-    to_ret : NDarray[np.floating]
+    to_ret : NDArray[np.floating]
         1D cosine needlet response functions
     """
 
@@ -494,7 +494,7 @@ class WavSkyMap(SkyMap):
         down_samp: Optional[int] = 1,
         tol: Optional[np.floating] = 1e-6,
         do_svd: Optional[bool] = False,
-    ) -> Union[NDarray[np.floating], np.namedtuple]:
+    ) -> Union[NDArray[np.floating], NamedTuple]:
         """
         Get the response matrix for needlet filt_num.
         Each entry of the response matrix is the map that results from passing a map
@@ -516,7 +516,7 @@ class WavSkyMap(SkyMap):
 
         Returns
         -------
-        to_ret : NDarray[np.floating] | np.namedtuple
+        to_ret : NDArray[np.floating] | NamedTuple
             If do_svd is False, then returns the response matrix.
             Otherwise returns the SVD of the response matrix.
             See numpy documentation for SVD documentation.
@@ -721,7 +721,7 @@ class needlet:
 
         Returns
         -------
-        needs : NDarray[np.floating]
+        needs : NDArray[np.floating]
             The 1D needlet response.
         """
         needs = self.basis(self.k_arr, self.js, **basisKwargs)
@@ -730,16 +730,16 @@ class needlet:
 
     def get_needlet_filters_2d(
         self,
-        fourier_radii: NDarray[np.floating],
+        fourier_radii: NDArray[np.floating],
         return_filt: Optional[bool] = False,
-        plot: Optiona[bool] = False,
+        plot: Optional[bool] = False,
     ) -> Optional[NDArray[np.floating]]:
         """
         Turns 1D needlet response into 2D response by revolving in k space
 
         Parameters
         ---------
-        Fourier_radii : NDarray[np.floating]
+        Fourier_radii : NDArray[np.floating]
             1D needlet responses
         return_filt : bool, default: False
             If true, return the 2D filters in addition to setting self.filters
@@ -852,7 +852,7 @@ class cosmo_box:
 
     Attributes
     ----------
-    box : NDarray(np.floating)
+    box : NDArray(np.floating)
         Realspace box with dim [nfreq, nx, ny]
     L : np.floating
         Physical side length of the box. Units arbitrary
@@ -870,13 +870,13 @@ class cosmo_box:
         Dim-ful version of kmax
     """
 
-    def __init__(self, box: NDarray(np.floating), L: np.floating):
+    def __init__(self, box, L: np.floating):
         """
         Initialize the cosmo box
 
         Parameters
         ----------
-        box : NDarray(np.floating)
+        box : NDArray(np.floating)
             Realspace box with dim [nfreq, nx, ny]
         L : np.floating
             Physical side length of the box. Units arbitrary
