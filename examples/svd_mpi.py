@@ -105,12 +105,12 @@ filt = 4
 do_svd = False 
 if not do_svd:
     toc = time.time()
-    response_mat = wmap.get_svd(filt, down_samp = 20, do_svd = False)
+    response_mat = wmap.get_response_matrix(filt, down_samp = 20, do_svd = False)
     tic = time.time()
     print("Took ", tic-toc, " seconds to get response mat")
     print(response_mat.shape)
     #DO I have to broadcast this?
-    svd_ANA = np.zeros([len(response_mat), len(response_mat)])
+    ANA = np.zeros([len(response_mat), len(response_mat)])
 
 else:
     
@@ -150,7 +150,7 @@ if not do_svd:
                 print("Task ", sender, " is done")
                 flags[sender-1] = temp
             else:
-                svd_ANA[: tag] = temp
+                ANA[: tag] = temp
     else: 
         for j in range(myrank-1, len(response_mat), nproc-1):
             cur = response_mat[j,:]
@@ -177,33 +177,32 @@ else:
         wmapset.add_map(temp_map)
         mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
     
-        svd_ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), response_mat))
+        ANA[:, j] = np.ravel(np.dot(np.ravel(mapout.maps[0].map[filt]), response_mat))
 
  
 comm.barrier()
 import pickle as pk
 
 if minkasi.myrank == 0 :
-    with open("/scratch/r/rbond/jorlo/svd_ANA.pk", "wb") as f:
-        pk.dump(svd_ANA, f)
-#svd_ANA = comm.all_reduce(svd_ANA)
+    with open("/scratch/r/rbond/jorlo/ANA.pk", "wb") as f:
+        pk.dump(ANA, f)
+#ANA = comm.all_reduce(ANA)
 
 #RHS = usual rhs with stacked svd.U
-#LHS = svd_ANA
+#LHS = ANA
 #chis2 = dot(lhs, rhs)
 if minkasi.myrank == 0:
     print("out")
 tic = time.time()
 
 print(tic-toc)
-imap = minkasi.SkyMap(lims, pixsize)
 
 mapset=minkasi.Mapset()
-mapset.add_map(imap)
+mapset.add_map(wmap)
 
 
 rhs=mapset.copy()
 todvec.make_rhs(svd)
-chis2 = np.dot(svd_ANA, rhs)
+chis2 = np.dot(ANA, rhs)
 print(chis2)
 
