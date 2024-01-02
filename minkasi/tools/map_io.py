@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from astropy.io import fits
 from numpy.typing import NDArray
@@ -52,7 +53,6 @@ def write_fits_map_wheader(
     if do_trans:
         map = (map.T).copy()
     hdu: fits.PrimaryHDU = fits.PrimaryHDU(map, header=header)
-    try:
-        hdu.writeto(fname, overwrite=True)
-    except:
-        hdu.writeto(fname, clobber=True)
+    fname = os.path.abspath(fname)
+    os.makedirs(os.path.abspath(os.path.join(fname, os.pardir)), exist_ok=True)
+    hdu.writeto(fname, overwrite=True)

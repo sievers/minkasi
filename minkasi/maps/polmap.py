@@ -1,4 +1,5 @@
 import copy
+import os
 import sys
 from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Union
 
@@ -591,6 +592,8 @@ class PolMap:
             The path to save the map to.
         """
         header = self.wcs.to_header()
+        fname = os.path.abspath(fname)
+        os.makedirs(os.path.abspath(os.path.join(fname, os.pardir)), exist_ok=True)
 
         if self.npol > 1:
             ind = fname.rfind(".")
@@ -608,10 +611,7 @@ class PolMap:
             for i in range(self.npol):
                 tmp[:] = np.squeeze(self.map[:, :, i]).T
                 hdu = fits.PrimaryHDU(tmp, header=header)
-                try:
-                    hdu.writeto(head + "_" + self.pols[i] + tail, overwrite=True)
-                except:
-                    hdu.writeto(head + "_" + self.pols[i] + tail, clobber=True)
+                hdu.writeto(head + "_" + self.pols[i] + tail, overwrite=True)
             return
 
         if True:  # try a patch to fix the wcs xxx
@@ -619,10 +619,7 @@ class PolMap:
             hdu = fits.PrimaryHDU(tmp, header=header)
         else:
             hdu = fits.PrimaryHDU(self.map, header=header)
-        try:
-            hdu.writeto(fname, overwrite=True)
-        except:
-            hdu.writeto(fname, clobber=True)
+        hdu.writeto(fname, overwrite=True)
 
     def __mul__(self, map: Self) -> Self:
         """

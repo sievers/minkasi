@@ -1,4 +1,5 @@
 import copy
+import os
 import sys
 from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple, Union
 
@@ -157,30 +158,34 @@ class SkyMap:
             self.nx = lens[lens >= nx].min()
             self.ny = lens[lens >= ny].min()
             self.primes = primes[:]
-        
+
         if square:
             if nx != ny:
                 nmax = max(nx, ny)
-                ratio_x = nmax/nx
-                ratio_y = nmax/ny
+                ratio_x = nmax / nx
+                ratio_y = nmax / ny
 
-                self.lims[0] = self.lims[1] - ratio_x*(self.lims[1] - self.lims[0]) #note we are adjusting lims in place here
-                self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
+                self.lims[0] = self.lims[1] - ratio_x * (
+                    self.lims[1] - self.lims[0]
+                )  # note we are adjusting lims in place here
+                self.lims[3] = self.lims[2] + ratio_y * (
+                    self.lims[3] - self.lims[2]
+                )  # Resize x and y lims by ratio of nx/ny to nmax
 
                 nx, ny = self.get_npix(pad)
 
         if multiple:
-            assert(type(multiple) == int)
+            assert type(multiple) == int
 
-            xmax = 2*np.ceil(nx / multiple)
+            xmax = 2 * np.ceil(nx / multiple)
             xdiff = self.lims[1] - self.lims[0]
-            self.lims[0] = self.lims[1] - xdiff * xmax/nx #Make nx a factor of 2
+            self.lims[0] = self.lims[1] - xdiff * xmax / nx  # Make nx a factor of 2
 
-            ymax = 2*np.ceil(ny / multiple)
+            ymax = 2 * np.ceil(ny / multiple)
             ydiff = self.lims[3] - self.lims[2]
-            self.lims[3] = self.lims[2] + ydiff * ymax/ny
+            self.lims[3] = self.lims[2] + ydiff * ymax / ny
 
-            nx, ny = self.get_npix(pad) #This may be applying pad a bunch of times
+            nx, ny = self.get_npix(pad)  # This may be applying pad a bunch of times
 
         self.nx = nx
         self.ny = ny
@@ -202,30 +207,31 @@ class SkyMap:
         """
         Given self.lims, self.wcs, get npix for map.
         """
-        corners: NDArray[np.floating] = np.zeros([4, 2]) 
-        corners[0,:]=[self.lims[0],self.lims[2]]
-        corners[1,:]=[self.lims[0],self.lims[3]]
-        corners[2,:]=[self.lims[1],self.lims[2]]
-        corners[3,:]=[self.lims[1],self.lims[3]]
+        corners: NDArray[np.floating] = np.zeros([4, 2])
+        corners[0, :] = [self.lims[0], self.lims[2]]
+        corners[1, :] = [self.lims[0], self.lims[3]]
+        corners[2, :] = [self.lims[1], self.lims[2]]
+        corners[3, :] = [self.lims[1], self.lims[3]]
 
-        pix_corners=self.wcs.wcs_world2pix(corners*180/np.pi,1)
-        pix_corners=np.round(pix_corners)
+        pix_corners = self.wcs.wcs_world2pix(corners * 180 / np.pi, 1)
+        pix_corners = np.round(pix_corners)
 
-        if pix_corners.min()<-0.5:
-            print('corners seem to have gone negative in SkyMap projection.  not good, you may want to check this.')
-        if True: #try a patch to fix the wcs xxx
+        if pix_corners.min() < -0.5:
+            print(
+                "corners seem to have gone negative in SkyMap projection.  not good, you may want to check this."
+            )
+        if True:  # try a patch to fix the wcs xxx
             if nx is None:
-                nx=(pix_corners[:,0].max()+pad)
+                nx = pix_corners[:, 0].max() + pad
             if ny is None:
-                ny=(pix_corners[:,1].max()+pad)
-        else:#What is this else doing here?
-            nx=(pix_corners[:,0].max()+pad)
-            ny=(pix_corners[:,1].max()+pad)
-        nx=int(nx)
-        ny=int(ny)
+                ny = pix_corners[:, 1].max() + pad
+        else:  # What is this else doing here?
+            nx = pix_corners[:, 0].max() + pad
+            ny = pix_corners[:, 1].max() + pad
+        nx = int(nx)
+        ny = int(ny)
 
         return nx, ny
-
 
     def get_caches(self):
         """
@@ -711,10 +717,9 @@ class SkyMap:
             hdu = fits.PrimaryHDU(tmp, header=header)
         else:
             hdu = fits.PrimaryHDU(self.map, header=header)
-        try:
-            hdu.writeto(fname, overwrite=True)
-        except:
-            hdu.writeto(fname, clobber=True)
+        fname = os.path.abspath(fname)
+        os.makedirs(os.path.abspath(os.path.join(fname, os.pardir)), exist_ok=True)
+        hdu.writeto(fname, overwrite=True)
 
     def __mul__(self, map: Self) -> Self:
         """
