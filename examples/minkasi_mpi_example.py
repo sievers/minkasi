@@ -2,15 +2,23 @@ import numpy as np
 from matplotlib import pyplot as plt
 import minkasi.minkasi_all as minkasi
 
-import pyfftw
 import time
 import glob
 #reload(minkasi)
 plt.ion()
 
+#set file root for output maps
+outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME!
+#Note the end of this path is a filename, files will be written to 
+#RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
+
+
 #find tod files we want to map
 idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
-tod_names=glob.glob(idir+'Sig*.fits')
+tod_names=glob.glob(idir+'/Sig*.fits')
+if len(tod_names)==0:
+    print('We found no TOD files.  Double check your path?')
+    assert(1==0)
 
 #if running MPI, you would want to split up files between processes
 #one easy way is to say to this:
@@ -94,8 +102,6 @@ precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
 
-outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME! Note the end of this path is a filename, files will be written to 
-                                                              #RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
 save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 400, 450, 499]
 
 
