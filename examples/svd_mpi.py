@@ -39,8 +39,8 @@ except:
     nproc = 1
 
 #idir = "/home/jack/M2-TODs/RXJ1347/"
-#idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
-idir = "/scratch/r/rbond/jorlo//M2-TODs/A399-401/"
+idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
+#idir = "/scratch/r/rbond/jorlo//M2-TODs/A399-401/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
@@ -102,7 +102,7 @@ hits=minkasi.make_hits(todvec,wmap)
 
 #Subtract off modes outside the joint ACT+M2 window
 filt = 4
-do_svd = False 
+do_svd = True 
 if not do_svd:
     toc = time.time()
     response_mat = wmap.get_response_matrix(filt, down_samp = 20, do_svd = False)
@@ -117,11 +117,11 @@ else:
     
     #Something here doesn't play nice with mpi so we do it single threaded and send it out
     toc = time.time()
-    svd = wmap.get_svd(filt, down_samp = 20, do_svd = True) #TODO: Parallelize
+    svd = wmap.get_response_matrix(filt, down_samp = 1, do_svd = True) #TODO: Parallelize
     tic = time.time()
     print("Took ", tic-toc, " seconds to get response mat")
-    print(svd.shape)
-    tol = 1e-1
+    print(svd.S)
+    tol = 1e-6
     mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
     print("Number kept modes: ", len(mask))
     #mask = mask[:(len(mask) // minkasi.nproc)*minkasi.nproc]
@@ -131,12 +131,12 @@ else:
     print(U.shape, Vh.shape, S.shape)
     smat = np.diag(S)
     response_mat = np.stack(Vh).T #Stack up all svds for all wavelets in window. Shape [nSVDs, map.ravel]
-    svd_ana = np.zeros([len(smat), len(smat)])
+    ANA = np.zeros([len(smat), len(smat)])
 
 
 minkasi.barrier()
 toc = time.time()
-
+os.exit()
 if not do_svd:
     temp_map = WavSkyMap(np.expand_dims(need.filters[filt], axis = 0), lims, pixsize, square = True, multiple=2)
     if myrank == 0:
