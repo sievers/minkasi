@@ -86,6 +86,7 @@ setup(
         "astropy",
         "scipy",
         "pyregion",
+        "typing-extensions",
     ],
     extras_require={
         "extras": ["qpoint", "numba", "healpy"],
