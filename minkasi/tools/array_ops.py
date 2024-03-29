@@ -118,7 +118,7 @@ def axpy_in_place(y: NDArray[np.floating], x: NDArray[np.floating], a: float = 1
 @nb.njit(parallel=True)
 def scale_matrix_by_vector(mat: NDArray, vec: NDArray, axis=1):
     """
-    Multiply a matrix by a vector along an axis.
+    Multiply a matrix by a vector along an axis in place.
 
     Parameters
     ----------
@@ -130,8 +130,6 @@ def scale_matrix_by_vector(mat: NDArray, vec: NDArray, axis=1):
     axis : int, default: 1
         The axis to scale along.
     """
-    n = mat.shape[axis]
-    assert len(vec) == n
-    mat_moved = np.moveaxis(mat, axis, 0)
-    for i in nb.prange(n):
-        mat_moved[i] *= vec[i]
+    shape = np.ones_like(mat.shape)
+    shape[axis] = -1
+    mat *= vec.reshape(shape)
