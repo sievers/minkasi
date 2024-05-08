@@ -226,7 +226,7 @@ def fit_timestreams_with_derivs_manyfun(
             flat_mask = np.where((priors == "flat"))[0]
 
             for flat_id in flat_mask:
-                print(pars[flat_id])
+                #print(pars[flat_id])
                 if (pars[flat_id] == prior_vals[flat_id][0]) or (
                     pars[flat_id] == prior_vals[flat_id][1]
                 ):
@@ -236,13 +236,13 @@ def fit_timestreams_with_derivs_manyfun(
             # Make the new step
             pars_new = pars + _par_step(grad, curve, temp_to_fit, lamda)
             # check to see if we're outside the range for the flat priors: if so, peg them
-            print("old gamma: ", pars_new[flat_id])
+            #print("old gamma: ", pars_new[flat_id])
             for flat_id in flat_mask:
                 if pars_new[flat_id] < prior_vals[flat_id][0]:
                     pars_new[flat_id] = prior_vals[flat_id][0]
                 elif pars_new[flat_id] > prior_vals[flat_id][1]:
                     pars_new[flat_id] = prior_vals[flat_id][1]
-            print("new gamma: ", pars_new[flat_id])
+            #print("new gamma: ", pars_new[flat_id])
         else:
             pars_new = pars + _par_step(grad, curve, to_fit, lamda)
         chisq_new, grad_new, curve_new = get_ts_curve_derivs_many_funcs(
