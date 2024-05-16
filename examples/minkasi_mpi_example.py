@@ -4,6 +4,7 @@ import minkasi.minkasi_all as minkasi
 
 import time
 import glob
+import os
 #reload(minkasi)
 plt.ion()
 
@@ -55,7 +56,7 @@ for fname in tod_names:
 #todvec.lims() is MPI-aware and will return global limits, not just
 #the ones from private TODs
 lims=todvec.lims()
-pixsize=3.0/3600*np.pi/180
+pixsize=2.0/3600*np.pi/180
 map=minkasi.SkyMap(lims,pixsize)
 
 #once we have a map, we can figure out the pixellization of the data.  Save that
@@ -102,19 +103,62 @@ precon.maps[0].map[:]=tmp[:]
 
 #run PCG!
 
-save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 400, 450, 499]
-
+save_iters=[1,5,15,20,25,50]
 
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=500, save_iters=save_iters, outroot = outroot)
+mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50, save_iters=save_iters, outroot = outroot)
 
 if minkasi.myrank==0:
-    mapset_out.maps[0].write(outroot+'_final.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outroot+'_initial.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
-#if you wanted to run another round of PCG starting from the previous solution, 
-#you could, replacing x0 with mapset_out.  
-#mapset_out2=minkasi.run_pcg(rhs,mapset_out,todvec,mapset,maxiter=50)
-#mapset_out2.maps[0].write('second_map.fits')
+#This first pass of fitting is a reasonable approximation. However, the SVD noise estimation we use invariable includes some signal in the noise model.
+#In other words, our noise model assumes our TODs are 100% noise, performs an SVD, and uses the first N modes of that SVD as the noise estime. However,
+#some portion of those modes are actually signal. To counteract this, we take the initial best-fit map (which is our best estimate of the signal), 
+#subtract it from a copy of the TODs, and reestimate the noise. Subtracting the best-fit map should remove the largest signal modes, making our estimate of the
+#noise cleaner. We can then remake the map and itterate on this process. Note the best-fit map is not subtracted from the TODs themselves for the purposes
+#of mapmaking. That would remove signal from the final map. It is only removed from a copy of the TODs (technically a copy of the data in the TODs) used
+#in noise estimation.
+
+npass = 5
+for niter in range(npass):
+    maxiter = 26 + 25 * (niter + 1)
+    # first, re-do the noise with the current best-guess map
+    for tod in todvec.tods:
+        mat = 0 * tod.info["dat_calib"]
+        for mm in mapset_out.maps:
+            mm.map2tod(tod, mat)
+        tod.set_noise(
+            minkasi.NoiseSmoothedSVD, dat=tod.info["dat_calib"] - mat, #note here we are feeding tod.info["dat_calib] - mat to dat, as opposed to
+                                                                       #say copying tod.info["dat_calib"], subtracting mat, and passing it. 
+                                                                       #This is the safest way to avoid changing the values stored in tod.info
+        )
+ 
+    priorset = None
+
+    rhs = mapset.copy() 
+    todvec.make_rhs(rhs)
+
+    precon = mapset.copy() #Hist map preconditioner
+    precon.maps[0].map[:] = hits.map[:]
+    mapset_out = minkasi.run_pcg_wprior(
+        rhs,
+        mapset,
+        todvec,
+        priorset,
+        precon,
+        maxiter=maxiter,
+        outroot= str(outroot) + "_niter_" + repr(niter + 1),
+        save_iters=save_iters,
+    )
+    if minkasi.myrank == 0:
+        mapset_out.maps[0].write(
+            str(outroot) + "_niter_" + repr(niter + 1) + ".fits"
+        )
+
+minkasi.barrier()
+
+if minkasi.myrank==0:
+    print("Maps written to :", outroot)
 
