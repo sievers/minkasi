@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import numpy as np
 from astropy.io import fits
 
-from . import Tod, TodVec
+from .core import Tod, TodVec
 
 try:
     have_qp = True
