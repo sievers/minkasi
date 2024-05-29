@@ -1,3 +1,2 @@
-
-from . import fitting, mapmaking, maps, tods, tools
+from . import fitting, mapmaking, maps, needlet, tods, tools
 from .parallel import *
