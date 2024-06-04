@@ -51,6 +51,13 @@ pip install -e .
 Note that this will not make changes to the C libraries automatically propagate.
 If you will be editing those files it is recommended to follow the instructions in the **C Library Installation** first and rerun the build process whenever you make a change.
 
+### Example Mapmaking and Unit Test
+
+A number of example scripts are provided which demonstrate various aspects of `minkasi`'s functionality. The most important is `examples/minkasi_mpi_example.py`, which demonstrates our
+best practice mapmaking proceedure. This script relies on data which is publically available [here](https://github.com/sievers/M2-TODs). This script also serves as a unit test: running
+it should produce results that match `examples/RXJ1347_unit.zip`. If you make functional modifications to minkasi please run the unit test before opening an pull request and if there
+are significant changes to the results contact a developer. 
+
 ### Troubleshooting
 
 #### Missing Libraries
