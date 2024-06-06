@@ -138,7 +138,7 @@ class Tod:
         Get total number of samples in this TOD.
 
         Returns
-        -------
+       -------
         nsamp : int
             Number of samples.
         """
@@ -481,6 +481,10 @@ class Tod:
         dd = dd * tmp
         return dd
 
+    def iter_init(self):
+        return
+    def iter_finalize(self):
+        return
     @deprecated("Use tod.set_noise(NoiseCMWhite) instead")
     def set_noise_cm_white(self):
         _depracated.set_noise_cm_white(self)
@@ -973,7 +977,9 @@ class TodVec:
         for i in range(self.ntod):
             tod = self.tods[i]
             t1 = time.time()
+            tod.iter_init()
             mytimes = tod.dot(mapset, mapset_out, True)
+            tod.iter_finalize()
             t2 = time.time()
             tot_times = tot_times + mytimes
             times[i] = t2 - t1
