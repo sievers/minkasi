@@ -9,8 +9,9 @@ from astropy import units as u
 from astropy.io import fits
 
 import minkasi.minkasi_all as minkasi
+from minkasi.maps.skymap import SkyMap
 from minkasi.needlet.needlet import WavSkyMap
-from minkasi.needlet.needlet import needlet, cosmo_box
+from minkasi.needlet.needlet import Needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
 from minkasi.maps.mapset import PriorMapset, Mapset
 
@@ -19,7 +20,8 @@ from minkasi.maps.mapset import PriorMapset, Mapset
 
 #find tod files we want to map
 #idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
-idir = "/scratch/r/rbond/jorlo/M2-TODs/A399-401/"
+idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/"
+#idir = "/scratch/r/rbond/jorlo/M2-TODs/A399-401/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
@@ -65,9 +67,8 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
-wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
-wmap  = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #TODO: fix squaring issue
-need = needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
+template_map = SkyMap(lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+need = Needlet(np.arange(10), lightcone=template_map, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 '''
@@ -89,14 +90,14 @@ fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 '''
 
-map_size = pixsize * wmap.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
+map_size = pixsize * template_map.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
 fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
 
 cut_arcmin = 2 #put a prior on scales larger than this
 fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e12, 0)
 #flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
 
-wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
+wmap = WavSkyMap(need, lims, pixsize, square = True, multiple=2)
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -138,8 +139,8 @@ prior_mapset.add_map(prior)
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
-if minkasi.myrank==0:
-    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/needle_rhs.fits')
+#if minkasi.myrank==0:
+#    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/needle_rhs.fits')
 #this is our starting guess.  Default to starting at 0,
 #but you could start with a better guess if you have one.
 x0=rhs.copy()
@@ -155,14 +156,17 @@ x0.clear()
 #precon.maps[0].map[:]=tmp[:]
 
 #outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
-outroot = '/scratch/r/rbond/jorlo/A399-401'
+#outroot = '/scratch/r/rbond/jorlo/A399-401'
+outroot = "/mnt/welch/USERS/jorlo/needlets/RXJ1347"
 
 save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
 mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)#, prior = prior_mapset)
 
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/A399-401/A399-401_needle.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outroot+"_need.fits")
+
+    #mapset_out.maps[0].write('/scratch/r/rbond/jorlo/A399-401/A399-401_needle.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 

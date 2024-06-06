@@ -247,355 +247,7 @@ def CosNeed(
 #                         Core Classes                         #
 ################################################################
 
-
-class WavSkyMap(SkyMap):
-    """
-    Wavelet based SkyMap.
-    Subclass of SkyMap. See Skymap for full documentation.
-
-
-    Attributes
-    ----------
-    filters : NDArray[np.floating]
-        An array specifying the needlet filter response from needlet class
-    nfilt : int
-        Number of needlet filters
-    map : NDArray[np.floating]
-        Array of wavelet coefficients. Can also be thought of as the wavelet space map.
-    real_map : ~minkasi.maps.SkyMap
-        SkyMap object containing the real sky counterpart to map.
-    isglobal_prior : bool
-       True if this map is a prior to be applied to other maps.
-    """
-
-    def __init__(
-        self,
-        filters: NDArray[np.floating],
-        lims: Union[list[float], NDArray[np.floating]],
-        pixsize: float,
-        proj: str = "CAR",
-        pad: int = 2,
-        square: bool = False,
-        multiple: Union[int, bool] = False,
-        primes: Union[list[int], None] = None,
-        cosdec: Union[float, None] = None,
-        nx: Union[int, None] = None,
-        ny: Union[int, None] = None,
-        mywcs: Union[wcs.WCS, None] = None,
-        tag: str = "ipix",
-        purge_pixellization: bool = False,
-        ref_equ: bool = False,
-        isglobal_prior: bool = False,
-    ):
-        """
-        Initialize the SkyMap.
-
-        Parameters
-        ----------
-        filters: NDArray[np.floating]
-            An array specifying the needlet filter response from needlet class
-        isglobal_prior: bool = False
-            Specifies if this map is a prior to be applied to other maps.
-        See SkyMap docstring for remainder
-        """
-        self.filters = filters
-        self.isglobal_prior = isglobal_prior
-        super().__init__(
-            lims,
-            pixsize,
-            proj,
-            pad,
-            square,
-            multiple,
-            primes,
-            cosdec,
-            nx,
-            ny,
-            mywcs,
-            tag,
-            purge_pixellization,
-            ref_equ,
-        )
-        self.nfilt = len(self.filters)
-        self.map = np.zeros([self.nfilt, self.nx, self.ny])
-        self.real_map = SkyMap(
-            lims,
-            pixsize,
-            proj,
-            pad,
-            square,
-            multiple,
-            primes,
-            cosdec,
-            nx,
-            ny,
-            mywcs,
-            tag,
-            purge_pixellization,
-            ref_equ,
-        )  # This is very slightly inefficient as it redoes the ssquaring but is safer in avoiding getting a real_map and wave_map with different shapes
-
-    def map2tod(
-        self,
-        tod: "Tod",
-        dat: NDArray[np.floating],
-        do_add: bool = True,
-        do_omp: bool = True,
-        n_filt: Optional[list[int]] = None,
-    ):
-        """
-        Project a wavelet map into a tod, adding or replacing the map contents.
-        First converts from wavelet map to realspace map, then from realspace map to tod.
-
-        Parameters
-        ----------
-        tod : Tod
-            Tod object, used to get pixellization.
-        dat : NDArray[np.floating]
-            Array to put tod data into.
-            Shape should be (ndet, ndata).
-        do_add : bool, default: True
-            If True add the projected map to dat.
-            If False replace dat with it.
-        do_omp : bool, default: False
-            Use omp to parallelize
-        n_filt :  None | list[int], default: None
-            Filters on which to perform map2tod. If none, then done over all
-        """
-        ipix = self.get_pix(tod)
-        self.real_map.map = np.squeeze(
-            wav2map_real(self.map, self.filters, n_filt=n_filt), axis=0
-        )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
-        map2tod(dat, self.real_map.map, ipix, do_add, do_omp)
-
-    def tod2map(
-        self,
-        tod: "Tod",
-        dat: NDArray[np.floating],
-        do_add: bool = True,
-        do_omp: bool = True,
-        n_filt: Optional[list[int]] = None,
-    ):
-        """
-        Project a tod into the wmap. Frist projects tod onto real space map, then converts that to wmap.
-
-        Parameters
-        ----------
-        tod : Tod
-            Tod object, used to get pixellization.
-        dat : NDArray[np.floating]
-            Array to pull tod data from.
-            Shape should be (ndet, ndata).
-        do_add : bool, default: True.
-            If True add the projected map to this map.
-            If False replace this map with it.
-        do_omp : bool, default: True
-            Use omp to parallelize.
-        n_filt : None | list[int], default: None
-            Filters on which to perform map2tod. If none, then done over all
-
-        """
-        if dat is None:
-            dat = tod.get_data()
-        if do_add == False:
-            self.clear()
-        ipix = self.get_pix(tod)
-
-        if not (self.caches is None):
-            tod2map_cached(self.caches, dat, ipix)
-
-        self.real_map.clear()
-
-        tod2map_simple(self.real_map.map, dat, ipix)
-        if not do_add:
-            self.map = np.squeeze(
-                map2wav_real(self.real_map.map, self.filters, n_filt=n_filt), axis=0
-            )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
-
-        else:
-            self.map += np.squeeze(
-                map2wav_real(self.real_map.map, self.filters, n_filt=n_filt), axis=0
-            )
-
-        if self.purge_pixellization:
-            tod.clear_saved_pix(self.tag)
-
-    def write(self, fname: str = "map.fits"):
-        """
-        Write map to a FITs file.
-
-        Parameters
-        ----------
-        fname : str, default: 'map.fits'
-            The path to save the map to.
-        """
-        self.real_map.map = np.squeeze(wav2map_real(self.map, self.filters), axis=0)
-        header = self.wcs.to_header()
-        if True:  # try a patch to fix the wcs xxx
-            tmp = self.real_map.map.transpose().copy()
-            hdu = fits.PrimaryHDU(tmp, header=header)
-        else:
-            hdu = fits.PrimaryHDU(self.real_map.map, header=header)
-        try:
-            hdu.writeto(fname, overwrite=True)
-        except:
-            hdu.writeto(fname, clobber=True)
-
-    def apply_prior(self, p: "WavSkyMap", Ap: "WavSkyMap"):
-        """
-        Apply prior to the wavelet map. In the ML framework, adding a prior equates to:
-        chi^2 -> chi^2 + m^TQ^-1m
-        for m the map, Q the prior map. Per Jon, the modified the map equation to:
-        (A^T N^-1 A - Q^-1)m = A^T N^-1d
-        Note (A^T N^-1 A)m is the output of tods.dot(p). This function then simply performs
-        (A^T N^-1 A)m - Q^-1m, although the signage is confusing.
-
-        Parameters
-        ----------
-        p : WavSkyMap
-            Wavelet SkyMap of the conjugate vector p.
-        Ap : WavSkyMap
-            The result of tods.dot(p)
-
-        Returns
-        -------
-        Modifies Ap in place by Q^-1 m
-        """
-        Ap.map = Ap.map + self.map * p.map
-
-    def resize_maps(self, needlet):
-        """
-        Resizes maps so that the pixelization matches the smallest scale of the needlet, given a needlet basis.
-        That needlet basis should probably be the one associated with need.filt but for right now it doesn't need to be.
-        I should enfore this. Currently not used, downsampling is handled directly in get_response_matrix.
-        Keeping as this mostly works and may one day need it.
-
-        Parameters
-        ----------
-        need : needlet
-            The needlet basis to use to determine the map rescalings.
-        """
-        print("Error: this method is depreciated")
-        return
-        for i in range(needlet.nfilt):
-            lims = needlet.get_need_lims(i, real_space=True)
-            rescale = np.floor(
-                lims[0] / needlet.pixsize
-            )  # vv awk taking pixsize from needlet but weirdly safer because needlet pixsize (should)
-            # have same units as needlet.get_need_lims
-            if rescale > 1:
-                tmp = self.map.shape[-1] / rescale
-                tmp += 2 - (tmp % 2)
-                print(tmp)
-
-    def get_response_matrix(
-        self,
-        filt_num: int,
-        down_samp: Optional[int] = 1,
-        tol: Optional[np.floating] = 1e-6,
-        do_svd: Optional[bool] = False,
-    ) -> Union[NDArray[np.floating], NamedTuple]:
-        """
-        Get the response matrix for needlet filt_num.
-        Each entry of the response matrix is the map that results from passing a map
-        that is 1 at uniquely one pixel thru map2wav with one needlet.
-        The map is flattened for convenience.
-
-        Parameters
-        ---------
-        filt_num : int
-            The needlet to compute the repsponse matrix for.
-        down_samp : int, default: 1
-            The amount to downsample the input map by.
-            You can downsample the map down to ~the needlet scale without loosing information
-        tol : np.floating, default: 1e-6
-            When do_svd is True, sets the minimum value of the smallest SVD value relative to the largest.
-            Essentially ensure we haven't over-downsampled
-        do_svd : bool, default: False
-            If True, return the SVD of the response matrix so that we can throw out some modes later.
-
-        Returns
-        -------
-        to_ret : NDArray[np.floating] | NamedTuple
-            If do_svd is False, then returns the response matrix.
-            Otherwise returns the SVD of the response matrix.
-            See numpy documentation for SVD documentation.
-        """
-
-        nxs_red, nys_red = int(self.nx / down_samp), int(
-            self.ny / down_samp
-        )  # TODO: make this a good FFT number
-        to_ret = np.zeros((nxs_red * nys_red, self.nx * self.ny))
-
-        nx_space = np.linspace(
-            0, self.nx - 1, nxs_red
-        )  # Evenly sample the downsampled nx
-        ny_space = np.linspace(0, self.ny - 1, nys_red)
-
-        nx_space = np.array([int(n) for n in nx_space])
-        ny_space = np.array([int(n) for n in ny_space])
-        if have_mpi:
-            if myrank == 0:
-                flags = np.zeros(
-                    nproc - 1, dtype=bool
-                )  # Flags to track which process are done
-                while not np.all(flags):
-                    status = MPI.Status()
-                    temp = comm.recv(
-                        source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
-                    )
-                    sender = status.Get_source()
-                    tag = status.Get_tag()
-                    if type(temp) == str:
-                        print("Task ", sender, " is done")
-                        flags[sender - 1] = temp
-                    else:
-                        to_ret[tag] = temp
-
-            else:
-                for nx in range(myrank - 1, nxs_red, nproc - 1):
-                    for ny in range(nys_red):
-                        idx = nys_red * nx + ny
-                        temp = np.zeros((self.nx, self.ny))
-                        temp[nx_space[nx], ny_space[ny]] = 1
-                        temp = np.ravel(
-                            np.squeeze(
-                                map2wav_real(
-                                    temp, self.filters[filt_num : filt_num + 1]
-                                )
-                            )
-                        )
-                        comm.send(temp, dest=0, tag=idx)
-                comm.send("Done", dest=0, tag=0)
-
-            comm.barrier()
-
-        else:
-            for nx in range(nxs_red):
-                for ny in range(nys_red):
-                    idx = nys_red * nx + ny
-                    temp = np.zeros((self.nx, self.ny))
-                    temp[nx_space[nx], ny_space[ny]] = 1
-                    to_ret[idx, :] = np.ravel(
-                        np.squeeze(
-                            map2wav_real(temp, self.filters[filt_num : filt_num + 1])
-                        )
-                    )
-
-        if do_svd:
-            to_ret = np.linalg.svd(to_ret, 0)
-
-            if np.amin(np.abs(to_ret.S)) > np.amax(np.abs(to_ret.S)) * tol:
-                print(
-                    "Warning: smallest mode is greater than tolerence. You may have under sampled this needlet. Try increasing down_samp."
-                )
-            return to_ret
-
-        else:
-            return to_ret
-
-
-class needlet:
+class Needlet:
     """
     Class for making needlet frame
     Code from  Joelle Begin, modifications by JackOS
@@ -748,7 +400,7 @@ class needlet:
 
         Returns
         ------
-        self.filters : NDArray[np.floating] | None
+        self.filters : NDArray[np.floating | None
             The 2D filter functions. None if return_filt is false.
         """
         filters = []
@@ -840,6 +492,396 @@ class needlet:
         ax.set_xlabel("k [dimless]")
         ax.set_ylabel(r"$b_j$")
         plt.show()
+
+
+
+class WavSkyMap(SkyMap):
+    """
+    Wavelet based SkyMap.
+    Subclass of SkyMap. See Skymap for full documentation.
+
+
+    Attributes
+    ----------
+    filters : NDArray[np.floating]
+        An array specifying the needlet filter response from needlet class
+    nfilt : int
+        Number of needlet filters
+    map : NDArray[np.floating]
+        Array of wavelet coefficients. Can also be thought of as the wavelet space map.
+    real_map : ~minkasi.maps.SkyMap
+        SkyMap object containing the real sky counterpart to map.
+    isglobal_prior : bool
+       True if this map is a prior to be applied to other maps.
+    """
+
+    def __init__(
+        self,
+        needlet: Needlet,
+        lims: Union[list[float], NDArray[np.floating]],
+        pixsize: float,
+        proj: str = "CAR",
+        pad: int = 2,
+        square: bool = False,
+        multiple: Union[int, bool] = False,
+        primes: Union[list[int], None] = None,
+        cosdec: Union[float, None] = None,
+        nx: Union[int, None] = None,
+        ny: Union[int, None] = None,
+        mywcs: Union[wcs.WCS, None] = None,
+        tag: str = "ipix",
+        purge_pixellization: bool = False,
+        ref_equ: bool = False,
+        isglobal_prior: bool = False,
+    ):
+        """
+        Initialize the SkyMap.
+
+        Parameters
+        ----------
+        needlet : Needlet
+            A needlet class object containing the needlets associated with the WavSkyMap.
+            Currently you must separately initialized the needlet object and make sure it
+            has the same bounds as this WavSkyMap instance but I should change this to move
+            the needlet construction inside of WavSkyMap.
+        isglobal_prior: bool = False
+            Specifies if this map is a prior to be applied to other maps.
+        See SkyMap docstring for remainder
+        """
+        self.needlet = needlet
+        self.needlet.filters = needlet.filters
+        self.isglobal_prior = isglobal_prior
+        super().__init__(
+            lims,
+            pixsize,
+            proj,
+            pad,
+            square,
+            multiple,
+            primes,
+            cosdec,
+            nx,
+            ny,
+            mywcs,
+            tag,
+            purge_pixellization,
+            ref_equ,
+        )
+        self.nfilt = len(self.needlet.filters)
+        self.map = np.zeros([self.nfilt, self.nx, self.ny])
+        self.real_map = SkyMap(
+            lims,
+            pixsize,
+            proj,
+            pad,
+            square,
+            multiple,
+            primes,
+            cosdec,
+            nx,
+            ny,
+            mywcs,
+            tag,
+            purge_pixellization,
+            ref_equ,
+        )  # This is very slightly inefficient as it redoes the ssquaring but is safer in avoiding getting a real_map and wave_map with different shapes
+
+    def map2tod(
+        self,
+        tod: "Tod",
+        dat: NDArray[np.floating],
+        do_add: bool = True,
+        do_omp: bool = True,
+        n_filt: Optional[list[int]] = None,
+    ):
+        """
+        Project a wavelet map into a tod, adding or replacing the map contents.
+        First converts from wavelet map to realspace map, then from realspace map to tod.
+
+        Parameters
+        ----------
+        tod : Tod
+            Tod object, used to get pixellization.
+        dat : NDArray[np.floating]
+            Array to put tod data into.
+            Shape should be (ndet, ndata).
+        do_add : bool, default: True
+            If True add the projected map to dat.
+            If False replace dat with it.
+        do_omp : bool, default: False
+            Use omp to parallelize
+        n_filt :  None | list[int], default: None
+            Filters on which to perform map2tod. If none, then done over all
+        """
+        ipix = self.get_pix(tod)
+        self.real_map.map = np.squeeze(
+            wav2map_real(self.map, self.needlet.filters, n_filt=n_filt), axis=0
+        )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
+        map2tod(dat, self.real_map.map, ipix, do_add, do_omp)
+
+    def tod2map(
+        self,
+        tod: "Tod",
+        dat: NDArray[np.floating],
+        do_add: bool = True,
+        do_omp: bool = True,
+        n_filt: Optional[list[int]] = None,
+    ):
+        """
+        Project a tod into the wmap. Frist projects tod onto real space map, then converts that to wmap.
+
+        Parameters
+        ----------
+        tod : Tod
+            Tod object, used to get pixellization.
+        dat : NDArray[np.floating]
+            Array to pull tod data from.
+            Shape should be (ndet, ndata).
+        do_add : bool, default: True.
+            If True add the projected map to this map.
+            If False replace this map with it.
+        do_omp : bool, default: True
+            Use omp to parallelize.
+        n_filt : None | list[int], default: None
+            Filters on which to perform map2tod. If none, then done over all
+
+        """
+        if dat is None:
+            dat = tod.get_data()
+        if do_add == False:
+            self.clear()
+        ipix = self.get_pix(tod)
+
+        if not (self.caches is None):
+            tod2map_cached(self.caches, dat, ipix)
+
+        self.real_map.clear()
+
+        tod2map_simple(self.real_map.map, dat, ipix)
+        if not do_add:
+            self.map = np.squeeze(
+                map2wav_real(self.real_map.map, self.needlet.filters, n_filt=n_filt), axis=0
+            )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
+
+        else:
+            self.map += np.squeeze(
+                map2wav_real(self.real_map.map, self.needlet.filters, n_filt=n_filt), axis=0
+            )
+
+        if self.purge_pixellization:
+            tod.clear_saved_pix(self.tag)
+
+    def write(self, fname: str = "map.fits"):
+        """
+        Write map to a FITs file.
+
+        Parameters
+        ----------
+        fname : str, default: 'map.fits'
+            The path to save the map to.
+        """
+        self.real_map.map = np.squeeze(wav2map_real(self.map, self.needlet.filters), axis=0)
+        header = self.wcs.to_header()
+        if True:  # try a patch to fix the wcs xxx
+            tmp = self.real_map.map.transpose().copy()
+            hdu = fits.PrimaryHDU(tmp, header=header)
+        else:
+            hdu = fits.PrimaryHDU(self.real_map.map, header=header)
+        try:
+            hdu.writeto(fname, overwrite=True)
+        except:
+            hdu.writeto(fname, clobber=True)
+
+    def apply_prior(self, p: "WavSkyMap", Ap: "WavSkyMap"):
+        """
+        Apply prior to the wavelet map. In the ML framework, adding a prior equates to:
+        chi^2 -> chi^2 + m^TQ^-1m
+        for m the map, Q the prior map. Per Jon, the modified the map equation to:
+        (A^T N^-1 A - Q^-1)m = A^T N^-1d
+        Note (A^T N^-1 A)m is the output of tods.dot(p). This function then simply performs
+        (A^T N^-1 A)m - Q^-1m, although the signage is confusing.
+
+        Parameters
+        ----------
+        p : WavSkyMap
+            Wavelet SkyMap of the conjugate vector p.
+        Ap : WavSkyMap
+            The result of tods.dot(p)
+
+        Returns
+        -------
+        Modifies Ap in place by Q^-1 m
+        """
+        Ap.map = Ap.map + self.map * p.map
+
+    def get_downsamps(self):
+        """
+        Resizes maps so that the pixelization matches the smallest scale of the needlet, given a needlet basis.
+        That needlet basis should probably be the one associated with need.filt but for right now it doesn't need to be.
+        I should enfore this. Currently not used, downsampling is handled directly in get_response_matrix.
+        Keeping as this mostly works and may one day need it.   
+         
+        """
+
+        map_size = np.rad2deg(max(self.lims[1]-self.lims[0], self.lims[3]-self.lims[2]))*3600
+        downsamps = np.empty(self.needlet.nfilt, dtype = int)
+        for i in range(self.needlet.nfilt):
+            lims = self.needlet.get_need_lims(i, real_space=True)
+            n_samp = map_size/lims[0]
+            downsamp = max(np.floor(self.nx/n_samp),1)
+            downsamps[i] = downsamp
+        self.downsamps = downsamps
+
+    def check_response_matrix(
+        self,
+        filt_num: int,
+        down_samp: Union[None, NDArray[int]] = None,  
+    ) -> Union[NDArray[np.floating], NamedTuple]:
+        """
+        Get the response matrix for needlet filt_num.
+        Each entry of the response matrix is the map that results from passing a map
+        that is 1 at uniquely one pixel thru map2wav with one needlet.
+        The map is flattened for convenience.
+        This function is used to check that we haven't over downsampled the 
+        needlet response matrix. Most common usage is to take the SVD of this
+        and look at S, it should fall off a cliff in the last couple modes.
+
+        Parameters
+        ---------
+        filt_num : int
+            The needlet to compute the repsponse matrix for.
+        down_samp : None | NDArray[int]
+            The amount to downsample the input map by.
+            You can downsample the map down to ~the needlet scale without loosing information
+            If not specified then it computes and uses the most aggresive downsampling.
+        Returns
+        -------
+        to_ret : NDArray[np.floating] | NamedTuple
+            If do_svd is False, then returns the response matrix.
+            Otherwise returns the SVD of the response matrix.
+            See numpy documentation for SVD documentation.
+        """
+        if down_samp is None:
+            self.get_downsamps()
+            down_samp = self.downsamps[filt_num]
+        else:
+            down_samp = down_samp[filt_num]
+        nxs_red, nys_red = int(self.nx / down_samp), int(
+            self.ny / down_samp
+        )  # TODO: make this a good FFT number
+        to_ret = np.zeros((nxs_red * nys_red, self.nx * self.ny))
+
+        nx_space = np.linspace(
+            0, self.nx - 1, nxs_red
+        )  # Evenly sample the downsampled nx
+        ny_space = np.linspace(0, self.ny - 1, nys_red)
+
+        nx_space = np.array([int(n) for n in nx_space])
+        ny_space = np.array([int(n) for n in ny_space])
+        if have_mpi:
+            if myrank == 0:
+                flags = np.zeros(
+                    nproc - 1, dtype=bool
+                )  # Flags to track which process are done
+                while not np.all(flags):
+                    status = MPI.Status()
+                    temp = comm.recv(
+                        source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
+                    )
+                    sender = status.Get_source()
+                    tag = status.Get_tag()
+                    if type(temp) == str:
+                        print("Task ", sender, " is done")
+                        flags[sender - 1] = temp
+                    else:
+                        to_ret[tag] = temp
+
+            else:
+                for nx in range(myrank - 1, nxs_red, nproc - 1):
+                    for ny in range(nys_red):
+                        idx = nys_red * nx + ny
+                        temp = np.zeros((self.nx, self.ny))
+                        temp[nx_space[nx], ny_space[ny]] = 1
+                        temp = np.ravel(
+                            np.squeeze(
+                                map2wav_real(
+                                    temp, self.needlet.filters[filt_num : filt_num + 1]
+                                )
+                            )
+                        )
+                        comm.send(temp, dest=0, tag=idx)
+                comm.send("Done", dest=0, tag=0)
+
+            comm.barrier()
+
+        else:
+            for nx in range(nxs_red):
+                for ny in range(nys_red):
+                    idx = nys_red * nx + ny
+                    temp = np.zeros((self.nx, self.ny))
+                    temp[nx_space[nx], ny_space[ny]] = 1
+                    to_ret[idx, :] = np.ravel(
+                        np.squeeze(
+                            map2wav_real(temp, self.needlet.filters[filt_num : filt_num + 1])
+                        )
+                    )
+
+        else:
+            return to_ret
+
+    def get_response_matrix():
+        if down_samp is None:
+            self.get_downsamps()
+            down_samp = self.downsamps[filt_num]
+        else:
+            down_samp = down_samp[filt_num]
+        nxs_red, nys_red = int(self.nx / down_samp), int(
+            self.ny / down_samp
+        )  # TODO: make this a good FFT number
+        to_ret = np.zeros((nxs_red * nys_red, self.nx * self.ny))
+
+        nx_space = np.linspace(
+            0, self.nx - 1, nxs_red
+        )  # Evenly sample the downsampled nx
+        ny_space = np.linspace(0, self.ny - 1, nys_red)
+
+        nx_space = np.array([int(n) for n in nx_space])
+        ny_space = np.array([int(n) for n in ny_space])
+        if have_mpi:
+            if myrank == 0:
+                flags = np.zeros(
+                    nproc - 1, dtype=bool
+                )  # Flags to track which process are done
+                while not np.all(flags):
+                    status = MPI.Status()
+                    temp = comm.recv(
+                        source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
+                    )
+                    sender = status.Get_source()
+                    tag = status.Get_tag()
+                    if type(temp) == str:
+                        print("Task ", sender, " is done")
+                        flags[sender - 1] = temp
+                    else:
+                        to_ret[tag] = temp
+
+            else:
+                for nx in range(myrank - 1, nxs_red, nproc - 1):
+                    for ny in range(nys_red):
+                        idx = nys_red * nx + ny
+                        temp = np.zeros((self.nx, self.ny))
+                        temp[nx_space[nx], ny_space[ny]] = 1
+                        temp = np.ravel(
+                            np.squeeze(
+                                map2wav_real(
+                                    temp, self.needlet.filters[filt_num : filt_num + 1]
+                                )
+                            )
+                        )
+                        comm.send(temp, dest=0, tag=idx)
+                comm.send("Done", dest=0, tag=0)
+
+            comm.barrier()
 
 
 ###############################################################################################

@@ -10,9 +10,10 @@ from astropy.io import fits
 
 import minkasi.minkasi_all as minkasi
 from minkasi.needlet.needlet import WavSkyMap
-from minkasi.needlet.needlet import needlet, cosmo_box
+from minkasi.needlet.needlet import Needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
 from minkasi.maps.mapset import PriorMapset, Mapset
+from minkasi.maps.skymap import SkyMap
 from minkasi.parallel import comm, get_nthread, have_mpi, nproc, myrank, MPI
 
 try:
@@ -39,12 +40,13 @@ except:
     nproc = 1
 
 #idir = "/home/jack/M2-TODs/RXJ1347/"
-idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
+#idir = "/scratch/r/rbond/jorlo//M2-TODs/RXJ1347/"
 #idir = "/scratch/r/rbond/jorlo//M2-TODs/A399-401/"
+idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/"
 tod_names=glob.glob(idir+'Sig*.fits')
 
 
-n_tods = 999999
+n_tods = 9999999 
 
 tod_names = tod_names[:n_tods]
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]
@@ -84,13 +86,12 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
-wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
-wmap  = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #TODO: fix squaring issue
-need = needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
+wmap = SkyMap(lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+need = Needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
-wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
+wmap = WavSkyMap(need, lims, pixsize, square = True, multiple=2)
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -99,73 +100,66 @@ for tod in todvec.tods:
 
 hits=minkasi.make_hits(todvec,wmap)
 
-
 #Subtract off modes outside the joint ACT+M2 window
-filt = 4
-do_svd = True 
-if not do_svd:
-    toc = time.time()
-    response_mat = wmap.get_response_matrix(filt, down_samp = 20, do_svd = False)
-    tic = time.time()
-    print("Took ", tic-toc, " seconds to get response mat")
-    print(response_mat.shape)
-    #DO I have to broadcast this?
-    ANA = np.zeros([len(response_mat), len(response_mat)])
-
-else:
-    
-    
-    #Something here doesn't play nice with mpi so we do it single threaded and send it out
-    toc = time.time()
-    svd = wmap.get_response_matrix(filt, down_samp = 1, do_svd = True) #TODO: Parallelize
-    tic = time.time()
-    print("Took ", tic-toc, " seconds to get response mat")
-    print(svd.S)
-    tol = 1e-6
-    mask = np.where((np.abs(svd.S) > np.max(np.abs(svd.S))*tol))[0]
-    print("Number kept modes: ", len(mask))
-    #mask = mask[:(len(mask) // minkasi.nproc)*minkasi.nproc]
-    U = svd.U[mask, :] #check if it's mask, : or :, mask
-    Vh = svd.Vh[mask, :]
-    S = svd.S[mask]
-    print(U.shape, Vh.shape, S.shape)
-    smat = np.diag(S)
-    response_mat = np.stack(Vh).T #Stack up all svds for all wavelets in window. Shape [nSVDs, map.ravel]
-    ANA = np.zeros([len(smat), len(smat)])
 
 
-minkasi.barrier()
+filt = 6
+
+#Something here doesn't play nice with mpi so we do it single threaded and send it out
 toc = time.time()
-os.exit()
-if not do_svd:
-    temp_map = WavSkyMap(np.expand_dims(need.filters[filt], axis = 0), lims, pixsize, square = True, multiple=2)
-    if myrank == 0:
-        flags  = np.zeros(nproc-1, dtype=bool)
-        while not np.all(flags):
-            status = MPI.Status()
-            temp = comm.recv(source = MPI.ANY_SOURCE, tag = MPI.ANY_TAG, status = status)
-            sender = status.Get_source()
-            tag = status.Get_tag()
-            if type(temp) == str:
-                print("Task ", sender, " is done")
-                flags[sender-1] = temp
-            else:
-                ANA[: tag] = temp
-    else: 
-        for j in range(myrank-1, len(response_mat), nproc-1):
-            cur = response_mat[j,:]
+response_matrix = wmap.check_response_matrix(filt, do_svd = False) #TODO: Parallelize
+tic = time.time()
+print("Took ", tic-toc, " seconds to get response mat")
 
-            wmapset = Mapset()
-            temp_map.clear()
-            temp_map.map[0] = np.reshape(cur, temp_map.map.shape[1:])
-            wmapset.add_map(temp_map)
-            mapout = todvec.dot(wmapset, skip_reduce = True) #Dot this with whole vector of SVD componants that looks like maps
+svd = np.linalg.svd(response_matrix, 0)
+plt.semilogy(svd.S)
+plt.show()
+plt.close()
 
-            temp = np.ravel(np.dot(np.ravel(mapout.maps[0].map[0]), response_mat.T))
-            comm.send(temp, dest = 0, tag = j)
+
+sys.exit()
+
+ANA = np.empty(response_matrix.shape)
+
+print("ANA shape: ", ANA.shape)
+toc = time.time()
+temp_map = WavSkyMap(np.expand_dims(need.filters[filt], axis = 0), lims, pixsize, square = True, multiple=2)
+
+if myrank == 0:
+    flags  = np.zeros(nproc-1, dtype=bool)
+    while not np.all(flags):
+        status = MPI.Status()
+        temp = comm.recv(source = MPI.ANY_SOURCE, tag = MPI.ANY_TAG, status = status)
+        sender = status.Get_source()
+        tag = status.Get_tag()
+        if type(temp) == str:
+            print("Task ", sender, " is done")
+            flags[sender-1] = temp
+        else:
+            ANA[tag:] = temp
+else: 
+    for j in range(myrank-1, len(response_matrix), nproc-1):
+        cur = response_matrix[j,:]
+        wmapset = Mapset()
+        temp_map.clear()
+        temp_map.map[0] = np.reshape(cur, temp_map.map.shape)
+        print(temp_map.map[0].shape)
+        wmapset.add_map(temp_map)
+        mapout = todvec.dot(wmapset, skip_reduce = True)
+
+        temp = np.ravel(np.dot(np.ravel(mapout.maps[0].map[0]), response_matrix.T))
+        print(temp.shape) #This does not have the same shape as ANA
+        comm.send(temp, dest = 0, tag = j)
     comm.send("Done", dest = 0, tag = 0)
 
+minkasi.barrier()
+tic = time.time()
 
+print("ANA took: ", tic-toc)
+
+
+
+"""
 else:
     print(Vh.shape, response_mat.shape)
     for j in range(minkasi.myrank, len(smat), minkasi.nproc):
@@ -205,4 +199,4 @@ rhs=mapset.copy()
 todvec.make_rhs(svd)
 chis2 = np.dot(ANA, rhs)
 print(chis2)
-
+"""
