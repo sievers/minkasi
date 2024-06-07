@@ -102,6 +102,10 @@ hits=minkasi.make_hits(todvec,wmap)
 
 #Subtract off modes outside the joint ACT+M2 window
 
+response_matrix = wmap.get_response_matrix(todvec)
+print(response_matrix.shape)
+sys.exit()
+
 
 filt = 6
 
