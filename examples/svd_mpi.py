@@ -86,12 +86,12 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
-wmap = SkyMap(lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+wmap = SkyMap(lims, pixsize, primes = [2,3,5,7], square = True).map #Really shitty way to get the right map geometry for making filters
 need = Needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
-wmap = WavSkyMap(need, lims, pixsize, square = True, multiple=2)
+wmap = WavSkyMap(need, lims, pixsize, primes = [2,3,5,7], square = True)
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -101,7 +101,7 @@ for tod in todvec.tods:
 hits=minkasi.make_hits(todvec,wmap)
 
 #Subtract off modes outside the joint ACT+M2 window
-
+minkasi.barrier()
 response_matrix = wmap.get_response_matrix(todvec)
 print(response_matrix.shape)
 sys.exit()
