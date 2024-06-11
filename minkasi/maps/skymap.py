@@ -145,7 +145,7 @@ class SkyMap:
             pixsize = pixsize_use
 
         self.lims = lims
-        nx, ny = self.get_npix(pad, nx=nx, ny=ny)
+        self.nx, self.ny = self.get_npix(pad, nx=nx, ny=ny)
         self.primes: None | list[int]
 
         self.primes: Optional[List[int]]
@@ -154,8 +154,8 @@ class SkyMap:
             self.primes = primes
         else:
             lens = find_good_fft_lens(2 * (self.nx + self.ny), primes)
-            self.nx = lens[lens >= nx].min()
-            self.ny = lens[lens >= ny].min()
+            self.nx = lens[lens >= self.nx].min()
+            self.ny = lens[lens >= self.ny].min()
             self.primes = primes[:]
         """        
         if square:
@@ -172,31 +172,28 @@ class SkyMap:
         if multiple:
             assert(type(multiple) == int)
 
-            xmax = 2*np.ceil(nx / multiple)
+            xmax = 2*np.ceil(self.nx / multiple)
             xdiff = self.lims[1] - self.lims[0]
-            self.lims[0] = self.lims[1] - xdiff * xmax/nx #Make nx a factor of 2
+            self.lims[0] = self.lims[1] - xdiff * xmax/self.nx #Make nx a factor of 2
 
-            ymax = 2*np.ceil(ny / multiple)
+            ymax = 2*np.ceil(self.ny / multiple)
             ydiff = self.lims[3] - self.lims[2]
-            self.lims[3] = self.lims[2] + ydiff * ymax/ny
+            self.lims[3] = self.lims[2] + ydiff * ymax/self.ny
             
-            nx, ny = self.get_npix(pad) #This may be applying pad a bunch of times
+            self.nx, self.ny = self.get_npix(pad) #This may be applying pad a bunch of times
             
         if square:
-            while nx != ny: #TODO: Fix this bug where it doesn't square right sometimes. This is a one time inefficency and it doesn't take much time anyway but could conceivably run forever.
-                nmax = max(nx, ny)
+            while self.nx != self.ny: #TODO: Fix this bug where it doesn't square right sometimes. This is a one time inefficency and it doesn't take much time anyway but could conceivably run forever.
+                nmax = max(self.nx, self.ny)
                 
-                ratio_x = nmax/nx
-                ratio_y = nmax/ny
+                ratio_x = nmax/self.nx
+                ratio_y = nmax/self.ny
 
                 self.lims[0] = self.lims[1] - ratio_x*(self.lims[1] - self.lims[0]) #note we are adjusting lims in place here
                 self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
 
-                nx, ny = self.get_npix(pad)
+                self.nx, self.ny = self.get_npix(pad)
 
-
-        self.nx = nx
-        self.ny = ny
         self.caches = None
         self.cosdec = cosdec
         self.tod2map_method = None
@@ -204,7 +201,7 @@ class SkyMap:
         self.tag: str = tag
         self.purge_pixellization: bool = purge_pixellization
         self.pixsize: float = pixsize
-        self.map: NDArray[np.floating] = np.zeros([nx, ny])
+        self.map: NDArray[np.floating] = np.zeros([self.nx, self.ny])
         self.proj: str = proj
         self.pad: int = pad
         self.caches: Optional[NDArray[np.floating]] = None
