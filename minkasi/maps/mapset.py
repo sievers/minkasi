@@ -4,11 +4,13 @@ from typing import TYPE_CHECKING, List, Union
 from ..parallel import have_mpi
 from .polmap import PolMap
 from .skymap import SkyMap
-from ..needlet.needlet import WavSkyMap
+
+if TYPE_CHECKING:
+    from ..needlet.needlet import WavSkyMap
 
 import numpy as np
 
-MapType = Union[SkyMap, PolMap, WavSkyMap]
+MapType = Union[SkyMap, PolMap, "WavSkyMap"]
 
 if TYPE_CHECKING:
     from .twores import SkyMapTwoRes
