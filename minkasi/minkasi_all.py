@@ -38,3 +38,4 @@ from .tools.rings import *
 from .tools.smooth import *
 from .tools.units import *
 from .tools.zernike import *
+from .tools.presets_by_source import *

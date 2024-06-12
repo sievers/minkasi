@@ -15,11 +15,16 @@ outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME!
 
 
 #find tod files we want to map
-idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/" #CHANGE ME
 tod_names=glob.glob(idir+'/Sig*.fits')
 if len(tod_names)==0:
     print('We found no TOD files.  Double check your path?')
     assert(1==0)
+
+#Use presets by source to automatically get and cut TODs
+#that were manually flagged for removal
+bad_tod, _ = minkasi.get_bad_tods("RXJ1347")
+tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
 
 #if running MPI, you would want to split up files between processes
 #one easy way is to say to this:
