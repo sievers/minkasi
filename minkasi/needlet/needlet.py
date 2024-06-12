@@ -849,13 +849,15 @@ class WavSkyMap(SkyMap):
         return to_ret
     #@jit(parallel=True, forceobj=True, nopython=False)
     #@profile
-    def get_response_matrix(self, todvec):
+    def get_response_matrix(self, todvec, nfilts = None):
         self.get_downsamps()
         down_samps = self.downsamps
 
         to_ret = np.empty(self.needlet.nfilt, dtype = object)
 
         for nfilt, filt in enumerate(self.needlet.filters): 
+            if nfilts is not None:
+                if nfilt not in nfilts: continue
             down_samp = down_samps[nfilt]
             nxs_red = self.nxs_red[nfilt]
             nys_red = self.nys_red[nfilt]
