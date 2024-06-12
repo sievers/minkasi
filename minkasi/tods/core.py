@@ -987,7 +987,8 @@ class TodVec:
         if have_mpi:
             if not skip_reduce:
                 mapset_out.mpi_reduce()
-        print(tot_times)
+        if report_times:
+            print(tot_times)
         if report_times:
             return mapset_out, times
         return mapset_out
