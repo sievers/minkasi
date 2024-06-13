@@ -86,12 +86,14 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
-wmap = SkyMap(lims, pixsize, primes = [2,3,5,7], square = True).map #Really shitty way to get the right map geometry for making filters
+#wmap = SkyMap(lims, pixsize, primes = [2,3,5,7], square = True).map #Really shitty way to get the right map geometry for making filters
+wmap = SkyMap(lims, pixsize, square = True, multiple=2).map
 need = Needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
 
-wmap = WavSkyMap(need, lims, pixsize, primes = [2,3,5,7], square = True)
+#wmap = WavSkyMap(need, lims, pixsize, primes = [2,3,5,7], square = True)
+wmap = WavSkyMap(need, lims, pixsize, square = True, multiple=2)
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -99,6 +101,36 @@ for tod in todvec.tods:
     tod.set_noise(minkasi.NoiseSmoothedSVD)
 
 hits=minkasi.make_hits(todvec,wmap)
+
+#Run a few iterations to get small scales to converge, subtract off so we only need to do larger scales
+mapset=Mapset()
+mapset.add_map(wmap)
+
+rhs=mapset.copy()
+todvec.make_rhs(rhs)
+
+#this is our starting guess.  Default to starting at 0,
+x0=rhs.copy()
+x0.clear()
+
+#preconditioner is 1/ hit count map.  helps a lot for
+precon=mapset.copy()
+tmp=hits.map.copy()
+ii=tmp>0
+tmp[ii]=1.0/tmp[ii]
+precon.maps[0].map[:]=np.sqrt(tmp)
+precon.maps[0].map[:]=tmp[:]
+
+#outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
+#outroot = '/scratch/r/rbond/jorlo/A399-401'
+outroot = "/mnt/welch/USERS/jorlo/needlets/RXJ1347"
+print("Saving to ", outroot)
+save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
+#run PCG!
+mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)
+
+if minkasi.myrank==0:
+    mapset_out.maps[0].write(outroot+"_need.fits")
 
 #Subtract off modes outside the joint ACT+M2 window
 minkasi.barrier()
