@@ -131,10 +131,24 @@ mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iter
 
 if minkasi.myrank==0:
     mapset_out.maps[0].write(outroot+"_need.fits")
-
-#Subtract off modes outside the joint ACT+M2 window
 minkasi.barrier()
-response_matrix = wmap.get_response_matrix(todvec)
+#Subtract off modes outside the joint ACT+M2 window
+
+for tod in todvec.tods:
+    tmp = np.zeros(tod.info["dat_calib"].shape)
+    mapset_out.maps[0].map2tod(tod, tmp)
+    tod.info["dat_calib"] -= tmp 
+    tod.set_noise(minkasi.NoiseSmoothedSVD)
+
+
+
+
+
+
+
+
+
+response_matrix = wmap.get_response_matrix(todvec, nfilts=range(8))
 print(response_matrix.shape)
 sys.exit()
 
