@@ -223,7 +223,7 @@ def fit_timestreams_with_derivs_manyfun(
         )  # Make a copy of to fit, so we can temporarily set values to false
         if np.any(priors):
             # first build a mask that will identify parameters with flat priors
-            flat_mask = np.where((priors == "flat"))[0]
+            flat_mask = np.where((priors == np.array("flat")))[0]
 
             for flat_id in flat_mask:
                 #print(pars[flat_id])
