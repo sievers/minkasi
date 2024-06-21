@@ -1,12 +1,10 @@
 import numpy as np
-from matplotlib import pyplot as plt
 import minkasi.minkasi_all as minkasi
 
 import time
 import glob
 import os
 #reload(minkasi)
-plt.ion()
 
 #set file root for output maps
 outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME!
