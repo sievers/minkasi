@@ -362,7 +362,7 @@ def get_bad_tods(name, ndo=False, odo=False):
             "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [88, 89, 91, 92, 93, 94]
         ]
         bad_005_02 = [
-            "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits" for ss in [19, 20]
+            "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits" for ss in [19, 20, 35, 36, 37]
         ]
         bad_005_04 = [
             "Signal_TOD-AGBT23B_005_04-s" + str(ss) + ".fits" for ss in [8, 9, 10]
