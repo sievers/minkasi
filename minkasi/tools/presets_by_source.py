@@ -240,109 +240,102 @@ def get_bad_tods(name, ndo=False, odo=False):
 
     addtag = "svprods_"
 
-    if name == "AGBT18B_215":
-        bad_215_01 = [
-            "Signal_TOD-AGBT18B_215_01-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_02 = [
-            "Signal_TOD-AGBT18B_215_02-s" + str(ss) + ".fits" for ss in [6, 8, 10, 17]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_03 = [
-            "Signal_TOD-AGBT18B_215_03-s" + str(ss) + ".fits"
-            for ss in [11, 13, 14, 15, 18, 20, 24, 25]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_04 = [
-            "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        # bad_215_04=['Signal_TOD-AGBT18B_215_04-s'+str(ss)+'.fits' for ss in range(40,120)] # Maybe 6,7 and 8 too?
-        bad_215_05 = [
-            "Signal_TOD-AGBT18B_215_05-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_06 = [
-            "Signal_TOD-AGBT18B_215_06-s" + str(ss) + ".fits" for ss in [8, 9, 57, 65]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_07 = [
-            "Signal_TOD-AGBT18B_215_07-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_08 = [
-            "Signal_TOD-AGBT18B_215_08-s" + str(ss) + ".fits" for ss in [25, 26, 28, 85]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_09 = [
-            "Signal_TOD-AGBT18B_215_09-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_10 = [
-            "Signal_TOD-AGBT18B_215_10-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_11 = [
-            "Signal_TOD-AGBT18B_215_11-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_12 = [
-            "Signal_TOD-AGBT18B_215_12-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_215_13 = [
-            "Signal_TOD-AGBT18B_215_13-s" + str(ss) + ".fits" for ss in [0]
-        ]  # Maybe 6,7 and 8 too?
-        bad_tod = bad_215_01
-        bad_tod.extend(bad_215_02)
-        bad_tod.extend(bad_215_03)
-        bad_tod.extend(bad_215_04)
-        bad_tod.extend(bad_215_05)
-        bad_tod.extend(bad_215_06)
-        bad_tod.extend(bad_215_07)
-        bad_tod.extend(bad_215_08)
-        bad_tod.extend(bad_215_09)
-        bad_tod.extend(bad_215_10)
-        bad_tod.extend(bad_215_11)
-        bad_tod.extend(bad_215_12)
-        bad_tod.extend(bad_215_13)
+    bad_215_01 = [
+        "Signal_TOD-AGBT18B_215_01-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_02 = [
+        "Signal_TOD-AGBT18B_215_02-s" + str(ss) + ".fits" for ss in [6, 8, 10, 17]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_03 = [
+        "Signal_TOD-AGBT18B_215_03-s" + str(ss) + ".fits"
+        for ss in [11, 13, 14, 15, 18, 20, 24, 25]
+    ]  # Maybe 6,7 and 8 too?
+    # bad_215_04 = ["Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [0]]  # commented out June 2024
+    # bad_215_04=['Signal_TOD-AGBT18B_215_04-s'+str(ss)+'.fits' for ss in range(40,120)] # Maybe 6,7 and 8 too?
+    bad_215_05 = [
+        "Signal_TOD-AGBT18B_215_05-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_06 = [
+        "Signal_TOD-AGBT18B_215_06-s" + str(ss) + ".fits" for ss in [8, 9, 57, 65]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_07 = [
+        "Signal_TOD-AGBT18B_215_07-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_08 = [
+        "Signal_TOD-AGBT18B_215_08-s" + str(ss) + ".fits" for ss in [25, 26, 28, 85]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_09 = [
+        "Signal_TOD-AGBT18B_215_09-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_10 = [
+        "Signal_TOD-AGBT18B_215_10-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_11 = [
+        "Signal_TOD-AGBT18B_215_11-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_12 = [
+        "Signal_TOD-AGBT18B_215_12-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_215_13 = [
+        "Signal_TOD-AGBT18B_215_13-s" + str(ss) + ".fits" for ss in [0]
+    ]  # Maybe 6,7 and 8 too?
+    bad_tod = bad_215_01
+    bad_tod.extend(bad_215_02)
+    bad_tod.extend(bad_215_03)
+    bad_tod.extend(bad_215_04)
+    bad_tod.extend(bad_215_05)
+    bad_tod.extend(bad_215_06)
+    bad_tod.extend(bad_215_07)
+    bad_tod.extend(bad_215_08)
+    bad_tod.extend(bad_215_09)
+    bad_tod.extend(bad_215_10)
+    bad_tod.extend(bad_215_11)
+    bad_tod.extend(bad_215_12)
+    bad_tod.extend(bad_215_13)
 
-    elif name == "AGBT18A_175":
-        bad_175_01 = [
-            "Signal_TOD-AGBT18A_175_01-s" + str(ss) + ".fits" for ss in [9]
-        ]  # Maybe 6,7 and 8 too?
-        bad_175_03 = [
-            "Signal_TOD-AGBT18A_175_03-s" + str(ss) + ".fits" for ss in [32, 36, 37, 38, 40]
-        ]  # Mostly due to low elev.
-        bad_175_04 = [
-            "Signal_TOD-AGBT18A_175_04-s" + str(ss) + ".fits"
-            for ss in [10, 11, 12, 28, 29, 32, 33, 34, 35, 44, 45, 46, 48, 49]
-        ]
-        bad_175_06 = [
-            "Signal_TOD-AGBT18A_175_06-s" + str(ss) + ".fits"
-            for ss in [38, 39, 40, 47, 48, 49, 50, 74, 75, 76, 77, 79, 80, 82, 83, 84]
-        ]
-        # bad_175_06=['Signal_TOD-AGBT18A_175_06-s'+str(ss)+'.fits' for ss in range(100)]
-        bad_175_07 = [
-            "Signal_TOD-AGBT18A_175_07-s" + str(ss) + ".fits"
-            for ss in [12, 17, 19, 20, 22, 24, 25, 26, 27, 29, 30, 31]
-        ]
-        # bad_tod = bad_175_01   ;bad_tod.extend(bad_175_04);  bad_tod.extend(bad_175_06);  bad_tod.extend(bad_175_07)
-        # bad_tod = bad_175_01   ;bad_tod.extend(bad_175_04);  bad_tod.extend(bad_175_07)
-        bad_tod = bad_175_01
-        bad_tod.extend(bad_175_04)
-        bad_tod.extend(bad_175_06)
-        bad_tod.extend(bad_175_07)
+    bad_175_01 = [
+        "Signal_TOD-AGBT18A_175_01-s" + str(ss) + ".fits" for ss in [9]
+    ]  # Maybe 6,7 and 8 too?
+    bad_175_03 = [
+        "Signal_TOD-AGBT18A_175_03-s" + str(ss) + ".fits" for ss in [32, 36, 37, 38, 40]
+    ]  # Mostly due to low elev.
+    bad_175_04 = [
+        "Signal_TOD-AGBT18A_175_04-s" + str(ss) + ".fits"
+        for ss in [10, 11, 12, 28, 29, 32, 33, 34, 35, 44, 45, 46, 48, 49]
+    ]
+    bad_175_06 = [
+        "Signal_TOD-AGBT18A_175_06-s" + str(ss) + ".fits"
+        for ss in [38, 39, 40, 47, 48, 49, 50, 74, 75, 76, 77, 79, 80, 82, 83, 84]
+    ]
+    # bad_175_06=['Signal_TOD-AGBT18A_175_06-s'+str(ss)+'.fits' for ss in range(100)]
+    bad_175_07 = [
+        "Signal_TOD-AGBT18A_175_07-s" + str(ss) + ".fits"
+        for ss in [12, 17, 19, 20, 22, 24, 25, 26, 27, 29, 30, 31]
+    ]
+    # bad_tod = bad_175_01   ;bad_tod.extend(bad_175_04);  bad_tod.extend(bad_175_06);  bad_tod.extend(bad_175_07)
+    # bad_tod = bad_175_01   ;bad_tod.extend(bad_175_04);  bad_tod.extend(bad_175_07)
 
-    elif name == "AGBT18B_111":    
-        bad_111_02 = [
-            "Signal_TOD-AGBT18B_111_02-s" + str(ss) + ".fits"
-            for ss in [7, 8, 16, 17, 18, 19, 21, 23, 24, 28, 30, 38, 39, 40]
-        ]
-        bad_111_03 = [
-            "Signal_TOD-AGBT18B_111_03-s" + str(ss) + ".fits" for ss in [9, 10, 31]
-        ]
-        bad_111_04 = [
-            "Signal_TOD-AGBT18B_111_04-s" + str(ss) + ".fits"
-            for ss in [11, 12, 13, 14, 18, 19, 20, 21]
-        ]
-        bad_111_05 = ["Signal_TOD-AGBT18B_111_05-s" + str(ss) + ".fits" for ss in [14, 15]]
-        # bad_tod = bad_111_02  ;bad_tod.extend(bad_111_03);  bad_tod.extend(bad_111_04);  bad_tod.extend(bad_111_05)
+    bad_111_02 = [
+        "Signal_TOD-AGBT18B_111_02-s" + str(ss) + ".fits"
+        for ss in [7, 8, 16, 17, 18, 19, 21, 23, 24, 28, 30, 38, 39, 40]
+    ]
+    bad_111_03 = [
+        "Signal_TOD-AGBT18B_111_03-s" + str(ss) + ".fits" for ss in [9, 10, 31]
+    ]
+    bad_111_04 = [
+        "Signal_TOD-AGBT18B_111_04-s" + str(ss) + ".fits"
+        for ss in [11, 12, 13, 14, 18, 19, 20, 21]
+    ]
+    bad_111_05 = ["Signal_TOD-AGBT18B_111_05-s" + str(ss) + ".fits" for ss in [14, 15]]
+    # bad_tod = bad_111_02  ;bad_tod.extend(bad_111_03);  bad_tod.extend(bad_111_04);  bad_tod.extend(bad_111_05)
 
-    elif name == "AGBT19A_092": 
-        bad_092_07 = ["Signal_TOD-AGBT19A_092_07-s" + str(ss) + ".fits" for ss in [25]]
-        bad_tod = bad_092_07
+    bad_092_07 = ["Signal_TOD-AGBT19A_092_07-s" + str(ss) + ".fits" for ss in [25]]
+    bad_tod.extend(bad_175_01)
+    bad_tod.extend(bad_175_04)
+    bad_tod.extend(bad_175_06)
+    bad_tod.extend(bad_175_07)
 
-    elif name == "moo1046" or name == "mooj1046":
+    if name == "moo1046" or name == "mooj1046":
         # tod_files='/home/scratch/sdicker/AGBT18B_215/IDL_maps_current/moo1046/Signal_TOD-'+myproj+'.fits'
         # addtag="svprods_mcen_SDTODs_"
         if ndo:
@@ -356,8 +349,8 @@ def get_bad_tods(name, ndo=False, odo=False):
             ]  #
             addtag = "svprods_ODO_"
 
-    elif name == "moo1142" or name == "mooj1142":
-        # definitely bad TODs
+    if name == "moo1142" or name == "mooj1142":
+        # TODs that Emily Moravec identified as bad through visual inspection of TODs and noise assessment in June 2024 and should not be included in maps
         bad_215_04 = [
             "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [88, 89, 91, 92, 93, 94]
         ]
@@ -373,13 +366,14 @@ def get_bad_tods(name, ndo=False, odo=False):
         bad_005_06 = [
             "Signal_TOD-AGBT23B_005_06-s" + str(ss) + ".fits" for ss in [10, 11]
         ]
-        bad_tod = bad_215_04
+        bad_tod.extend(bad_215_04)
         bad_tod.extend(bad_005_02)
         bad_tod.extend(bad_005_04)
         bad_tod.extend(bad_005_05)
         bad_tod.extend(bad_005_06)
 
-        # maybe TODs 
+        # "maybe" TODs - TODs that Emily Moravec identified as "maybes" through visual inspection of TODs and noise assessment in June 2024
+        # these TODs have properties that create uncertainty as to whether or not they should be included in maps - they are neither a strong yes or a strong no
         maybe_215_04 = [
             "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [86, 87]
         ]
