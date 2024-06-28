@@ -282,7 +282,6 @@ def get_bad_tods(name, ndo=False, odo=False):
     bad_tod = bad_215_01
     bad_tod.extend(bad_215_02)
     bad_tod.extend(bad_215_03)
-    bad_tod.extend(bad_215_04)
     bad_tod.extend(bad_215_05)
     bad_tod.extend(bad_215_06)
     bad_tod.extend(bad_215_07)
