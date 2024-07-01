@@ -849,11 +849,44 @@ class WavSkyMap(SkyMap):
         return to_ret
     #@jit(parallel=True, forceobj=True, nopython=False)
     #@profile
-    def get_response_matrix(self, todvec, nfilts = None):
+    def get_response_matrix(self, todvec: "TodVec", max_res: Optional[np.floating]  = None, nfilts: Optional[list[int]]  = None):
+        """
+        Computes A^-1N^TA (ANA) for a set of tods in the WavSkyMap basis. 
+        ANA can be inverted to directly solve for the map, however is very
+        expensive to compute. In general ANA only needs to be computed for
+        the overlap scales, and other methods (e.g. pcg) can be used for
+        the very high/very low resolution scales.
+
+        Parameters:
+        -----------
+        todvec : TodVec
+            TODs over which to comput ANA
+        max_res : np.floating, default : None
+            Maximum resolution, in arcseconds, at which to compute ANA. 
+            Wavelets with maximum extent less than max_res are skipped.
+        nfilts : list[int], default : None
+            Explicitly specify which wavelets to compute. 
+            Exclusive with max_res.
+
+        Returns
+        ------
+        to_ret : NDArray[np.floating]
+            Reduced ANA at the specified wavelet scales
+        """
+
         self.get_downsamps()
         down_samps = self.downsamps
 
-        to_ret = np.empty(self.needlet.nfilt, dtype = object)
+        #We want to return 0 at all scales we don't compute 
+        to_ret = np.zeros(self.needlet.nfilt, dtype = object)
+
+        if max_res is not None:
+            if nfilts is not None:
+                raise ArgError("Cannot specify max_res and nfilts")
+            i = 0
+            while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
+                i +=1 #not the fastest way to do this but it's only done once
+            nfilts = range(i+1)
 
         for nfilt, filt in enumerate(self.needlet.filters): 
             if nfilts is not None:
