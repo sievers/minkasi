@@ -242,10 +242,10 @@ def get_bad_tods(name, ndo=False, odo=False):
 
     bad_215_01 = [
         "Signal_TOD-AGBT18B_215_01-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_02 = [
         "Signal_TOD-AGBT18B_215_02-s" + str(ss) + ".fits" for ss in [6, 8, 10, 17]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_03 = [
         "Signal_TOD-AGBT18B_215_03-s" + str(ss) + ".fits"
         for ss in [11, 13, 14, 15, 18, 20, 24, 25]
@@ -254,31 +254,31 @@ def get_bad_tods(name, ndo=False, odo=False):
     # bad_215_04=['Signal_TOD-AGBT18B_215_04-s'+str(ss)+'.fits' for ss in range(40,120)] # Maybe 6,7 and 8 too?
     bad_215_05 = [
         "Signal_TOD-AGBT18B_215_05-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_06 = [
         "Signal_TOD-AGBT18B_215_06-s" + str(ss) + ".fits" for ss in [8, 9, 57, 65]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_07 = [
         "Signal_TOD-AGBT18B_215_07-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_08 = [
         "Signal_TOD-AGBT18B_215_08-s" + str(ss) + ".fits" for ss in [25, 26, 28, 85]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_09 = [
         "Signal_TOD-AGBT18B_215_09-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_10 = [
         "Signal_TOD-AGBT18B_215_10-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_11 = [
         "Signal_TOD-AGBT18B_215_11-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_12 = [
         "Signal_TOD-AGBT18B_215_12-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_215_13 = [
         "Signal_TOD-AGBT18B_215_13-s" + str(ss) + ".fits" for ss in [0]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_tod = bad_215_01
     bad_tod.extend(bad_215_02)
     bad_tod.extend(bad_215_03)
@@ -294,7 +294,7 @@ def get_bad_tods(name, ndo=False, odo=False):
 
     bad_175_01 = [
         "Signal_TOD-AGBT18A_175_01-s" + str(ss) + ".fits" for ss in [9]
-    ]  # Maybe 6,7 and 8 too?
+    ]
     bad_175_03 = [
         "Signal_TOD-AGBT18A_175_03-s" + str(ss) + ".fits" for ss in [32, 36, 37, 38, 40]
     ]  # Mostly due to low elev.
@@ -350,61 +350,61 @@ def get_bad_tods(name, ndo=False, odo=False):
 
     if name == "moo1142" or name == "mooj1142":
         # TODs that Emily Moravec identified as bad through visual inspection of TODs and noise assessment in June 2024 and should not be included in maps
-        bad_215_04 = [
+        bad_18B_215_04 = [
             "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [88, 89, 91, 92, 93, 94]
         ]
-        bad_005_02 = [
-            "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits" for ss in [19, 20, 35, 36, 37]
+        bad_23B_005_02 = [
+            "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits" for ss in [19, 20, 35, 37, 39]
         ]
-        bad_005_04 = [
+        bad_23B_005_04 = [
             "Signal_TOD-AGBT23B_005_04-s" + str(ss) + ".fits" for ss in [8, 9, 10]
         ]
-        bad_005_05 = [
+        bad_23B_005_05 = [
             "Signal_TOD-AGBT23B_005_05-s" + str(ss) + ".fits" for ss in [27, 28]
         ]
-        bad_005_06 = [
+        bad_23B_005_06 = [
             "Signal_TOD-AGBT23B_005_06-s" + str(ss) + ".fits" for ss in [10, 11]
         ]
-        bad_tod.extend(bad_215_04)
-        bad_tod.extend(bad_005_02)
-        bad_tod.extend(bad_005_04)
-        bad_tod.extend(bad_005_05)
-        bad_tod.extend(bad_005_06)
+        bad_tod.extend(bad_18B_215_04)
+        bad_tod.extend(bad_23B_005_02)
+        bad_tod.extend(bad_23B_005_04)
+        bad_tod.extend(bad_23B_005_05)
+        bad_tod.extend(bad_23B_005_06)
 
         # "maybe" TODs - TODs that Emily Moravec identified as "maybes" through visual inspection of TODs and noise assessment in June 2024
         # these TODs have properties that create uncertainty as to whether or not they should be included in maps - they are neither a strong yes or a strong no
-        maybe_215_04 = [
+        maybe_18B_215_04 = [
             "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [86, 87]
         ]
-        maybe_019_02 = [
-            "Signal_TOD-AGBT20A_019_02-s" + str(ss) + ".fits" for ss in [25]
+        maybe_20A_091_02 = [
+            "Signal_TOD-AGBT20A_091_02-s" + str(ss) + ".fits" for ss in [25]
         ]
-        maybe_005_01 = [
+        maybe_23B_005_01 = [
             "Signal_TOD-AGBT23B_005_01-s" + str(ss) + ".fits" for ss in [13, 14, 17]
         ]
-        maybe_005_02 = [
+        maybe_23B_005_02 = [
             "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits" for ss in [7, 18, 27]
         ]
-        maybe_005_04 = [
+        maybe_23B_005_04 = [
             "Signal_TOD-AGBT23B_005_04-s" + str(ss) + ".fits" for ss in [7]
         ]
-        maybe_005_05 = [
+        maybe_23B_005_05 = [
             "Signal_TOD-AGBT23B_005_05-s" + str(ss) + ".fits" for ss in [24]
         ]
-        maybe_005_06 = [
+        maybe_23B_005_06 = [
             "Signal_TOD-AGBT23B_005_06-s" + str(ss) + ".fits" for ss in [8, 9]
         ]
-        maybe_005_07 = [
+        maybe_23B_005_07 = [
             "Signal_TOD-AGBT23B_005_07-s" + str(ss) + ".fits" for ss in [37]
         ]
-        bad_tod.extend(maybe_215_04)
-        bad_tod.extend(maybe_019_02)
-        bad_tod.extend(maybe_005_01)
-        bad_tod.extend(maybe_005_02)
-        bad_tod.extend(maybe_005_04)
-        bad_tod.extend(maybe_005_05)
-        bad_tod.extend(maybe_005_06)
-        bad_tod.extend(maybe_005_07)
+        bad_tod.extend(maybe_18B_215_04)
+        bad_tod.extend(maybe_20A_091_02)
+        bad_tod.extend(maybe_23B_005_01)
+        bad_tod.extend(maybe_23B_005_02)
+        bad_tod.extend(maybe_23B_005_04)
+        bad_tod.extend(maybe_23B_005_05)
+        bad_tod.extend(maybe_23B_005_06)
+        bad_tod.extend(maybe_23B_005_07)
 
         if ndo:
             bad_tod = [
