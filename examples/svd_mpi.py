@@ -140,15 +140,7 @@ for tod in todvec.tods:
     tod.info["dat_calib"] -= tmp 
     tod.set_noise(minkasi.NoiseSmoothedSVD)
 
-
-
-
-
-
-
-
-
-response_matrix = wmap.get_response_matrix(todvec, nfilts=range(8))
+response_matrix = wmap.get_response_matrix(todvec, max_res = 9.0) 
 print(response_matrix.shape)
 sys.exit()
 
