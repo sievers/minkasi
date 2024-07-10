@@ -147,7 +147,7 @@ for niter in range(npass):
     precon.maps[0].map[:] = hits.map[:]
     mapset_out = minkasi.run_pcg_wprior(
         rhs,
-        mapset,
+        mapset_out,
         todvec,
         priorset,
         precon,
