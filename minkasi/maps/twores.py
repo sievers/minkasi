@@ -66,6 +66,7 @@ class SkyMapTwoRes:
         lims: Union[Sequence[float], NDArray[np.floating]],
         osamp: int = 1,
         smooth_fac: float = 0.0,
+        big_wcs: Union[wcs.WCS, None] = None,
     ):
         """
         Initialize SkyMapTwoRes.
@@ -83,7 +84,7 @@ class SkyMapTwoRes:
             Not used when it is 0.
         """
         small_wcs, lims_use, map_corner = get_aligned_map_subregion_car(
-            lims, map_lowres, osamp=osamp
+            lims, map_lowres, osamp=osamp, big_wcs=big_wcs
         )
         self.small_lims: NDArray[np.floating] = lims_use
         self.small_wcs: wcs.WCS = small_wcs
@@ -200,6 +201,35 @@ class SkyMapTwoRes:
             Noise factor that is multiplied with the inverse variance.
         """
         self.noise = MapNoiseWhite(ivar_map, isinv, nfac)
+
+    def coarse2fine(
+        self, fine: NDArray[np.floating], coarse: NDArray[np.floating]
+    ) -> NDArray[np.floating]:
+        """
+        Upscale coarse 2 fine map.
+
+         Parameters
+        ----------
+        fine : NDArray[np.floating]
+            Input fine map.
+
+        coarse : NDArray[np.floating]
+            Input coarse map.
+
+        Returns
+        -------
+        out : NDArray[np.floating]
+            Output fine map.
+            Same shape as the input fine map.
+        """
+        out = fine.copy()
+        for i in range(self.nx_coarse):
+            for j in range(self.ny_coarse):
+                out[
+                    (i * self.osamp) : ((i + 1) * self.osamp),
+                    (j * self.osamp) : ((j + 1) * self.osamp),
+                ] = coarse[i + self.map_corner[0], j + self.map_corner[1]]
+        return out
 
     def maps2fine(
         self, fine: NDArray[np.floating], coarse: NDArray[np.floating]
