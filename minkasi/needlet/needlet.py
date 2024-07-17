@@ -873,9 +873,9 @@ class WavSkyMap(SkyMap):
         to_ret : NDArray[np.floating]
             Reduced ANA at the specified wavelet scales
         """
-
-        self.get_downsamps()
-        down_samps = self.downsamps
+        if not self.downsamps:
+            self.get_downsamps()
+            down_samps = self.downsamps
 
         #We want to return 0 at all scales we don't compute 
         to_ret = np.zeros(self.needlet.nfilt, dtype = object)
@@ -887,7 +887,7 @@ class WavSkyMap(SkyMap):
             while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
                 i +=1 #not the fastest way to do this but it's only done once
             nfilts = range(i+1)
-        print(nfilts)
+
         for nfilt, filt in enumerate(self.needlet.filters): 
             if nfilts is not None:
                 if nfilt not in nfilts: continue
@@ -930,6 +930,46 @@ class WavSkyMap(SkyMap):
                     #print("Whole will take ", (tic-toc)*np.sum(self.nxs_red**2))
             to_ret[nfilt] = to_ret_cur
         return to_ret
+
+    def get_response_matrix_map(self, imap: NDArray[np.floating]):
+                if not self.downsamps:
+            self.get_downsamps()
+            down_samps = self.downsamps
+
+        #We want to return 0 at all scales we don't compute
+        to_ret = np.zeros(self.needlet.nfilt, dtype = object)
+
+        if max_res is not None:
+            if nfilts is not None:
+                raise ArgError("Cannot specify max_res and nfilts")
+            i = 0
+            while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
+                i +=1 #not the fastest way to do this but it's only done once
+            nfilts = range(i+1)
+
+        for nfilt, filt in enumerate(self.needlet.filters):
+            if nfilts is not None:
+                if nfilt not in nfilts: continue
+            down_samp = down_samps[nfilt]
+            nx_space = self.nx_space[nfilt]
+            ny_space = self.ny_space[nfilt]
+            nxs_red = len(nx_space); nys_red = len(ny_space) #TODO: why isn't this already true?
+            to_ret_cur = np.empty((nxs_red * nys_red, nxs_red * nys_red), dtype = np.float32, order="C")
+
+            real_map = self.real_map.copy()
+            mapset = Mapset()
+            mapset.add_map(real_map)
+            for nx in prange(nxs_red):
+                for ny in range(nys_red):
+                    idx = nys_red * nx + ny
+                     toc = time.time()
+                    unit_impulse = np.zeros((self.needlet.nfilt, self.nx, self.ny))
+                    unit_impulse[nfilt, nx_space[nx], ny_space[ny]] = 1 #Make a map in wavelet space that is one at only one place
+                    unit_impulse = unit_impulse[None,] #Dummy axis
+
+                    m_wav2map = wav2map_real(unit_impulse, self.needlet.filters) #What is the mapspace response of that wavelet
+
+                    mapset.maps[0].map[:] = m_wav2map
 
 ###############################################################################################
 
