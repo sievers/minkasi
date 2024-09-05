@@ -560,6 +560,7 @@ class WavSkyMap(SkyMap):
         """
         self.needlet = needlet
         self.isglobal_prior = isglobal_prior
+        self.downsamps = None
         super().__init__(
             lims,
             pixsize,
@@ -896,10 +897,11 @@ class WavSkyMap(SkyMap):
         to_ret : NDArray[np.floating]
             Reduced ANA at the specified wavelet scales
         """
-        if not self.downsamps:
+        if self.downsamps is None:
             self.get_downsamps()
             down_samps = self.downsamps
-
+        else:
+            down_samp = down_samp[filt_num]
         # We want to return 0 at all scales we don't compute
         to_ret = np.zeros(self.needlet.nfilt, dtype=object)
 
@@ -974,7 +976,7 @@ class WavSkyMap(SkyMap):
         max_res: Optional[np.floating] = None,
         nfilts: Optional[list[int]] = None,
     ):
-        if not self.downsamps:
+        if self.downsamps is None:
             self.get_downsamps()
             down_samps = self.downsamps
 
@@ -1008,11 +1010,22 @@ class WavSkyMap(SkyMap):
             for nx in prange(nxs_red):
                 for ny in range(nys_red):
                     idx = nys_red * nx + ny
-                    temp = map2wav_real(imap, self.needlet.filters)[0, nfilt]
+                    unit_impulse = np.zeros((self.needlet.nfilt, self.nx, self.ny))
+                    unit_impulse[nfilt, nx_space[nx], ny_space[ny]] = (
+                        1  # Make a map in wavelet space that is one at only one place
+                    )
+                    unit_impulse = unit_impulse[None,]  # Dummy axis
+
+                    m_wav2map = wav2map_real(
+                        unit_impulse, self.needlet.filters
+                    )
+                    return (imap @ m_wav2map.ravel()[...,None]).reshape((self.nx, self.ny))
+                    temp = map2wav_real((imap @ m_wav2map.ravel()[...,None]).reshape((self.nx, self.ny)), self.needlet.filters)[0, nfilt]
                     temp = np.array(
                         [temp[idx, idy] for idx in nx_space for idy in ny_space]
                     )
                     to_ret_cur[idx] = temp
+                    print(nfilt, nx, ny, end="\r")
             to_ret[nfilt] = to_ret_cur
         return to_ret
 
