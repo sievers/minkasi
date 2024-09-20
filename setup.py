@@ -76,6 +76,7 @@ def get_extensions():
 
 setup(
     name="minkasi",
+    python_requires=">3.8",
     # packages=["minkasi"],
     packages=find_packages(where="."),
     version="2.0.0",
