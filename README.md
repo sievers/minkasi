@@ -54,7 +54,7 @@ note that this is only needed during installation, when running `minkasi` will a
 fall back looking for these files if it can't find the `pip` installed ones.
 
 
-Then we can pip install `minkasi` as usual`.
+Then we can pip install `minkasi` as usual.
 If you are actively developing `minkasi` and want an live copy installed do:
 
 ```
