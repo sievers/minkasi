@@ -1,11 +1,11 @@
 import copy
 import sys
 import time
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union, overload, Type
 
 import numpy as np
 from numpy.typing import NDArray
-from typing_extensions import deprecated
+from typing_extensions import deprecated, Literal
 
 from ..mapmaking.noise import NoiseModelType, NoiseSmoothedSVD, WithDetWeights
 from ..parallel import MPI, comm, have_mpi
@@ -74,7 +74,7 @@ class Tod:
         self.noise_kwargs: dict = {}
         self.noise_modelclass: type[NoiseModelType]
 
-    def lims(self) -> list[float, float, float, float]:
+    def lims(self) -> List[float]:
         """
         Get RA/dec limits of this TOD.
 
@@ -347,7 +347,7 @@ class Tod:
 
     def set_noise(
         self,
-        modelclass: type[NoiseModelType] = NoiseSmoothedSVD,
+        modelclass: Type[NoiseModelType] = NoiseSmoothedSVD,
         dat: Optional[NDArray[np.floating]] = None,
         delayed: bool = False,
         *args,
@@ -792,7 +792,7 @@ class TodVec:
         self.tods[-1].set_tag(self.ntod)
         self.ntod = self.ntod + 1
 
-    def lims(self) -> Optional[list[float, float, float, float]]:
+    def lims(self) -> Optional[List[float]]:
         """
         Get global limits of all TODs.
         This function is MPI aware, so the limits are the same across processes.

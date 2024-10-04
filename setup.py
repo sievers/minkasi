@@ -1,3 +1,4 @@
+import os
 from setuptools import Extension, setup, find_packages
 import subprocess
 
@@ -68,7 +69,9 @@ def mkfftw_extension():
 
 
 def get_extensions():
-    extensions = [minkasi_extension(), mkfftw_extension()]
+    extensions = []
+    if os.environ.get("MINKASI_COMPILED", 0) == 0:
+        extensions = [minkasi_extension(), mkfftw_extension()]
     for ext in extensions:
         add_openmp_flags_if_available(ext)
     return extensions
@@ -76,7 +79,7 @@ def get_extensions():
 
 setup(
     name="minkasi",
-    python_requires=">3.8",
+    python_requires=">=3.7",
     # packages=["minkasi"],
     packages=find_packages(where="."),
     version="2.0.0",
@@ -86,11 +89,10 @@ setup(
         "numpy",
         "astropy",
         "scipy",
-        "pyregion",
-        "typing-extensions",
+        "typing-extensions==4.7.1",
     ],
     extras_require={
-        "extras": ["qpoint", "numba", "healpy"],
+        "extras": ["qpoint", "numba", "healpy", "pyregion"],
     },
     ext_modules=get_extensions(),
 )

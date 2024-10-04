@@ -1,6 +1,6 @@
 import copy
 import sys
-from typing import TYPE_CHECKING, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Optional, Sequence, Union, Tuple
 
 import numpy as np
 from astropy import wcs
@@ -284,7 +284,7 @@ class SkyMapTwoRes:
 
     def coarse2maps(
         self, inmap: NDArray[np.floating]
-    ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    ) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Make a fine and a coarse map from a coarse map.
         You need to have run set_mask before running this.
@@ -459,7 +459,7 @@ class SkyMapTwoRes:
 
     def apply_HT(
         self, mm: NDArray[np.floating]
-    ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    ) -> Tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Beam convolve a coarse map and then make a coarse and fine map from it.
 

@@ -76,13 +76,13 @@ class SkyMap:
 
     def __init__(
         self,
-        lims: Union[list[float], NDArray[np.floating]],
+        lims: Union[List[float], NDArray[np.floating]],
         pixsize: float,
         proj: str = "CAR",
         pad: int = 2,
         square: bool = False,
         multiple: Union[int, bool] = False,
-        primes: Union[list[int], None] = None,
+        primes: Union[List[int], None] = None,
         cosdec: Union[float, None] = None,
         nx: Union[int, None] = None,
         ny: Union[int, None] = None,
@@ -96,7 +96,7 @@ class SkyMap:
 
         Parameters
         ----------
-        lims : listfloat] | NDArray[np.floating]
+        lims : list[float] | NDArray[np.floating]
             The limits of ra/dec (ra_low, ra_high, dec_low, dec_high).
         pixsize : float
             The size of a pixel in radians.
@@ -147,7 +147,7 @@ class SkyMap:
 
         self.lims = lims
         nx, ny = self.get_npix(pad, nx=nx, ny=ny)
-        self.primes: None | list[int]
+        self.primes: None | List[int]
 
         self.primes: Optional[List[int]]
 

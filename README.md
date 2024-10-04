@@ -42,6 +42,19 @@ export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/.local/lib
 
 to your `.bashrc` or equivalent.
 
+When you pip install by default `pip` will try to build its on version of the libraries,
+to avoid this we can set a system variable to tell the install script to instead use the
+versions compiled with the makefile.
+
+```
+export MINKASI_COMPILED=0
+```
+
+note that this is only needed during installation, when running `minkasi` will automatically
+fall back looking for these files if it can't find the `pip` installed ones.
+
+
+Then we can pip install `minkasi` as usual`.
 If you are actively developing `minkasi` and want an live copy installed do:
 
 ```

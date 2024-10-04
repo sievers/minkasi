@@ -87,7 +87,7 @@ def get_grad_mask_2d(
 
 @runtime_checkable
 class NoiseModelType(Protocol):
-    def __init__(self, dat: NDArray[np.floating], /):
+    def __init__(self, dat: NDArray[np.floating]):
         pass
 
     def apply_noise(self, dat: NDArray[np.floating]) -> NDArray[np.floating]:

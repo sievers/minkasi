@@ -9,7 +9,7 @@ build:
 		fi
 
 libminkasi:
-	gcc  -fopenmp -O3 -shared -fPIC -lm -lgomp -o $(prefix)/libminkasi.so minkasi/lib/minkasi.c
+	gcc  -fopenmp -std=c99 -O3 -shared -fPIC -lm -lgomp -o $(prefix)/libminkasi.so minkasi/lib/minkasi.c
 
 libmkfftw:
 	gcc  -fopenmp -std=c99 -O3 -shared -fPIC -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp -o $(prefix)/libmkfftw.so minkasi/lib/mkfftw.c
