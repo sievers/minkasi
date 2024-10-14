@@ -62,7 +62,7 @@ class SkyMapTwoRes:
 
     def __init__(
         self,
-        map_lowres: str,
+        map_lowres: Union[str, NDArray[np.floating]],
         lims: Union[Sequence[float], NDArray[np.floating]],
         osamp: int = 1,
         smooth_fac: float = 0.0,
@@ -74,7 +74,7 @@ class SkyMapTwoRes:
         Parameters
         ----------
         map_lowres : str
-            Path to the FITS file containing the low res map.
+            Path to the FITS file containing the low res map or NDArray of map.
         lims : Sequence[float] | NDArray[np.floating]
             The limits of ra/dec (ra_low, ra_high, dec_low, dec_high) for the requested subregion.
         int : float, default: 1
@@ -83,12 +83,24 @@ class SkyMapTwoRes:
             Factor to smooth prior by.
             Not used when it is 0.
         """
-        small_wcs, lims_use, map_corner = get_aligned_map_subregion_car(
-            lims, map_lowres, osamp=osamp, big_wcs=big_wcs
-        )
+        if big_wcs is None:
+            small_wcs, lims_use, map_corner = get_aligned_map_subregion_car(
+                lims, map_lowres, osamp=osamp,)
+        elif type(map_lowres) == np.ndarray:
+            small_wcs, lims_use, map_corner = get_aligned_map_subregion_car(
+                lims, osamp=osamp, big_wcs=big_wcs
+            )
+        else:
+            raise ValueError("Error: must either provide path to map in map_lowres or provide big_wcs")
+
         self.small_lims: NDArray[np.floating] = lims_use
         self.small_wcs: wcs.WCS = small_wcs
-        self.map: NDArray[np.floating] = read_fits_map(map_lowres)
+
+        if type(map_lowres) == str:
+            self.map: NDArray[np.floating] = read_fits_map(map_lowres)
+        elif type(map_lowres) == np.ndarray:
+            self.map = map_lowres
+
         self.osamp: int = osamp
         self.map_corner: NDArray[np.integer] = map_corner
         self.beamft: Optional[NDArray[np.complex128]] = None
@@ -644,3 +656,5 @@ class SkyMapTwoRes:
 
     def __bust_apply_prior(self, map, outmap):
         outmap.map[:] = outmap.map[:] + self.apply_Qinv(map.map)
+
+
