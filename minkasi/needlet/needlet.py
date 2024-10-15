@@ -1019,7 +1019,7 @@ class WavSkyMap(SkyMap):
                     m_wav2map = wav2map_real(
                         unit_impulse, self.needlet.filters
                     )
-                    return (imap @ m_wav2map.ravel()[...,None]).reshape((self.nx, self.ny))
+                    
                     temp = map2wav_real((imap @ m_wav2map.ravel()[...,None]).reshape((self.nx, self.ny)), self.needlet.filters)[0, nfilt]
                     temp = np.array(
                         [temp[idx, idy] for idx in nx_space for idy in ny_space]
