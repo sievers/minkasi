@@ -978,8 +978,8 @@ class WavSkyMap(SkyMap):
     ):
         if self.downsamps is None:
             self.get_downsamps()
-            down_samps = self.downsamps
-
+    
+        down_samps = self.downsamps
         # We want to return 0 at all scales we don't compute
         to_ret = np.zeros(self.needlet.nfilt, dtype=object)
 
@@ -994,7 +994,7 @@ class WavSkyMap(SkyMap):
         for nfilt, filt in enumerate(self.needlet.filters):
             if nfilts is not None:
                 if nfilt not in nfilts:
-                    continue
+                    continue 
             down_samp = down_samps[nfilt]
             nx_space = self.nx_space[nfilt]
             ny_space = self.ny_space[nfilt]
@@ -1012,7 +1012,7 @@ class WavSkyMap(SkyMap):
                     idx = nys_red * nx + ny
                     unit_impulse = np.zeros((self.needlet.nfilt, self.nx, self.ny))
                     unit_impulse[nfilt, nx_space[nx], ny_space[ny]] = (
-                        1  # Make a map in wavelet space that is one at only one place
+                            1  #TODO: This should be a wavelet space rep of beam, not unit 
                     )
                     unit_impulse = unit_impulse[None,]  # Dummy axis
 
@@ -1029,7 +1029,24 @@ class WavSkyMap(SkyMap):
             to_ret[nfilt] = to_ret_cur
         return to_ret
 
+    def get_wav_beam(self, fwhm_pix: float):
+        """
+        Get wavelet basis version of beam.
 
+        Parameters:
+        -----------
+        fwhm_pix : float
+           FWHM of beam in pixels.
+        """
+
+        xvec = np.arange(-self.map.shape[1]/2, self.map.shape[1]/2,1) 
+        yvec = np.arange(-self.map.shape[2]/2, self.map.shape[2]/2,1)
+        xx, yy = np.meshgrid(yvec, xvec)
+        rsqr = xx**2 + yy**2
+        sig_pix = fwhm_pix / np.sqrt(8 * np.log(2))
+        beam = np.exp(-0.5 * rsqr / (sig_pix**2))
+        beam = beam / np.sum(beam)
+        self.wavbeam = map2wav_real(np.fft.fftshift(beam), self.needlet.filters)[0]
 ###############################################################################################
 
 
