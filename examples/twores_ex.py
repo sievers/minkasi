@@ -28,7 +28,7 @@ tod_names=glob.glob(idir+'Sig*.fits')
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 todvec=minkasi.TodVec()
 
-ntods = 10
+ntods = 10 
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
     if i >= ntods: break
@@ -98,7 +98,7 @@ if minkasi.myrank==0:
 minkasi.barrier()
 #Subtract off modes outside the joint ACT+M2 window
 
-#??????????????????????
+
 for tod in todvec.tods:
     tmp = np.zeros(tod.info["dat_calib"].shape)
     mapset_out.maps[0].map2tod(tod, tmp)
@@ -147,7 +147,6 @@ ivar_maps = np.array(ivar_maps)
 #big_map /= (np.sqrt(omega_B_ACT.value) * 1.23)
 
 cov_map = np.cov(ivar_maps, rowvar=False)
-breakpoint()
 
 if os.path.exists("{}_act_response.pk".format(name)):
     with open("{}_act_response.pk".format(name), "rb") as f:
@@ -156,5 +155,11 @@ else:
     act_response_matrix = wmap.get_response_matrix_map(cov_map, max_res=9.0)
     with open("{}_act_response.pk".format(name), "wb") as f:
         pk.dump(act_response_matrix, f)
+
+for i in range(len(response_matrix)):
+    cur = response_matrix[i] + act_response_matrix[i]
+    #TODO: this should block expand to nx*ny by nx*ny, not nx by ny
+    cur = astropy.nddata.block_replicate(cur, wmap.map.shape[1]/cur.shape[1]) #Conserve_sum = False?
+
 
 
