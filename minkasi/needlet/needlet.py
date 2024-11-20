@@ -42,10 +42,20 @@ import matplotlib.pyplot as plt
 import copy
 import sys
 
+from functools import reduce
+
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
     from typing_extensions import Self
+
+
+
+# TODO: This function should probably go elsewhere
+def factors(n):
+    return np.array(sorted(reduce(
+        list.__add__,
+        ([i, n//i] for i in range(1, int(n**0.5) + 1) if n % i == 0))))
 
 ################################################################
 #                       Basis Functions                        #
@@ -741,6 +751,7 @@ class WavSkyMap(SkyMap):
             np.rad2deg(max(self.lims[1] - self.lims[0], self.lims[3] - self.lims[2]))
             * 3600
         )
+        size_factors = factors(self.nx)
         downsamps = np.empty(self.needlet.nfilt, dtype=int)
         self.nxs_red = np.empty(self.needlet.nfilt, dtype=int)
         self.nys_red = np.empty(self.needlet.nfilt, dtype=int)
@@ -750,10 +761,11 @@ class WavSkyMap(SkyMap):
             lims = self.needlet.get_need_lims(i, real_space=True)
             n_samp = map_size / lims[0]
             downsamp = max(np.floor(self.nx / n_samp), 1)
+            flags = np.where((size_factors <= downsamp))[0]
+            downsamp = size_factors[flags[-1]]
             downsamps[i] = downsamp
-            nx_red, ny_red = int(self.nx / downsamp), int(
-                self.ny / downsamp
-            )  # TODO: make this a good FFT number
+            nx_red = int(self.nx / downsamp)
+            ny_red = int(self.ny / downsamp)  # TODO: make this a good FFT number
             self.nxs_red[i] = nx_red
             self.nys_red[i] = ny_red
 
@@ -918,15 +930,13 @@ class WavSkyMap(SkyMap):
                 if nfilt not in nfilts:
                     continue
             down_samp = down_samps[nfilt]
-            # nxs_red = self.nxs_red[nfilt]
-            # nys_red = self.nys_red[nfilt]
             nx_space = self.nx_space[nfilt]
             ny_space = self.ny_space[nfilt]
             nxs_red = len(nx_space)
             nys_red = len(ny_space)  # TODO: why isn't this already true?
             # to_ret_cur = np.empty((nxs_red * nys_red, self.needlet.nfilt, self.nx , self.ny), dtype=np.float32, order="C")
             to_ret_cur = np.empty(
-                (nxs_red * nys_red, nxs_red * nys_red), dtype=np.float32, order="C"
+                (nxs_red * nys_red, self.nx * self.ny), dtype=np.float32, order="C"
             )
 
             real_map = self.real_map.copy()
@@ -958,11 +968,11 @@ class WavSkyMap(SkyMap):
                         0, nfilt
                     ]
 
-                    temp = np.array(
-                        [temp[idx, idy] for idx in nx_space for idy in ny_space]
-                    )
+                    #temp = np.array(
+                    #    [temp[idx, idy] for idx in nx_space for idy in ny_space]
+                    #)
 
-                    to_ret_cur[idx] = temp
+                    to_ret_cur[idx] = temp.flatten()
                     tic = time.time()
                     print(nfilt, nx, ny, end="\r")
                     # print(tic-toc, end='\r')
@@ -1001,7 +1011,7 @@ class WavSkyMap(SkyMap):
             nxs_red = len(nx_space)
             nys_red = len(ny_space)  # TODO: why isn't this already true?
             to_ret_cur = np.empty(
-                (nxs_red * nys_red, nxs_red * nys_red), dtype=np.float32, order="C"
+                (nxs_red * nys_red, self.nx * self.ny), dtype=np.float32, order="C"
             )
 
             real_map = self.real_map.copy()
@@ -1021,10 +1031,10 @@ class WavSkyMap(SkyMap):
                     )
                     
                     temp = map2wav_real((imap @ m_wav2map.ravel()[...,None]).reshape((self.nx, self.ny)), self.needlet.filters)[0, nfilt]
-                    temp = np.array(
-                        [temp[idx, idy] for idx in nx_space for idy in ny_space]
-                    )
-                    to_ret_cur[idx] = temp
+                    #temp = np.array(
+                    #    [temp[idx, idy] for idx in nx_space for idy in ny_space]
+                    #)
+                    to_ret_cur[idx] = temp.flatten()
                     print(nfilt, nx, ny, end="\r")
             to_ret[nfilt] = to_ret_cur
         return to_ret

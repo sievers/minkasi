@@ -152,7 +152,7 @@ if os.path.exists("{}_act_response.pk".format(name)):
     with open("{}_act_response.pk".format(name), "rb") as f:
         act_response_matrix = pk.load(f)
 else:
-    act_response_matrix = wmap.get_response_matrix_map(cov_map, max_res=9.0)
+    act_response_matrix = wmap.get_response_matrix_map(cov_map, max_res=60.0)
     with open("{}_act_response.pk".format(name), "wb") as f:
         pk.dump(act_response_matrix, f)
 
