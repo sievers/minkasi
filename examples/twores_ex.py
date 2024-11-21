@@ -158,8 +158,11 @@ else:
 
 for i in range(len(response_matrix)):
     cur = response_matrix[i] + act_response_matrix[i]
+    inv = np.array([np.linalg.inv(mat.reshape(wmap.real_map.map.shape)) for mat in cur])
+    inv = inv.reshape((np.sqrt(inv.shape[0]), np.sqrt(inv.shape[0]), inv.shape[1], inv.shape[2]))
+
     #TODO: this should block expand to nx*ny by nx*ny, not nx by ny
-    cur = astropy.nddata.block_replicate(cur, wmap.map.shape[1]/cur.shape[1]) #Conserve_sum = False?
+    inv = block_replicate(cur, [wmap.downsamps[0], wmap.downsamps[0], 1,1], conserve_sum=False) #TODO: Double check block expansion does the right indexing 
 
 
 
