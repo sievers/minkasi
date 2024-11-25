@@ -885,6 +885,7 @@ class WavSkyMap(SkyMap):
         todvec: "TodVec",
         max_res: Optional[np.floating] = None,
         nfilts: Optional[list[int]] = None,
+        downsamps: Optional[list[int]] = None,
     ):
         """
         Computes A^-1N^TA (ANA) for a set of tods in the WavSkyMap basis.
@@ -903,17 +904,37 @@ class WavSkyMap(SkyMap):
         nfilts : list[int], default : None
             Explicitly specify which wavelets to compute.
             Exclusive with max_res.
+        downsamps : list[int], default : None
+            Explicitly set downsamp rates. If None, good downsamps are computed.
 
         Returns
         ------
         to_ret : NDArray[np.floating]
             Reduced ANA at the specified wavelet scales
         """
-        if self.downsamps is None:
-            self.get_downsamps()
-            down_samps = self.downsamps
+        if downsamps is None:
+            if self.downsamps is None:
+                self.get_downsamps()
+            downsamps = self.downsamps
+            nxs = self.nx_space
+            nyx = self.ny_space
         else:
-            down_samp = down_samp[filt_num]
+            nxs = np.empty(self.needlet.nfilt, dtype=object)
+            nys = np.empty(self.needlet.nfilt, dtype=object)
+            for i in range(self.needlet.nfilt):
+                nx_red = int(self.nx / downsamps[i])
+                ny_red = int(self.ny / downsamps[i])  # TODO: make this a good FFT number
+    
+                # Evenly sample the downsampled nx
+                x_step = int(self.nx / nx_red)
+                y_step = int(self.ny / ny_red)
+                nx_space = np.arange(int(x_step / 2), self.nx, x_step)
+                ny_space = np.arange(int(y_step / 2), self.ny, y_step)
+    
+                nxs[i] = np.array([int(n) for n in nx_space])
+                nys[i] = np.array([int(n) for n in ny_space])
+
+
         # We want to return 0 at all scales we don't compute
         to_ret = np.zeros(self.needlet.nfilt, dtype=object)
 
@@ -929,9 +950,9 @@ class WavSkyMap(SkyMap):
             if nfilts is not None:
                 if nfilt not in nfilts:
                     continue
-            down_samp = down_samps[nfilt]
-            nx_space = self.nx_space[nfilt]
-            ny_space = self.ny_space[nfilt]
+            down_samp = downsamps[nfilt]
+            nx_space = nxs[nfilt]
+            ny_space = nys[nfilt]
             nxs_red = len(nx_space)
             nys_red = len(ny_space)  # TODO: why isn't this already true?
             # to_ret_cur = np.empty((nxs_red * nys_red, self.needlet.nfilt, self.nx , self.ny), dtype=np.float32, order="C")

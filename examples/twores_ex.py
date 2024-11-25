@@ -15,6 +15,7 @@ import pdb
 from pixell import enmap, utils
 
 import astropy.units as u
+from astropy.nddata import block_replicate
 
 import dill as pk
 
@@ -28,7 +29,7 @@ tod_names=glob.glob(idir+'Sig*.fits')
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 todvec=minkasi.TodVec()
 
-ntods = 10 
+ntods = 2 
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
     if i >= ntods: break
@@ -110,7 +111,8 @@ if os.path.exists("{}_response.pk".format(name)):
     with open("{}_response.pk".format(name), "rb") as f:
         response_matrix = pk.load(f)
 else:
-    response_matrix = wmap.get_response_matrix(todvec, max_res = 9.0)
+    #response_matrix = wmap.get_response_matrix(todvec, max_res = 9.0)
+    response_matrix = wmap.get_response_matrix(todvec, downsamps = np.ones(len(wmap.needlet.filters)))
     with open("{}_response.pk".format(name), "wb") as f:
         pk.dump(response_matrix, f)
 
@@ -156,13 +158,19 @@ else:
     with open("{}_act_response.pk".format(name), "wb") as f:
         pk.dump(act_response_matrix, f)
 
+
+mmap = np.zeros((rhs.maps[0].map.shape))
+wmap.get_downsamps()
 for i in range(len(response_matrix)):
-    cur = response_matrix[i] + act_response_matrix[i]
+    cur = response_matrix[i]# + act_response_matrix[i]
+    if not np.any(cur): break #inelegant
     inv = np.array([np.linalg.inv(mat.reshape(wmap.real_map.map.shape)) for mat in cur])
-    inv = inv.reshape((np.sqrt(inv.shape[0]), np.sqrt(inv.shape[0]), inv.shape[1], inv.shape[2]))
+    inv = inv.reshape((int(np.sqrt(inv.shape[0])), int(np.sqrt(inv.shape[0])), inv.shape[1], inv.shape[2])) #We can inv first then block expand right?
+ 
+    inv = block_replicate(inv, [wmap.downsamps[i], wmap.downsamps[i], 1,1], conserve_sum=False) #TODO: Double check block expansion does the right indexing 
+    inv = inv.reshape((220*220,220*220))
+    mmap[i] =  (inv @ rhs.maps[0].map[i].flatten()).reshape(rhs.maps[0].map[i].shape)
 
-    #TODO: this should block expand to nx*ny by nx*ny, not nx by ny
-    inv = block_replicate(cur, [wmap.downsamps[0], wmap.downsamps[0], 1,1], conserve_sum=False) #TODO: Double check block expansion does the right indexing 
-
+asdf
 
 
