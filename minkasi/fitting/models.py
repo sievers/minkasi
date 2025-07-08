@@ -137,6 +137,27 @@ def derivs_from_gauss_c(params, tod, *args, **kwargs):
 
     return derivs, pred
 
+def lc_derivs_from_gauss(params, tod, *args, **kwargs):
+    tod_dims = tod.get_data_dims()
+    try:
+        lc_bins = kwargs["lc_bins"].copy()
+        cur_bin = kwargs["fun_num"]
+    except:
+        raise ValueError("Error, must pass lc_bins and fun_num in kwargs")
+    if lc_bins[-1] >= tod_dims[-1]:
+        raise ValueError("Error: last lc_bin should be less than the tod length")
+    derivs = np.zeros(np.append(len(params), tod_dims))
+    pred = tod.get_empty(True)
+    lc_bins.append(tod_dims[-1])
+    dx = tod.info["dx"]
+    dy = tod.info["dy"]
+
+    idx_low, idx_hi = lc_bins[cur_bin], lc_bins[cur_bin+1]
+    cur_derivs, cur_pred = derivs_from_gauss_c(params, tod)
+    derivs[...,idx_low:idx_hi] = cur_derivs[...,idx_low:idx_hi]
+    pred[...,idx_low:idx_hi] = cur_pred[...,idx_low:idx_hi]
+
+    return derivs, pred
 
 def derivs_from_map(pars, tod, fun, map, dpar, do_symm=False, *args, **kwargs):
     # print('do_symm is ',do_symm)
