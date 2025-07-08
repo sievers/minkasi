@@ -563,6 +563,7 @@ def downsample_tod(tod_info: dict, fac: int = 10):
         The factor to downsample by.
     """
     ndata = tod_info["dat_calib"].shape[1]
+    tod_info["dt"] *= 10
     for key in tod_info.keys():
         if hasattr(tod_info[key], "shape"):
             shape = tod_info[key].shape
