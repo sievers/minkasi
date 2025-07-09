@@ -7,16 +7,19 @@ from datetime import datetime
 import time
 import glob
 import os
+import dill as pk
 #reload(minkasi)
 
+obs_id = 17
+
 #set file root for output maps
-outroot = "/mnt/welch/USERS/jorlo/Reductions/Davida_7" #CHANGE ME!
+outroot = "/mnt/welch/USERS/jorlo/Reductions/Davida_{}".format(obs_id) #CHANGE ME!
 #Note the end of this path is a filename, files will be written to
 #RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
 
 
 #find tod files we want to map
-idir = "/mnt/welch/MUSTANG/M2-TODs/Davida_7/" #CHANGE ME
+idir = "/mnt/welch/MUSTANG/M2-TODs/Davida_{}/".format(obs_id) #CHANGE ME
 tod_names=glob.glob(idir+'/Sig*.fits')
 if len(tod_names)==0:
     print('We found no TOD files.  Double check your path?')
@@ -130,9 +133,6 @@ for niter in range(npass):
 
 minkasi.barrier()
 
-if minkasi.myrank==0:
-    print("Maps written to :", outroot)
-
 hdul = fits.open(fname) #Abusive but there should only be one TOD open
 start_time = hdul[1].header["OBSSTART"]
 end_time = hdul[1].header["OBSSTOP"]
@@ -146,7 +146,7 @@ samp_bins = int(tbins / tod.info["dt"])
 d2r=np.pi/180
 sig=np.mean([todvec.tods[0].info["calinfo"]["bmaj"], todvec.tods[0].info["calinfo"]["bmin"]])/2.35/3600*d2r
 lc_bins = np.arange(0, tod.get_data_dims()[-1], samp_bins).tolist()
-print("LC BINS ", lc_bins)
+
 x0 = np.deg2rad(36.3388645)
 y0 = np.deg2rad(-5.5947821)
 #x0, y0 = 6.38262592e-01, -12.76932687e-02
@@ -179,4 +179,19 @@ if minkasi.myrank==0:
 
 minkasi.comm.barrier()
 
+lc_bins.append(tod.get_data_dims()[-1])
+lc_bins = np.array(lc_bins, dtype=float)
+lc_bins *= tod.info["dt"]
+lc_bins += start_time.timestamp()
+amps, amp_errs = pars[3::4], errs[3::4]
+sigs, sig_errs = pars[2::4], errs[2::4]
+x0s, x0_errs = pars[::4], errs[::4]
+y0s, y0_errs = pars[1::4], errs[1::4]
+
+m2_dict = {"bin_edges":lc_bins, "amps":amps, "amp_errs":amp_errs, "beam_fwhm":sigs, "beam_err":sig_errs, "x0":x0s, "x0_errs":x0_errs, "y0":y0s, "y0_errs":y0_errs}
+with open(outroot + "/results_{}.pk".format(obs_id), "wb") as f:
+    pk.dump(m2_dict, f)
+
+if minkasi.myrank==0:
+    print("Maps written to :", outroot)
 
