@@ -37,6 +37,9 @@ tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 #it sets rank to 0 an nproc to 1, so this would still
 #run in a non-MPI environment
 
+if len(tod_names) > 0:
+    print("Error: lightcurve fitting should only be performed on single TODs")
+    assert(1==0)
 
 todvec=minkasi.TodVec()
 
