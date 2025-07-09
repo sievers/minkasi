@@ -10,7 +10,14 @@ import os
 import dill as pk
 #reload(minkasi)
 
-obs_id = 17
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("obs_id")
+
+args = parser.parse_args()
+
+obs_id = args.obs_id
 
 #set file root for output maps
 outroot = "/mnt/welch/USERS/jorlo/Reductions/Davida_{}".format(obs_id) #CHANGE ME!
@@ -37,7 +44,7 @@ tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 #it sets rank to 0 an nproc to 1, so this would still
 #run in a non-MPI environment
 
-if len(tod_names) > 0:
+if len(tod_names) > 1:
     print("Error: lightcurve fitting should only be performed on single TODs")
     assert(1==0)
 
@@ -186,13 +193,14 @@ lc_bins.append(tod.get_data_dims()[-1])
 lc_bins = np.array(lc_bins, dtype=float)
 lc_bins *= tod.info["dt"]
 lc_bins += start_time.timestamp()
-amps, amp_errs = pars[3::4], errs[3::4]
-sigs, sig_errs = pars[2::4], errs[2::4]
-x0s, x0_errs = pars[::4], errs[::4]
-y0s, y0_errs = pars[1::4], errs[1::4]
+amps, amp_errs = pars_fit[3::4], errs[3::4]
+sigs, sig_errs = pars_fit[2::4], errs[2::4]
+x0s, x0_errs = pars_fit[::4], errs[::4]
+y0s, y0_errs = pars_fit[1::4], errs[1::4]
 
-m2_dict = {"bin_edges":lc_bins, "amps":amps, "amp_errs":amp_errs, "beam_fwhm":sigs, "beam_err":sig_errs, "x0":x0s, "x0_errs":x0_errs, "y0":y0s, "y0_errs":y0_errs}
-with open(outroot + "/results_{}.pk".format(obs_id), "wb") as f:
+m2_dict = {"bin_edges":lc_bins, "amps":amps, "amp_errs":amp_errs, "beam_fwhm":sigs, "beam_err":sig_errs, "ra":x0s, "ra_errs":x0_errs, "dec":y0s, "dec_errs":y0_errs}
+with open(outroot + "/M2_results_{}.pk".format(obs_id), "wb") as f:
+    print("Wrote to ", outroot+ "/M2_results_{}.pk".format(obs_id))
     pk.dump(m2_dict, f)
 
 if minkasi.myrank==0:
