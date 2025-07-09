@@ -121,7 +121,7 @@ def get_ts_derivs_many_funcs(
     icur = 0
     for i in range(len(funcs)):
         tmp = pars[icur : icur + npar_fun[i]].copy()
-        myderivs, mypred = funcs[i](tmp, tod, *args, **kwargs)
+        myderivs, mypred = funcs[i](tmp, tod, fun_num=i, *args, **kwargs)
         pred = pred + mypred
         derivs[icur : icur + npar_fun[i], :, :] = myderivs
         icur = icur + npar_fun[i]
@@ -201,11 +201,13 @@ def fit_timestreams_with_derivs_manyfun(
     driver=get_ts_derivs_many_funcs,
     priors=None,
     prior_vals=None,
+    *args,
+    **kwargs,
 ):
     lamda = 0
     t1 = time.time()
     chisq, grad, curve = get_ts_curve_derivs_many_funcs(
-        tods, pars, npar_fun, funcs, driver=driver
+        tods, pars, npar_fun, funcs, driver=driver, *args, **kwargs,
     )
     t2 = time.time()
     if myrank == 0:
@@ -246,7 +248,7 @@ def fit_timestreams_with_derivs_manyfun(
         else:
             pars_new = pars + _par_step(grad, curve, to_fit, lamda)
         chisq_new, grad_new, curve_new = get_ts_curve_derivs_many_funcs(
-            tods, pars_new, npar_fun, funcs, driver=driver
+            tods, pars_new, npar_fun, funcs, driver=driver, *args, **kwargs,
         )
         if chisq_new < chisq:
             if myrank == 0:
