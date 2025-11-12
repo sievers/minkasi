@@ -17,3 +17,15 @@ def test_rfft():
 
     assert np.all(np.isclose(new_dat, old_dat))
     assert np.all(np.isclose(new_dat, dat))
+
+    dat = np.random.rand(190, 14395)
+    old_datft = old_fft.rfftn(dat)
+    new_datft = new_fft.rfftn(dat)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_dat = old_fft.irfftn(old_datft, iseven=False)
+    new_dat = new_fft.irfftn(new_datft, iseven=False)
+
+    assert np.all(np.isclose(new_dat, old_dat))
+    assert np.all(np.isclose(new_dat, dat))
