@@ -3,15 +3,14 @@ from numpy.typing import NDArray
 
 import jax
 import jax.numpy as jnp
+import scipy as sp
 
 from typing import Optional, Sequence, Union, overload
 
 jax.config.update("jax_enable_x64", True)
 
 
-def rfftn(
-    dat: NDArray[np.float64]
-) -> NDArray[np.complex128]:
+def rfftn(dat: NDArray[np.float64]) -> NDArray[np.complex128]:
     """
     Take the FFT of a real valued input in Nd.
 
@@ -28,6 +27,7 @@ def rfftn(
     """
     datft = jnp.fft.rfftn(dat)
     return datft
+
 
 def irfftn(
     datft: NDArray[np.complex128], iseven: bool = True, preserve_input: bool = True
@@ -57,9 +57,10 @@ def irfftn(
         dat_shape[-1] = 2 * (dat_shape[-1] - 1)
     else:
         dat_shape[-1] = 2 * dat_shape[-1] - 1
- 
-    dat = jnp.fft.irfftn(datft, s= dat_shape)
+
+    dat = jnp.fft.irfftn(datft, s=dat_shape)
     return dat
+
 
 def fft_r2c_3d(dat: NDArray[np.float64]) -> NDArray[np.complex128]:
     """
@@ -80,6 +81,7 @@ def fft_r2c_3d(dat: NDArray[np.float64]) -> NDArray[np.complex128]:
     assert len(dat_shape) == 3
     datft = rfftn(dat=dat)
     return datft
+
 
 def fft_c2r_3d(
     datft: NDArray[np.complex128], iseven: bool = True, preserve_input: bool = True
@@ -108,14 +110,13 @@ def fft_c2r_3d(
     dat = irfftn(datft=datft, iseven=iseven)
     return dat
 
+
 @overload
-def fft_r2c(dat: NDArray[np.float64]) -> NDArray[np.complex128]:
-    ...
+def fft_r2c(dat: NDArray[np.float64]) -> NDArray[np.complex128]: ...
 
 
 @overload
-def fft_r2c(dat: NDArray[np.float32]) -> NDArray[np.complex64]:
-    ...
+def fft_r2c(dat: NDArray[np.float32]) -> NDArray[np.complex64]: ...
 
 
 def fft_r2c(
@@ -144,22 +145,21 @@ def fft_r2c(
 
     for i in range(dat.shape[0]):
         cur_dat = dat[i]
-        #For whatever reason the legacy fftw code returns an array of 
-        #n_dat x m_dat, instead of the usual n_dat x (m_dat // 2 + 1)
-        #We keep the legacy shape, so we have to do a slightly ugly asignment. 
+        # For whatever reason the legacy fftw code returns an array of
+        # n_dat x m_dat, instead of the usual n_dat x (m_dat // 2 + 1)
+        # We keep the legacy shape, so we have to do a slightly ugly asignment.
         cur_datft = jnp.fft.rfft(cur_dat)
-        datft[i,:len(cur_datft)] = cur_datft 
+        datft[i, : len(cur_datft)] = cur_datft
 
     return datft
 
+
 @overload
-def fft_c2r(datft: NDArray[np.complex128]) -> NDArray[np.float64]:
-    ...
+def fft_c2r(datft: NDArray[np.complex128]) -> NDArray[np.float64]: ...
 
 
 @overload
-def fft_c2r(datft: NDArray[np.complex64]) -> NDArray[np.float32]:
-    ...
+def fft_c2r(datft: NDArray[np.complex64]) -> NDArray[np.float32]: ...
 
 
 def fft_c2r(
@@ -179,6 +179,9 @@ def fft_c2r(
     dat : NDArray[np.float64] | NDArray[np.float32]
         The inverse FFT.
     """
+    ft_shape = datft.shape
+    ft_shape = np.asarray(ft_shape, dtype="int")
+    ft_shape[-1] = ft_shape[-1] // 2 + 1
     if datft.dtype == np.dtype("complex128"):
         dat = np.empty(datft.shape, dtype="float64")
     elif datft.dtype == np.dtype("complex64"):
@@ -190,15 +193,46 @@ def fft_c2r(
 
     for i in range(datft.shape[0]):
         cur_datft = datft[i]
-        #For whatever reason the legacy fftw code returns an array of 
-        #n_dat x m_dat, instead of the usual n_dat x (m_dat // 2 + 1)
-        #We keep the legacy shape, so we have to do a slightly ugly asignment. 
-        cur_datft = jnp.fft.irfft(cur_datft)
-        dat[i] = cur_datft 
+        # For whatever reason the legacy fftw code returns an array of
+        # n_dat x m_dat, instead of the usual n_dat x (m_dat // 2 + 1)
+        # We keep the legacy shape, so we have to do a slightly ugly asignment.
+        cur_dat = jnp.fft.irfft(cur_datft[: ft_shape[1]])
+        dat[i] = cur_dat
 
-        dat = dat / ndat
-    
     return dat
 
 
+def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
+    """
+    1d real to real FFW.
 
+    Parameters
+    ----------
+    dat : NDArray[np.float64]
+        The data to FFT.
+    kind : int, default: 1
+        The kind of r2r transform.
+        Accepted values and their respective transforms are:
+        * 1 = FFTW_REDFT00
+        * 2 = FFTW_REDFT10
+        * 3 = FFTW_REDFT01
+        * 4 = FFTW_REDFT11
+        * 11 = FFTW_RODFT00
+        * 12 = FFTW_RODFT10
+        * 13 = FFTW_RODFT01
+        * 14 = FFTW_RODFT11
+        If a different value is used transform will default to FFTW_REDFT00.
+
+    Returns
+    -------
+    datft : NDArray[np.float64]
+        The FFTed data.
+    """
+    # Kinds 11,12,13,14 are discrete sin transforms,
+    # Kinds 1,2,3,4 are discrete cos transforms
+    if kind in [11, 12, 13, 14]:
+        kind -= 10
+        return sp.fft.dst(dat, type=kind)
+    else:
+        # DCT
+        return sp.fft.dct(dat, type=kind)
