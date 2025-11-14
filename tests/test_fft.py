@@ -130,3 +130,47 @@ def test_fft_r2r_1d():
     new_datft = new_fft.fft_r2r_1d(dat, kind=14)
 
     assert np.all(np.isclose(old_datft, new_datft))
+
+
+def test_fft_r2r():
+    dat = np.random.rand(100, 10000)
+
+    old_datft = old_fft.fft_r2r(dat)
+    new_datft = new_fft.fft_r2r(dat)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=2)
+    new_datft = new_fft.fft_r2r(dat, kind=2)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=3)
+    new_datft = new_fft.fft_r2r(dat, kind=3)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=4)
+    new_datft = new_fft.fft_r2r(dat, kind=4)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=11)
+    new_datft = new_fft.fft_r2r(dat, kind=11)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=12)
+    new_datft = new_fft.fft_r2r(dat, kind=12)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=13)
+    new_datft = new_fft.fft_r2r(dat, kind=13)
+
+    assert np.all(np.isclose(old_datft, new_datft))
+
+    old_datft = old_fft.fft_r2r(dat, kind=14)
+    new_datft = new_fft.fft_r2r(dat, kind=14)
+
+    assert np.all(np.isclose(old_datft, new_datft))

@@ -202,6 +202,7 @@ def fft_c2r(
     return dat
 
 
+# TODO: This may not be returning consistent results with FFTW
 def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
     """
     1d real to real FFW.
@@ -236,3 +237,49 @@ def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
     else:
         # DCT
         return sp.fft.dct(dat, type=kind)
+
+
+@overload
+def fft_r2r(
+    dat: NDArray[np.float64], datft: Optional[NDArray[np.float64]] = None, kind: int = 1
+) -> NDArray[np.float64]: ...
+
+
+@overload
+def fft_r2r(
+    dat: NDArray[np.float32], datft: Optional[NDArray[np.float32]] = None, kind: int = 1
+) -> NDArray[np.float32]: ...
+
+
+def fft_r2r(
+    dat: Union[NDArray[np.float64], NDArray[np.float32]],
+    datft: Optional[Union[NDArray[np.float64], NDArray[np.float32]]] = None,
+    kind: int = 1,
+) -> Union[NDArray[np.float64], NDArray[np.float32]]:
+    """
+    Take many 1d real to real FFTs.
+
+    Parameters
+    ----------
+    dat : NDArray[np.float64] | NDArray[np.float32]
+        Array to FFT.
+        Should be (ndat, ntrans) where each row has a 1d FFT applied.
+        If a 1d array is given then fft_r2r_1d is called instead.
+    datft : NDArray[np.complex128] | NDArray[np.complex64] | None
+        Array to store FFT in. Dummy variable for backward compatibility.
+    kind : int, default: 1
+        The kind of r2r transform.
+        See docstring for fft_r2r_1d for details.
+
+    Returns
+    -------
+    datft : NDArray[np.float64] | NDArray[np.float32]
+        The FFTed array.
+    """
+    datft = np.empty(shape=dat.shape, dtype=dat.dtype)
+    if len(dat.shape) == 1:
+        return fft_r2r_1d(dat, kind=kind)
+    for i in range(len(dat)):
+        datft[i] = fft_r2r_1d(dat[i], kind=kind)
+
+    return datft
