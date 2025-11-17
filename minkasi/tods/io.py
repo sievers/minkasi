@@ -276,6 +276,105 @@ def read_tod_from_fits(
 
     return dat
 
+def read_tod_from_fits_NIKA2(
+    fname: str, hdu: int = 1, branch: Optional[float] = None
+) -> Dict:
+    """
+    Read a TOD from a FITS file.
+    This function nruns on NIKA2 TODs.
+
+    Parameters
+    ----------
+    fname : str
+        The path of the file to be loaded.
+    hdu : int, default: 1
+        The index of the HDU with the TOD.
+    branch : float | None, default: None
+        Branch in degrees that RA was corrected to.
+        Set to None if RA wasnt correctd to a branch.
+
+    Returns
+    -------
+    dat : dict
+        Dict containing TOD info.
+        Can be passed into the Tod class.
+    """
+    hdul = fits.open(fname)
+    raw = hdul[hdu].data
+
+    if raw.names is None:
+        raise ValueError("TOD seems to be empty")
+
+    dat = {}
+
+    pixid = np.array(raw["PIXID"])
+    dets = np.unique(pixid)
+    ndet = len(dets)
+    ndata = int(len(pixid) / len(dets))
+    pixid = np.reshape(pixid, [ndet, ndata])[:, 0]
+    dat["pixid"] = pixid
+
+    # this bit of odd gymnastics is because a straightforward reshape doesn't seem to leave the data in
+    # memory-contiguous order, which causes problems down the road
+    # also, float32 is a bit on the edge for pointing, so cast to float64
+    dx = np.array(raw["DX"])
+    if not (branch is None):
+        bb = branch * np.pi / 180.0
+        dx[dx > bb] = dx[dx > bb] - 2 * np.pi
+    dat["dx"] = np.zeros([ndet, ndata], dtype="float64")
+    dat["dx"][:] = np.reshape(dx, [ndet, ndata])[:]
+
+    dy = np.array(raw["DY"])
+    dat["dy"] = np.zeros([ndet, ndata], dtype="float64")
+    dat["dy"][:] = np.reshape(dy, [ndet, ndata])[:]
+
+    if "ELEV" in raw.names:
+        elev = np.array(raw["ELEV"]) * np.pi / 180
+        dat["elev"] = np.zeros([ndet, ndata], dtype="float64")
+        dat["elev"][:] = np.reshape(elev, [ndet, ndata])[:]
+
+    tt = np.reshape(np.array(raw["TIME"]), [ndet, ndata])[0, :]
+    dt = np.median(np.diff(tt))
+    dat["dt"] = dt
+
+    dat_calib = np.array(raw["FNU"])
+    dat["dat_calib"] = np.zeros(
+        [ndet, ndata], dtype="float64"
+    )  # go to double because why not
+    dat_calib = np.reshape(dat_calib, [ndet, ndata])
+    dat["dat_calib"][:] = dat_calib[:]
+
+    ufnu = np.array(raw["UFNU"])
+    if np.sum(np.array(ufnu > 9e5)) > 0:
+        dat["mask"] = np.reshape(ufnu < 9e5, dat["dat_calib"].shape)
+        dat["mask_sum"] = np.sum(dat["mask"], axis=0)
+    # print 'cut frac is now ',np.mean(dat_calib==0)
+    # print 'cut frac is now ',np.mean(dat['dat_calib']==0),dat['dat_calib'][0,0]
+    dat["fname"] = fname
+    dat["calinfo"] = calinfo
+
+    ff = 180 / np.pi
+    xmin = dx.min() * ff
+    xmax = dx.max() * ff
+    ymin = dy.min() * ff
+    ymax = dy.max() * ff
+    print(
+        "ndata and ndet are ",
+        ndet,
+        ndata,
+        len(pixid),
+        " on ",
+        fname,
+        "with lims ",
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+    )
+
+    hdul.close()
+
+    return dat
 
 def read_octave_struct(fname: str):
     """
