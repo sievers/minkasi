@@ -7,21 +7,21 @@ import os
 #reload(minkasi)
 
 #set file root for output maps
-outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME!
+outroot = "/mnt/welch/USERS/jorlo/Reductions/id34/id34" #CHANGE ME!
 #Note the end of this path is a filename, files will be written to 
 #RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
 
 
 #find tod files we want to map
-idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/mustang2/" #CHANGE ME
-tod_names=glob.glob(idir+'/Sig*.fits')
+idir = "/mnt/welch/NIKA2/id34/" #CHANGE ME
+tod_names=glob.glob(idir+'/stru_scan*.xdr')
 if len(tod_names)==0:
     print('We found no TOD files.  Double check your path?')
     assert(1==0)
 
 #Use presets by source to automatically get and cut TODs
 #that were manually flagged for removal
-bad_tod, _ = minkasi.get_bad_tods("RXJ1347")
+bad_tod, _ = minkasi.get_bad_tods("id34")
 tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
 
 #if running MPI, you would want to split up files between processes
@@ -37,7 +37,9 @@ todvec=minkasi.TodVec()
 #loop over each file, and read it.
 for fname in tod_names:
     t1=time.time()
-    dat=minkasi.read_tod_from_fits(fname)
+    dat=minkasi.read_tod_from_fits_NIKA2(fname)
+    if dat is None:
+        continue
     t2=time.time()
     minkasi.truncate_tod(dat) #truncate_tod chops samples from the end to make
                               #the length happy for ffts

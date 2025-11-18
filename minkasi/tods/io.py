@@ -1,12 +1,19 @@
 """
 Functions for loading TODs from disk.
 """
+
 from typing import Any, Dict, Iterable, List, Optional
+
+import re
 
 import numpy as np
 from astropy.io import fits
+from scipy.io import readsav
+
+from copy import deepcopy
 
 from .core import Tod, TodVec
+from .processing import gapfill_lin
 
 try:
     have_qp = True
@@ -273,6 +280,103 @@ def read_tod_from_fits(
     )
 
     hdul.close()
+
+    return dat
+
+
+def read_tod_from_fits_NIKA2(fname: str) -> Dict:
+    """
+    Read a TOD from a FITS file.
+    This function nruns on NIKA2 TODs.
+
+    Parameters
+    ----------
+    fname : str
+        The path of the file to be loaded.
+
+    Returns
+    -------
+    dat : dict
+        Dict containing TOD info.
+        Can be passed into the Tod class.
+    """
+    m = re.match(
+        r"(.*)stru\_scan([0-9]+)s([0-9]+)\_2mm\_tot\.xdr", fname
+    )  # TODO: Generalize this regex more
+    scan_num = m.groups()[-1]
+    calinfo: Dict[str, Any] = {"calinfo": True, "scan": scan_num}
+    raw = readsav(fname)
+    data = raw.get("scan", None)
+
+    if data is None:
+        raise ValueError("TOD seems to be empty")
+
+    dat = {}
+
+    dat_calib = data["SIGNAL_PLW"][0]
+    pixid = np.arange(
+        dat_calib.shape[0]
+    )  # TODO: Double check this assumption of consistent indexing is valid
+
+    good_dets = np.argwhere(
+        ~np.all(np.isnan(dat_calib), axis=-1)
+    )  # TODO: We should probably cut where like more than 10% is nan
+    if len(good_dets) == 0:
+        print("No good detectors in tod {}".format(fname))
+        return
+
+    good_dets = good_dets[:, 0]
+    ndet = len(good_dets)
+    ndata = data["SIGNAL_PLW"][0].shape[1]
+    dat["pixid"] = pixid[good_dets]
+
+    dx = np.array(data["XRA_BOLOS_PLW"][0])[good_dets, :]
+    if dx[0, 0] < 0:
+        dx += 360
+    dx *= np.pi / 180.0  # TODO: check units before conversion
+    dat["dx"] = np.zeros([ndet, ndata], dtype="float64")
+    dat["dx"][:] = np.reshape(dx, [ndet, ndata])[:]
+
+    dy = np.array(data["YDEC_BOLOS_PLW"][0])[good_dets, :]
+    dy *= np.pi / 180.0
+    dat["dy"] = np.zeros([ndet, ndata], dtype="float64")
+    dat["dy"][:] = np.reshape(dy, [ndet, ndata])[:]
+
+    if "ELEV" in data.dtype.names:
+        print("WARNING: El currently not correctly implemented")
+        dat["elev"] = np.ones([ndet, ndata], dtype="float64")
+        dat["elev"][:] *= data["ELEV"][0]
+
+    dt = np.median(np.diff(data["TIME_S"][0]))
+    dat["dt"] = dt
+
+    dat["dat_calib"] = np.zeros([ndet, ndata], dtype="float64")
+    dat_calib = dat_calib[good_dets, :]
+    dat_calib, cuts = gapfill_lin(dat_calib)
+    dat["dat_calib"][:] = dat_calib[good_dets, :]
+    dat["cuts"] = cuts
+
+    dat["fname"] = fname
+    dat["calinfo"] = calinfo
+
+    ff = 180 / np.pi
+    xmin = dx.min() * ff
+    xmax = dx.max() * ff
+    ymin = dy.min() * ff
+    ymax = dy.max() * ff
+    print(
+        "ndata and ndet are ",
+        ndet,
+        ndata,
+        len(pixid),
+        " on ",
+        fname,
+        "with lims ",
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+    )
 
     return dat
 
