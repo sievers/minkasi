@@ -353,7 +353,7 @@ def read_tod_from_fits_NIKA2(fname: str) -> Dict:
     dat["dat_calib"] = np.zeros([ndet, ndata], dtype="float64")
     dat_calib = dat_calib[good_dets, :]
     dat_calib, cuts = gapfill_lin(dat_calib)
-    dat["dat_calib"][:] = dat_calib[good_dets, :]
+    dat["dat_calib"][:] = dat_calib
     dat["cuts"] = cuts
 
     dat["fname"] = fname
