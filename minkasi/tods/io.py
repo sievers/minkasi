@@ -330,6 +330,12 @@ def read_tod_from_fits_NIKA2(fname: str) -> Dict:
     ndata = data["SIGNAL_PLW"][0].shape[1]
     dat["pixid"] = pixid[good_dets]
 
+    subscans = data["IND_SUBSCANS"][0]
+    dat["subscans"] = subscans
+    diffs = np.diff(subscans)
+    scan_flags = np.where((diffs))[0]
+    dat["turnarounds"] = scan_flags
+
     dx = np.array(data["XRA_BOLOS_PLW"][0])[good_dets, :]
     if dx[0, 0] < 0:
         dx += 360
