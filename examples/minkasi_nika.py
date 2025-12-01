@@ -8,7 +8,7 @@ import os
 # reload(minkasi)
 
 # set file root for output maps
-outroot = "/mnt/welch/USERS/jorlo/Reductions/id34/id34"  # CHANGE ME!
+outroot = "/mnt/welch/USERS/jorlo/Reductions/id34/id34_w_cm"  # CHANGE ME!
 # Note the end of this path is a filename, files will be written to
 # RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
 
