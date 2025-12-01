@@ -5,6 +5,14 @@ import jax
 import jax.numpy as jnp
 import scipy as sp
 
+# Import functions which have no FFTW dependance
+from .fft import (
+    _nsphere_vol,
+    _prime_loop,
+    find_good_fft_lens,
+    plot_ps,
+)
+
 from typing import Optional, Sequence, Union, overload
 
 jax.config.update("jax_enable_x64", True)
@@ -283,3 +291,17 @@ def fft_r2r(
         datft[i] = fft_r2r_1d(dat[i], kind=kind)
 
     return datft
+
+
+def read_wisdom(double_file: str = ".fftw_wisdom", single_file: str = ".fftwf_wisdom"):
+    """
+    Dummy function which raise error when you try to read_wisdom outside the context of fftw.
+    """
+    raise ValueError("read_wisdom is not usable without FFTW.")
+
+
+def write_wisdom(double_file: str = ".fftw_wisdom", single_file: str = ".fftwf_wisdom"):
+    """
+    Dummy function which raise error when you try to write_wisdom outside the context of fftw.
+    """
+    raise ValueError("write_wisdom is not usable without FFTW.")

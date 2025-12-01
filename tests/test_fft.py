@@ -174,3 +174,10 @@ def test_fft_r2r():
     new_datft = new_fft.fft_r2r(dat, kind=14)
 
     assert np.all(np.isclose(old_datft, new_datft))
+
+
+def test_unchanged_funcs():
+    n = 123
+    old_int = old_fft.find_good_fft_lens(n)
+    new_int = new_fft.find_good_fft_lens(n)
+    assert old_int == new_int
