@@ -1,6 +1,8 @@
 import numpy as np
 import minkasi.minkasi_all as minkasi
 
+from copy import deepcopy
+
 import time
 import glob
 import os
@@ -8,7 +10,14 @@ import os
 # reload(minkasi)
 
 # set file root for output maps
-outroot = "/mnt/welch/USERS/jorlo/Reductions/id34/id34_w_cm"  # CHANGE ME!
+
+do_cmsub = False
+if do_cmsub:
+    participle = "w"
+else:
+    participle = "wo"
+
+outroot = "/mnt/welch/USERS/jorlo/Reductions/id34/id34_{}_cm".format(participle)  # CHANGE ME!
 # Note the end of this path is a filename, files will be written to
 # RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
 
@@ -32,6 +41,8 @@ tod_names = tod_names[minkasi.myrank :: minkasi.nproc]
 # it sets rank to 0 an nproc to 1, so this would still
 # run in a non-MPI environment
 
+do_subscans = False
+
 
 todvec = minkasi.TodVec()
 
@@ -42,22 +53,41 @@ for fname in tod_names:
     if dat is None:
         continue
     t2 = time.time()
-    minkasi.truncate_tod(dat)  # truncate_tod chops samples from the end to make
-    # the length happy for ffts
-    minkasi.downsample_tod(dat)  # sometimes we have faster sampled data than we need.
-    # this fixes that.  You don't need to, though.
-    minkasi.truncate_tod(
-        dat
-    )  # since our length changed, make sure we have a happy length
 
-    # figure out a guess at common mode #and (assumed) linear detector drifts/offset
-    # drifts/offsets are removed, which is important for mode finding.  CM is *not* removed.
-    dd = minkasi.fit_cm_plus_poly(dat["dat_calib"])
+    if do_cmsub:
+        dd = minkasi.fit_cm_plus_poly(dat["dat_calib"])
+        dat["dat_calib"] = dd
+   
+    if do_subscans:
+        turnarounds = [0, *dat["turnarounds"], -1]
+    
+        for i in range(len(turnarounds)-1):
+            cur_dat = deepcopy(dat)
+            for key in cur_dat.keys():
+                try:
+                    cur_dat[key] = cur_dat[key][:, turnarounds[i]:turnarounds[i+1]]
+                except:
+                    try:
+                        if len(cur_dat[key]) > turnarounds[-2]: #Check to see if this is an array that is of length nsamp, not ndet
+                            cur_dat[key] = cur_dat[key][turnarounds[i]:turnarounds[i+1]]
+                    except:
+                        continue
+    
+            minkasi.truncate_tod(cur_dat)  # truncate_tod chops samples from the end to make
+            # the length happy for ffts
+    
+            tod = minkasi.Tod(cur_dat)
+            todvec.add_tod(tod)
 
-    dat["dat_calib"] = dd
+    else:
+        minkasi.truncate_tod(dat) #truncate_tod chops samples from the end to make
+                                      #the length happy for ffts
+        minkasi.downsample_tod(dat)   #sometimes we have faster sampled data than we need.
+                                      #this fixes that.  You don't need to, though.
+        minkasi.truncate_tod(dat)    #since our length changed, make sure we have a happy length
+        tod=minkasi.Tod(dat)
+        todvec.add_tod(tod)
     t3 = time.time()
-    tod = minkasi.Tod(dat)
-    todvec.add_tod(tod)
     print(
         "took ", t2 - t1, " ", t3 - t2, " seconds to read and downsample file ", fname
     )
