@@ -148,7 +148,7 @@ def fft_r2c(
         datft = np.empty(dat.shape, dtype="complex128")
     elif dat.dtype == np.dtype("float32"):
         datft = np.empty(dat.shape, dtype="complex64")
-    else:
+    else:  # pragma: no cover
         raise TypeError("Error, input must be float32 or float64.")
 
     for i in range(dat.shape[0]):
@@ -194,7 +194,7 @@ def fft_c2r(
         dat = np.empty(datft.shape, dtype="float64")
     elif datft.dtype == np.dtype("complex64"):
         dat = np.empty(datft.shape, dtype="float32")
-    else:
+    else:  # pragma: no cover
         raise TypeError("Error, input must be float32 or float64.")
 
     ndat = datft.shape[1]
@@ -297,11 +297,11 @@ def read_wisdom(double_file: str = ".fftw_wisdom", single_file: str = ".fftwf_wi
     """
     Dummy function which raise error when you try to read_wisdom outside the context of fftw.
     """
-    raise ValueError("read_wisdom is not usable without FFTW.")
+    raise ValueError("read_wisdom is not usable without FFTW.")  # pragma: no cover
 
 
 def write_wisdom(double_file: str = ".fftw_wisdom", single_file: str = ".fftwf_wisdom"):
     """
     Dummy function which raise error when you try to write_wisdom outside the context of fftw.
     """
-    raise ValueError("write_wisdom is not usable without FFTW.")
+    raise ValueError("write_wisdom is not usable without FFTW.")  # pragma: no cover

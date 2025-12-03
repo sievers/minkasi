@@ -88,6 +88,39 @@ def test_mult_r2c():
     assert np.all(np.isclose(dat, new_dat))
 
 
+def test_mult_r2c_32bit():
+    dat = np.random.rand(100, 5000)
+    dat = dat.astype(np.float32)
+
+    dat_shape = dat.shape
+    dat_shape = np.asarray(dat_shape, dtype="int")
+    ft_shape = dat_shape.copy()
+    ft_shape[-1] = ft_shape[-1] // 2 + 1
+
+    old_datft = old_fft.fft_r2c(dat=dat)
+    new_datft = new_fft.fft_r2c(dat=dat)
+
+    # The fftw implementation of fft_r2c returns n_dat x m_dat
+    # instead of the expected n_dat x (m_dat // 2 + 1). This
+    # check only compares the valid part of the ffts
+    assert np.all(
+        np.isclose(
+            old_datft[: ft_shape[0], : ft_shape[1]],
+            new_datft[: ft_shape[0], : ft_shape[1]],
+            rtol=1e-1,
+        )
+    )
+
+    old_dat = old_fft.fft_c2r(datft=old_datft)
+    new_dat = new_fft.fft_c2r(datft=new_datft)
+
+    # Note looser rtol since 32bits means we will lose precision
+    # np.isclose defaults are very close to machine precision for inputs
+    # with order of magnitude 1 or greater.
+    assert np.all(np.isclose(old_dat, new_dat, rtol=1e-1))
+    assert np.all(np.isclose(dat, new_dat, rtol=1e-1))
+
+
 def test_fft_r2r_1d():
     dat = np.random.rand(10000)
 
@@ -197,6 +230,14 @@ def test_fft_r2r():
         row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=14)
 
     assert np.all(np.isclose(block_datft, row_datft))
+
+    # check fallback to fft_r2r_1d works
+    dat = np.random.rand(100)
+    old_datft = old_fft.fft_r2r(dat)
+    new_datft = new_fft.fft_r2r(dat)
+
+    # old fftw_r2r only works for kind = 1
+    assert np.all(np.isclose(old_datft, new_datft))
 
 
 def test_unchanged_funcs():
