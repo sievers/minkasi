@@ -158,13 +158,11 @@ def fft_c2r_3d(
 
 
 @overload
-def fft_r2c(dat: NDArray[np.float64]) -> NDArray[np.complex128]:
-    ...
+def fft_r2c(dat: NDArray[np.float64]) -> NDArray[np.complex128]: ...
 
 
 @overload
-def fft_r2c(dat: NDArray[np.float32]) -> NDArray[np.complex64]:
-    ...
+def fft_r2c(dat: NDArray[np.float32]) -> NDArray[np.complex64]: ...
 
 
 def fft_r2c(
@@ -199,13 +197,11 @@ def fft_r2c(
 
 
 @overload
-def fft_c2r(datft: NDArray[np.complex128]) -> NDArray[np.float64]:
-    ...
+def fft_c2r(datft: NDArray[np.complex128]) -> NDArray[np.float64]: ...
 
 
 @overload
-def fft_c2r(datft: NDArray[np.complex64]) -> NDArray[np.float32]:
-    ...
+def fft_c2r(datft: NDArray[np.complex64]) -> NDArray[np.float32]: ...
 
 
 def fft_c2r(
@@ -264,7 +260,16 @@ def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
     -------
     datft : NDArray[np.float64]
         The FFTed data.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported kind is attempted.
     """
+    if kind != 1:
+        raise ValueError(
+            "Error: only kind 1, FFTW_REDFT00 - DCT-I transforms are supported with FFTW"
+        )
     nn = dat.size
     trans = np.zeros(nn)
     fft_r2r_1d_c(dat.ctypes.data, trans.ctypes.data, nn, kind)
@@ -274,15 +279,13 @@ def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
 @overload
 def fft_r2r(
     dat: NDArray[np.float64], datft: Optional[NDArray[np.float64]] = None, kind: int = 1
-) -> NDArray[np.float64]:
-    ...
+) -> NDArray[np.float64]: ...
 
 
 @overload
 def fft_r2r(
     dat: NDArray[np.float32], datft: Optional[NDArray[np.float32]] = None, kind: int = 1
-) -> NDArray[np.float32]:
-    ...
+) -> NDArray[np.float32]: ...
 
 
 def fft_r2r(
@@ -311,7 +314,15 @@ def fft_r2r(
     -------
     datft : NDArray[np.float64] | NDArray[np.float32]
         The FFTed array.
+        Raises
+    ------
+    ValueError
+        If an unsupported kind is attempted.
     """
+    if kind != 1:
+        raise ValueError(
+            "Error: only kind 1, FFTW_REDFT00 - DCT-I transforms are supported with FFTW"
+        )
     if datft is not None:
         assert dat.dtype == datft.dtype
     if len(dat.shape) == 1:
