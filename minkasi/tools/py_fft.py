@@ -5,14 +5,6 @@ import jax
 import jax.numpy as jnp
 import scipy as sp
 
-# Import functions which have no FFTW dependance
-from .fft import (
-    _nsphere_vol,
-    _prime_loop,
-    find_good_fft_lens,
-    plot_ps,
-)
-
 from typing import Optional, Sequence, Union, overload
 
 jax.config.update("jax_enable_x64", True)
@@ -305,3 +297,108 @@ def write_wisdom(double_file: str = ".fftw_wisdom", single_file: str = ".fftwf_w
     Dummy function which raise error when you try to write_wisdom outside the context of fftw.
     """
     raise ValueError("write_wisdom is not usable without FFTW.")  # pragma: no cover
+
+
+def _nsphere_vol(npp: int) -> float:
+    """
+    Find volume of an nsphere.
+
+    Parameters
+    ----------
+    npp : int
+        Dimension of nsphere.
+
+    Returns
+    -------
+    vol : float
+        The volume of the nsphere.
+    """
+    if npp % 2:
+        nn = (npp - 1) / 2
+        vol = 2 ** (nn + 1) * np.pi**nn / np.prod(np.arange(1, npp + 1, 2))
+    else:
+        nn = npp / 2
+        vol = (np.pi**nn) / np.prod(np.arange(1, nn + 1))
+    return vol
+
+
+def _prime_loop(
+    ln: float,
+    lp: NDArray[np.floating],
+    icur: int,
+    lcur: float,
+    vals: NDArray[np.floating],
+) -> int:
+    """
+    Loop through composites of primes in log2 space.
+
+    Parameters
+    ----------
+    ln : float
+        The limit of values in log2 space.
+    lp : NDArray[np.floating]
+        The primes in log2 space.
+    icur : int
+        The current index.
+    lcur : float
+        The current starting value in log2 space, start at 0.
+    vals : NDArray[np.floating]
+        The current composites in log2 space.
+    """
+    facs = np.arange(lcur, ln + 1e-3, lp[0])
+    if len(lp) == 1:
+        nfac = len(facs)
+        if nfac > 0:
+            vals[icur : (icur + nfac)] = facs
+            icur = icur + nfac
+        else:
+            print("bad facs came from " + repr([2**lcur, 2**ln, 2 ** lp[0]]))
+        return icur
+    else:
+        facs = np.arange(lcur, ln, lp[0])
+        for fac in facs:
+            icur = _prime_loop(ln, lp[1:], icur, fac, vals)
+        return icur
+
+
+def find_good_fft_lens(
+    n: int, primes: Sequence[int] = [2, 3, 5, 7]
+) -> NDArray[np.integer]:
+    """
+    Find a good FFT length.
+
+    Parameters
+    ----------
+    n : int
+        The length that we want to cut down to a good FFT length.
+    primes : Sequence[int], default = [2,3,5,7]
+        Prime numbers used as the radix.
+        The length will be a composite of these numbers.
+    """
+    # lmax=np.log(n+0.5)
+    npr = len(primes)
+    vol = _nsphere_vol(npr)
+
+    r = np.log2(n + 0.5)
+    lp = np.log2(primes, dtype=float)
+    int_max = (vol / 2**npr) * np.prod(
+        r / lp
+    ) + 30  # add a bit just to make sure we don't act up for small n
+    int_max = int(int_max)
+
+    vals = np.zeros(int_max)
+    icur = 0
+    icur = _prime_loop(r, lp, icur, 0.0, vals)
+    assert icur <= int_max
+    myvals = np.asarray(np.round(2 ** vals[:icur]), dtype="int")
+    myvals = np.sort(myvals)
+    return myvals
+
+
+def plot_ps(vec, downsamp=0):
+    """
+    This function isn't actually implemented yet.
+    I assume its to plot a power spectrum,
+    """
+    return
+    # vecft = mkfftw.fft_r2r(vec)
