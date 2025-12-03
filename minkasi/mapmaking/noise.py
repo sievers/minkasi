@@ -648,7 +648,7 @@ class NoiseSmoothedSVD:
 
         if u_in is None:
             u, s, _ = np.linalg.svd(dat_use, True)
-            ndet = s.size
+            ndet = u.shape[0]
         else:
             u = u_in
             assert u.shape[0] == u.shape[1]
