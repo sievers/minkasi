@@ -13,7 +13,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..tools.array_ops import downsample_array_r2r
-from ..tools.fft import find_good_fft_lens
+
+try:
+    from ..tools.fft import find_good_fft_lens
+except ImportError:
+    from ..tools.py_fft import find_good_fft_lens
 
 if TYPE_CHECKING:
     from . import CutsCompact, Tod
@@ -94,8 +98,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: Literal[False] = False,
-) -> List[List[int]]:
-    ...
+) -> List[List[int]]: ...
 
 
 @overload
@@ -106,8 +109,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: Literal[True] = True,
-) -> Tuple[List[List[int]], NDArray[np.floating]]:
-    ...
+) -> Tuple[List[List[int]], NDArray[np.floating]]: ...
 
 
 @overload
@@ -118,8 +120,7 @@ def find_jumps(
     thresh: float = 10,
     rat: float = 0.5,
     dejump: bool = False,
-) -> Union[List[List[int]], Tuple[List[List[int]], NDArray[np.floating]]]:
-    ...
+) -> Union[List[List[int]], Tuple[List[List[int]], NDArray[np.floating]]]: ...
 
 
 def find_jumps(
@@ -405,8 +406,7 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: Literal[False] = False,
-) -> NDArray[np.floating]:
-    ...
+) -> NDArray[np.floating]: ...
 
 
 @overload
@@ -417,8 +417,7 @@ def fit_cm_plus_poly(
     niter: int = 1,
     medsub: bool = False,
     full_out: Literal[True] = True,
-) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
-    ...
+) -> Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]: ...
 
 
 @overload
@@ -432,8 +431,7 @@ def fit_cm_plus_poly(
 ) -> Union[
     NDArray[np.floating],
     Tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]],
-]:
-    ...
+]: ...
 
 
 def fit_cm_plus_poly(

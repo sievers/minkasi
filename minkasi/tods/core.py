@@ -9,10 +9,14 @@ from typing_extensions import deprecated, Literal
 
 from ..mapmaking.noise import NoiseModelType, NoiseSmoothedSVD, WithDetWeights
 from ..parallel import MPI, comm, have_mpi
-from ..tools import fft
 from . import _depracated
 from .cuts import CutsCompact
 from .utils import slice_with_copy
+
+try:
+    from ..tools import fft
+except ImportError:
+    from ..tools import py_fft as fft
 
 if TYPE_CHECKING:
     from ..maps import Mapset, MapType, SkyMap
@@ -135,12 +139,12 @@ class Tod:
 
     def get_nsamp(self) -> int:
         """
-        Get total number of samples in this TOD.
+         Get total number of samples in this TOD.
 
-        Returns
-       -------
-        nsamp : int
-            Number of samples.
+         Returns
+        -------
+         nsamp : int
+             Number of samples.
         """
         return self.get_ndet() * self.get_ndata()
 
@@ -483,8 +487,10 @@ class Tod:
 
     def iter_init(self):
         return
+
     def iter_finalize(self):
         return
+
     @deprecated("Use tod.set_noise(NoiseCMWhite) instead")
     def set_noise_cm_white(self):
         _depracated.set_noise_cm_white(self)
@@ -616,20 +622,17 @@ class Tod:
     @overload
     def dot(
         self, mapset: "Mapset", mapset_out: "Mapset", times: Literal[True] = True
-    ) -> NDArray[np.floating]:
-        ...
+    ) -> NDArray[np.floating]: ...
 
     @overload
     def dot(
         self, mapset: "Mapset", mapset_out: "Mapset", times: Literal[False] = False
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     def dot(
         self, mapset: "Mapset", mapset_out: "Mapset", times: bool = False
-    ) -> Optional[NDArray[np.floating]]:
-        ...
+    ) -> Optional[NDArray[np.floating]]: ...
 
     def dot(
         self, mapset: "Mapset", mapset_out: "Mapset", times: bool = False
@@ -909,8 +912,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[False] = False,
         cache_maps: bool = False,
-    ) -> "Mapset":
-        ...
+    ) -> "Mapset": ...
 
     @overload
     def dot(
@@ -919,8 +921,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[True] = True,
         cache_maps: bool = False,
-    ) -> Tuple["Mapset", NDArray[np.floating]]:
-        ...
+    ) -> Tuple["Mapset", NDArray[np.floating]]: ...
 
     @overload
     def dot(
@@ -929,8 +930,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
-    ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
-        ...
+    ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]: ...
 
     def dot(
         self,

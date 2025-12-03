@@ -400,5 +400,5 @@ def plot_ps(vec, downsamp=0):
     This function isn't actually implemented yet.
     I assume its to plot a power spectrum,
     """
-    return
+    return  # pragma : no cover
     # vecft = mkfftw.fft_r2r(vec)

@@ -1,12 +1,16 @@
 """
 Functions for beam smoothing.
 """
+
 from typing import Tuple
 
 import numpy as np
 from numpy.typing import NDArray
 
-from . import fft
+try:
+    from . import fft
+except ModuleNotFoundError:
+    from . import py_fft as fft
 
 
 def smooth_spectra(
