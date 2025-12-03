@@ -138,46 +138,69 @@ def test_fft_r2r():
     old_datft = old_fft.fft_r2r(dat)
     new_datft = new_fft.fft_r2r(dat)
 
+    # old fftw_r2r only works for kind = 1
     assert np.all(np.isclose(old_datft, new_datft))
 
-    old_datft = old_fft.fft_r2r(dat, kind=2)
-    new_datft = new_fft.fft_r2r(dat, kind=2)
+    # We can only do a consistency test here since old_ffw.fft_r2r doesn't work for these kinds
+    block_datft = new_fft.fft_r2r(dat, kind=2)
+    row_datft = np.zeros(block_datft.shape)
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=2)
 
-    old_datft = old_fft.fft_r2r(dat, kind=3)
-    new_datft = new_fft.fft_r2r(dat, kind=3)
+    assert np.all(np.isclose(block_datft, row_datft))
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    block_datft = new_fft.fft_r2r(dat, kind=3)
+    row_datft = np.zeros(block_datft.shape)
 
-    old_datft = old_fft.fft_r2r(dat, kind=4)
-    new_datft = new_fft.fft_r2r(dat, kind=4)
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=3)
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    assert np.all(np.isclose(block_datft, row_datft))
 
-    old_datft = old_fft.fft_r2r(dat, kind=11)
-    new_datft = new_fft.fft_r2r(dat, kind=11)
+    block_datft = new_fft.fft_r2r(dat, kind=4)
+    row_datft = np.zeros(block_datft.shape)
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=4)
 
-    old_datft = old_fft.fft_r2r(dat, kind=12)
-    new_datft = new_fft.fft_r2r(dat, kind=12)
+    assert np.all(np.isclose(block_datft, row_datft))
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    block_datft = new_fft.fft_r2r(dat, kind=11)
+    row_datft = np.zeros(block_datft.shape)
 
-    old_datft = old_fft.fft_r2r(dat, kind=13)
-    new_datft = new_fft.fft_r2r(dat, kind=13)
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=11)
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    assert np.all(np.isclose(block_datft, row_datft))
 
-    old_datft = old_fft.fft_r2r(dat, kind=14)
-    new_datft = new_fft.fft_r2r(dat, kind=14)
+    block_datft = new_fft.fft_r2r(dat, kind=12)
+    row_datft = np.zeros(block_datft.shape)
 
-    assert np.all(np.isclose(old_datft, new_datft))
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=12)
+
+    assert np.all(np.isclose(block_datft, row_datft))
+
+    block_datft = new_fft.fft_r2r(dat, kind=13)
+    row_datft = np.zeros(block_datft.shape)
+
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=13)
+
+    assert np.all(np.isclose(block_datft, row_datft))
+
+    block_datft = new_fft.fft_r2r(dat, kind=14)
+    row_datft = np.zeros(block_datft.shape)
+
+    for i in range(len(row_datft)):
+        row_datft[i] = new_fft.fft_r2r_1d(dat[i], kind=14)
+
+    assert np.all(np.isclose(block_datft, row_datft))
 
 
 def test_unchanged_funcs():
     n = 123
     old_int = old_fft.find_good_fft_lens(n)
     new_int = new_fft.find_good_fft_lens(n)
-    assert old_int == new_int
+    assert (old_int == new_int).all()
