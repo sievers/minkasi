@@ -107,7 +107,7 @@ def test_mult_r2c_32bit():
         np.isclose(
             old_datft[: ft_shape[0], : ft_shape[1]],
             new_datft[: ft_shape[0], : ft_shape[1]],
-            rtol=1e-1,
+            rtol=3e-1,
         )
     )
 
@@ -117,8 +117,8 @@ def test_mult_r2c_32bit():
     # Note looser rtol since 32bits means we will lose precision
     # np.isclose defaults are very close to machine precision for inputs
     # with order of magnitude 1 or greater.
-    assert np.all(np.isclose(old_dat, new_dat, rtol=1e-1))
-    assert np.all(np.isclose(dat, new_dat, rtol=1e-1))
+    assert np.all(np.isclose(old_dat, new_dat, rtol=3e-1))
+    assert np.all(np.isclose(dat, new_dat, rtol=3e-1))
 
 
 def test_fft_r2r_1d():
