@@ -260,16 +260,8 @@ def fft_r2r_1d(dat: NDArray[np.float64], kind: int = 1) -> NDArray[np.float64]:
     -------
     datft : NDArray[np.float64]
         The FFTed data.
-
-    Raises
-    ------
-    ValueError
-        If an unsupported kind is attempted.
     """
-    if kind != 1:
-        raise ValueError(
-            "Error: only kind 1, FFTW_REDFT00 - DCT-I transforms are supported with FFTW"
-        )
+
     nn = dat.size
     trans = np.zeros(nn)
     fft_r2r_1d_c(dat.ctypes.data, trans.ctypes.data, nn, kind)
