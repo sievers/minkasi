@@ -92,6 +92,7 @@ setup(
         "numpy",
         "astropy",
         "scipy",
+        "jax",
         "typing-extensions==4.7.1",
     ],
     extras_require={

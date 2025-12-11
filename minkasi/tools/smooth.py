@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 try:
     from . import fft
-except ModuleNotFoundError:
+except ImportError:
     from . import py_fft as fft
 
 
