@@ -71,7 +71,10 @@ def mkfftw_extension():
 def get_extensions():
     extensions = []
     if os.environ.get("MINKASI_COMPILED", 0) == 0:
-        extensions = [minkasi_extension(), mkfftw_extension()]
+        if os.environ.get("MINKASI_FFTW", 0) == 1:
+            extension = [minkasi_extension(), msfftw_extension()]
+        else:
+            extensions = [minkasi_extension()]
     for ext in extensions:
         add_openmp_flags_if_available(ext)
     return extensions
