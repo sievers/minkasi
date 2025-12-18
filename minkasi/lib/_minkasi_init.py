@@ -26,5 +26,5 @@ except OSError:
         libmkfftw = ctypes.cdll.LoadLibrary("libmkfftw.so")
     except OSError:
         print(
-            "Can't find any version of libfftw, if you need it install it following the instructions on the readme."
+            "Warning: Can't find any version of libfftw, if you need it install it following the instructions on the readme. This is only a problem if you explicitly need FFTW functions."
         )
