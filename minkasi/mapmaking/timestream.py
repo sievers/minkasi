@@ -3,7 +3,11 @@ import copy
 import numpy as np
 
 from ..parallel import comm, have_mpi
-from ..tools import fft
+
+try:
+    from ..tools import fft
+except ImportError:
+    from ..tools import py_fft as fft
 from .map2tod import map2tod_binned_det, map2tod_destriped, map2todbowl
 from .tod2map import tod2map_binned_det, tod2map_destriped, tod2mapbowl
 

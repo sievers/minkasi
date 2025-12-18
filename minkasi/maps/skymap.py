@@ -16,7 +16,7 @@ from ..mapmaking.tod2map import (
     tod2map_simple,
 )
 from ..parallel import comm, get_nthread, have_mpi, nproc
-from ..tools.fft import find_good_fft_lens
+from ..tools.py_fft import find_good_fft_lens
 from .utils import get_wcs
 
 if TYPE_CHECKING:

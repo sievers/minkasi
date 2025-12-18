@@ -64,7 +64,8 @@ for fname in tod_names:
     #figure out a guess at common mode #and (assumed) linear detector drifts/offset
     #drifts/offsets are removed, which is important for mode finding.  CM is *not* removed.
     dd=minkasi.fit_cm_plus_poly(dat['dat_calib'])
-
+    gain = dat["calinfo"]["antgain"]
+    dd /= gain
     dat['dat_calib']=dd
     t3=time.time()
     tod=minkasi.Tod(dat)

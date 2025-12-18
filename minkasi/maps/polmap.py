@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from ..mapmaking.map2tod import map2tod, polmap2tod
 from ..mapmaking.tod2map import tod2map_cached, tod2map_omp, tod2map_simple, tod2polmap
 from ..parallel import comm, get_nthread, have_mpi
-from ..tools.fft import find_good_fft_lens
+from ..tools.py_fft import find_good_fft_lens
 from .utils import get_wcs
 
 if TYPE_CHECKING:

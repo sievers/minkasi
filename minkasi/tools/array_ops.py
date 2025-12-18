@@ -1,7 +1,10 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from . import fft
+try:
+    from . import fft
+except ImportError:
+    from . import py_fft as fft
 
 try:
     have_numba = True
