@@ -64,6 +64,18 @@ pip install -e .
 Note that this will not make changes to the C libraries automatically propagate.
 If you will be editing those files it is recommended to follow the instructions in the **C Library Installation** first and rerun the build process whenever you make a change.
 
+### FFTW
+
+Minkasi optionally supports using [FFTW](https://www.fftw.org/) to perform the FFTs used in noise estimate. FFTW is a C subroutine library for computing FFTs, and is in general the fastest
+library available. It can, however, be tricky to install, particularly on macOS. Therefore, by default minkasi will use scipy+jax to perform FFTs. If you have FFTW installed and would like 
+to use it, do
+
+```
+export MINKASI_FFTW=1
+```
+
+before installing minkasi. 
+
 ### Example Mapmaking and Unit Test
 
 A number of example scripts are provided which demonstrate various aspects of `minkasi`'s functionality. The most important is `examples/minkasi_mpi_example.py`, which demonstrates our
