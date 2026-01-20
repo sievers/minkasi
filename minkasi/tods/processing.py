@@ -7,6 +7,8 @@ from typing_extensions import (
     Tuple,
     Union,
     overload,
+    Dict,
+    Any,
 )
 
 import numpy as np
@@ -279,6 +281,77 @@ def fit_jumps_from_cm(
         dat_dejump[i, :] = dat_dejump[i, :] - jump_pred
 
     return dat_dejump
+
+
+def gapfill_lin(
+    dat: NDArray[np.floating],
+) -> Tuple[NDArray[np.floating], Dict[str, Any]]:
+    """
+    Linearly interpolates missing gaps in data. For use in
+    preprocessing data, so that e.g. common mode and SVD
+    can be taken. For actually fitting data, gapfill_eig
+    should be used and simultaneously fit with map.
+
+    Parameters
+    ----------
+    dat : NDArray[np.floating]
+        Data to gap fill. Fully non-responsive dets should already have been removed.
+
+    Returns
+    -------
+    dat : NDArray[np.floating]
+        Data with gaps filled with linear interpolation.
+    cuts : Dict[str, Any]
+        Indicies of data points that were replaced.
+    """
+    ndet, nsamp = dat.shape
+    samps = np.arange(nsamp)
+    cuts = np.argwhere(np.isnan(dat))
+    full_cuts = {}
+    for i in range(ndet):
+        cur_bins = []
+        samp_flags = np.where((cuts.T[0] == i))[0]
+        if len(samp_flags) == 0:
+            continue
+
+        if len(samp_flags) == nsamp:
+            raise ValueError(
+                "Error: detector non-responsive. Please cut before passing to gapfill_lin."
+            )
+        bad_samps = cuts.T[1, samp_flags]
+        diffs = np.diff(bad_samps)
+        gap_bins = np.where((diffs > 1))[0]
+
+        if len(gap_bins) == 0:
+            bins = [[0, -1]]
+        else:
+            bins = [[0, gap_bins[0]]]
+            if len(gap_bins) > 1:
+                for j in range(len(gap_bins) - 1):
+                    bins.append([gap_bins[j] + 1, gap_bins[j + 1]])
+                bins.append([gap_bins[j + 1] + 1, -1])
+            else:
+                bins.append([gap_bins[0] + 1, -1])
+        for j in range(len(bins)):
+            # Get bin edge sample #s and vals
+            low_edge_val = dat[i, bad_samps[bins[j][0]] - 1]
+            high_edge_val = dat[i, bad_samps[bins[j][1]] + 1]
+            low_edge_samp = samps[bad_samps[bins[j][0]] - 1]
+            high_edge_samp = samps[bad_samps[bins[j][1]] + 1]
+
+            cur_bins.append([low_edge_samp, high_edge_samp])
+
+            # Linear interp fill in missing vals
+            missing_samps = np.arange(low_edge_samp + 1, high_edge_samp)
+            missing_vals = np.interp(
+                missing_samps,
+                [low_edge_samp, high_edge_samp],
+                [low_edge_val, high_edge_val],
+            )
+
+            dat[i, missing_samps] = missing_vals
+        full_cuts[i] = cur_bins
+    return dat, full_cuts
 
 
 def gapfill_eig(

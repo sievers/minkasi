@@ -13,7 +13,7 @@ outroot = "/scratch/r/rbond/jorlo/Reductions/RXJ1347/RXJ1347" #CHANGE ME!
 
 
 #find tod files we want to map
-idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/" #CHANGE ME
+idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/mustang2/" #CHANGE ME
 tod_names=glob.glob(idir+'/Sig*.fits')
 if len(tod_names)==0:
     print('We found no TOD files.  Double check your path?')
