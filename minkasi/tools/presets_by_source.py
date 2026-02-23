@@ -240,9 +240,7 @@ def get_bad_tods(name, ndo=False, odo=False):
 
     addtag = "svprods_"
 
-    bad_215_01 = [
-        "Signal_TOD-AGBT18B_215_01-s" + str(ss) + ".fits" for ss in [0]
-    ]
+    bad_215_01 = ["Signal_TOD-AGBT18B_215_01-s" + str(ss) + ".fits" for ss in [0]]
     bad_215_02 = [
         "Signal_TOD-AGBT18B_215_02-s" + str(ss) + ".fits" for ss in [6, 8, 10, 17]
     ]
@@ -252,33 +250,19 @@ def get_bad_tods(name, ndo=False, odo=False):
     ]  # Maybe 6,7 and 8 too?
     # bad_215_04 = ["Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [0]]  # commented out June 2024
     # bad_215_04=['Signal_TOD-AGBT18B_215_04-s'+str(ss)+'.fits' for ss in range(40,120)] # Maybe 6,7 and 8 too?
-    bad_215_05 = [
-        "Signal_TOD-AGBT18B_215_05-s" + str(ss) + ".fits" for ss in [0]
-    ]
+    bad_215_05 = ["Signal_TOD-AGBT18B_215_05-s" + str(ss) + ".fits" for ss in [0]]
     bad_215_06 = [
         "Signal_TOD-AGBT18B_215_06-s" + str(ss) + ".fits" for ss in [8, 9, 57, 65]
     ]
-    bad_215_07 = [
-        "Signal_TOD-AGBT18B_215_07-s" + str(ss) + ".fits" for ss in [0]
-    ]
+    bad_215_07 = ["Signal_TOD-AGBT18B_215_07-s" + str(ss) + ".fits" for ss in [0]]
     bad_215_08 = [
         "Signal_TOD-AGBT18B_215_08-s" + str(ss) + ".fits" for ss in [25, 26, 28, 85]
     ]
-    bad_215_09 = [
-        "Signal_TOD-AGBT18B_215_09-s" + str(ss) + ".fits" for ss in [0]
-    ]
-    bad_215_10 = [
-        "Signal_TOD-AGBT18B_215_10-s" + str(ss) + ".fits" for ss in [0]
-    ]
-    bad_215_11 = [
-        "Signal_TOD-AGBT18B_215_11-s" + str(ss) + ".fits" for ss in [0]
-    ]
-    bad_215_12 = [
-        "Signal_TOD-AGBT18B_215_12-s" + str(ss) + ".fits" for ss in [0]
-    ]
-    bad_215_13 = [
-        "Signal_TOD-AGBT18B_215_13-s" + str(ss) + ".fits" for ss in [0]
-    ]
+    bad_215_09 = ["Signal_TOD-AGBT18B_215_09-s" + str(ss) + ".fits" for ss in [0]]
+    bad_215_10 = ["Signal_TOD-AGBT18B_215_10-s" + str(ss) + ".fits" for ss in [0]]
+    bad_215_11 = ["Signal_TOD-AGBT18B_215_11-s" + str(ss) + ".fits" for ss in [0]]
+    bad_215_12 = ["Signal_TOD-AGBT18B_215_12-s" + str(ss) + ".fits" for ss in [0]]
+    bad_215_13 = ["Signal_TOD-AGBT18B_215_13-s" + str(ss) + ".fits" for ss in [0]]
     bad_tod = bad_215_01
     bad_tod.extend(bad_215_02)
     bad_tod.extend(bad_215_03)
@@ -292,9 +276,7 @@ def get_bad_tods(name, ndo=False, odo=False):
     bad_tod.extend(bad_215_12)
     bad_tod.extend(bad_215_13)
 
-    bad_175_01 = [
-        "Signal_TOD-AGBT18A_175_01-s" + str(ss) + ".fits" for ss in [9]
-    ]
+    bad_175_01 = ["Signal_TOD-AGBT18A_175_01-s" + str(ss) + ".fits" for ss in [9]]
     bad_175_03 = [
         "Signal_TOD-AGBT18A_175_03-s" + str(ss) + ".fits" for ss in [32, 36, 37, 38, 40]
     ]  # Mostly due to low elev.
@@ -334,6 +316,9 @@ def get_bad_tods(name, ndo=False, odo=False):
     bad_tod.extend(bad_175_06)
     bad_tod.extend(bad_175_07)
 
+    bad_592_01 = ["Signal_TOD-AGBT26A_592_01-s" + str(ss) + ".fits" for ss in [11, 12]]
+    bad_tod.extend(bad_592_01)
+
     if name == "moo1046" or name == "mooj1046":
         # tod_files='/home/scratch/sdicker/AGBT18B_215/IDL_maps_current/moo1046/Signal_TOD-'+myproj+'.fits'
         # addtag="svprods_mcen_SDTODs_"
@@ -351,10 +336,12 @@ def get_bad_tods(name, ndo=False, odo=False):
     if name == "moo1142" or name == "mooj1142":
         # TODs that Emily Moravec identified as bad through visual inspection of TODs and noise assessment in June 2024 and should not be included in maps
         bad_18B_215_04 = [
-            "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits" for ss in [88, 89, 91, 92, 93, 94]
+            "Signal_TOD-AGBT18B_215_04-s" + str(ss) + ".fits"
+            for ss in [88, 89, 91, 92, 93, 94]
         ]
         bad_23B_005_02 = [
-            "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits" for ss in [19, 20, 35, 37, 39]
+            "Signal_TOD-AGBT23B_005_02-s" + str(ss) + ".fits"
+            for ss in [19, 20, 35, 37, 39]
         ]
         bad_23B_005_04 = [
             "Signal_TOD-AGBT23B_005_04-s" + str(ss) + ".fits" for ss in [8, 9, 10]
