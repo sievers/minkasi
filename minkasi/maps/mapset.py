@@ -1,5 +1,5 @@
 import sys
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Union, Optional
 
 from ..parallel import have_mpi
 from .polmap import PolMap

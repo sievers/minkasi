@@ -16,8 +16,7 @@ else:
 
 @runtime_checkable
 class HasPrior(Protocol):
-    def apply_prior(self, x, Ax):
-        ...
+    def apply_prior(self, x, Ax): ...
 
 
 def run_pcg_wprior(
@@ -26,6 +25,7 @@ def run_pcg_wprior(
     tods: "TodVec",
     prior: Optional[HasPrior] = None,
     precon: Optional["Mapset"] = None,
+    mask: Optional["Mapset"] = None,
     maxiter: int = 25,
     outroot: str = "map",
     save_iters: List[int] = [-1],
@@ -72,6 +72,8 @@ def run_pcg_wprior(
         The preconditioner matrix applied to A to ensure faster convergence.
         1/hitsmap is a frequent selection.
         Set to None to not use.
+    mask : Mapset | None, default: None
+        If mask is not none, apply the (map-space) mask to the tods.
     maxiter : int, default: 25
         Maximum number of iterations to perform.
     outroot : str, default: 'map'
@@ -97,7 +99,7 @@ def run_pcg_wprior(
         Ax = b close enough to 0
     """
     t1 = time.time()
-    Ax = tods.dot(x0)
+    Ax = tods.dot(x0, mask=mask)
 
     # compute the remainder r_0
     try:
@@ -134,7 +136,7 @@ def run_pcg_wprior(
         t1 = time.time()
 
         # Compute pAp
-        Ap = tods.dot(p)
+        Ap = tods.dot(p, mask=mask)
         if prior is not None:
             prior.apply_prior(p, Ap)
         t2 = time.time()
@@ -203,6 +205,7 @@ def run_pcg(
     x0: "Mapset",
     tods: "TodVec",
     precon: Optional["Mapset"] = None,
+    mask: Optional["Mapset"] = None,
     maxiter: int = 25,
     outroot: str = "map",
     save_iters: List[int] = [-1],
@@ -223,6 +226,7 @@ def run_pcg(
         tods=tods,
         prior=None,
         precon=precon,
+        mask=mask,
         maxiter=maxiter,
         outroot=outroot,
         save_iters=save_iters,
