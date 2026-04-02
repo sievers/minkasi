@@ -102,6 +102,9 @@ mapset.add_map(map)
 
 rhs = mapset.copy()
 todvec.make_rhs(rhs)
+for i, imap in enumerate(rhs.maps):
+    imap.map *= maskset.maps[i].map
+
 
 # this is our starting guess.  Default to starting at 0,
 # but you could start with a better guess if you have one.
@@ -115,6 +118,9 @@ tmp = hits.map.copy()
 ii = tmp > 0
 tmp[ii] = 1.0 / tmp[ii]
 precon.maps[0].map[:] = tmp[:]
+
+for i, imap in enumerate(precon.maps):
+    imap.map *= maskset.maps[i].map
 
 # run PCG!
 
