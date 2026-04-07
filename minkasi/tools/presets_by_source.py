@@ -333,6 +333,10 @@ def get_bad_tods(name, ndo=False, odo=False):
             ]  #
             addtag = "svprods_ODO_"
 
+    if name == "ms0735":
+        bad_21A_123_03 = ["Signal_TOD-AGBT21A_123_03-s20.fits"]
+        bad_tod.extend(bad_21A_123_03)
+
     if name == "moo1142" or name == "mooj1142":
         # TODs that Emily Moravec identified as bad through visual inspection of TODs and noise assessment in June 2024 and should not be included in maps
         bad_18B_215_04 = [
