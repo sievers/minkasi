@@ -7,14 +7,15 @@ import os
 
 # reload(minkasi)
 
+name = "RXJ1347"
 # set file root for output maps
-outroot = "/mnt/welch/USERS/jorlo/Reductions/RXJ_Mask/RXJ_Mask"
+outroot = "/mnt/welch/USERS/jorlo/Reductions/{}_Mask/{}_Mask".format(name, name)
 # Note the end of this path is a filename, files will be written to
 # RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
 
 
 # find tod files we want to map
-idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/mustang2/"  # CHANGE ME
+idir = "/mnt/welch/MUSTANG/M2-TODs/{}/mustang2/".format(name)  # CHANGE ME
 tod_names = glob.glob(idir + "/Sig*.fits")
 if len(tod_names) == 0:
     print("We found no TOD files.  Double check your path?")
@@ -22,7 +23,7 @@ if len(tod_names) == 0:
 
 # Use presets by source to automatically get and cut TODs
 # that were manually flagged for removal
-bad_tod, _ = minkasi.get_bad_tods("RXJ1347")
+bad_tod, _ = minkasi.get_bad_tods(name)
 tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
 
 # if running MPI, you would want to split up files between processes
@@ -83,7 +84,7 @@ hits = minkasi.make_hits(todvec, map)
 
 # Make a mask for the map based on hits. All pixels with
 # hits < thresh will be excluded from mapmaking.
-thresh = 20
+thresh = 50
 mask = hits.copy()
 mask.map = 1.0 * hits.map > thresh
 maskset = minkasi.Mapset()
@@ -124,7 +125,7 @@ for i, imap in enumerate(precon.maps):
 
 # run PCG!
 
-save_iters = [1, 5, 15, 20, 25, 50]
+save_iters = [1, 5, 15, 20, 25, 50, 100, 250, 500, 999]
 
 # run PCG!
 mapset_out = minkasi.run_pcg(
@@ -174,8 +175,16 @@ for niter in range(npass):
     rhs = mapset.copy()
     todvec.make_rhs(rhs)
 
+    for i, imap in enumerate(rhs.maps):
+        imap.map *= maskset.maps[i].map
+
     precon = mapset.copy()  # Hist map preconditioner
     precon.maps[0].map[:] = hits.map[:]
+
+    for i, imap in enumerate(precon.maps):
+        imap.map *= maskset.maps[i].map
+
+
     mapset_out = minkasi.run_pcg_wprior(
         rhs,
         mapset_out,
