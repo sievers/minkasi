@@ -135,6 +135,19 @@ export LIBRARY_PATH=$LIBRARY_PATH:PATH_TO_DIR
 module load gcc fftw
 ```
 
+### Installing on macOS
+The easiest way to install `minkasi` on macOS is to use [conda](https://docs.conda.io/) together with the conda compilers. First, install the compilers and `fftw` from conda-forge:
+
+```
+conda install -c conda-forge compilers fftw
+```
+
+Then install `minkasi` as usual:
+
+```
+pip install .
+```
+
 #### NERSC
 
 ```
