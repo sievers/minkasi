@@ -65,18 +65,21 @@ def mkfftw_extension():
     # ones
     cfg["libraries"].extend(["fftw3_threads", "fftw3f", "fftw3f_threads"])
     _add_common_ext_kwargs(cfg)
+
     return Extension("minkasi.lib._libmkfftw", **cfg)
 
 
 def get_extensions():
     extensions = []
-    if os.environ.get("MINKASI_COMPILED", 0) == 0:
-        if os.environ.get("MINKASI_FFTW", 0) == 1:
-            extension = [minkasi_extension(), msfftw_extension()]
+    if int(os.environ.get("MINKASI_COMPILED", 0)) == 0:
+        if int(os.environ.get("MINKASI_FFTW", 0)) == 1:
+            extensions = [minkasi_extension(), mkfftw_extension()]
         else:
             extensions = [minkasi_extension()]
+
     for ext in extensions:
         add_openmp_flags_if_available(ext)
+
     return extensions
 
 
