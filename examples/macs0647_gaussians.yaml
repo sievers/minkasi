@@ -1,0 +1,36 @@
+general:
+   target_name: MACS0647
+   # For sessions observed prior to 2026, a list of bad scans may exist.
+   auto_trim: False  # Exclude bad scans (from aforementioned list)?
+   verbose: False   # As it sounds -- have code print out lots of info?
+
+paths:
+   # locations of files.
+   base_dir: '/home/scratch/cromero/mustang/MUSTANG2/Reductions/MACS0647/'
+   tod_folder: 'TS_EaCMS0f0_51_22_Aug_2026'
+   glob: "Signal_TOD*.fits" # Pattern to search for TODs with
+   output_folder: "mustang/MUSTANG2/MinkasiOutputs"   # Will be made in /home/scratch/<user>/
+   # A folder with the target_name will be put inside output_folder
+   # A "Gaussian_Fits" folder will be put inside that.
+   # And then another folder identifying fitpars will be put inside that.
+
+# Parameters associated with *how* the fitting procedure runs.
+fitpars:
+   maxiter: 25
+   ntods: null    # Will default to number of TODs it finds when null. Otherwise, specify an integer.
+   fit_widths: False  # With few scans, better to fix it.
+   fit_cen: True    # It just won't find the correct center.
+   og_step: False    # Take steps via the original minkasi (circa 2018) method.
+
+# Can pull initial guesses from literature and/or ds9 from some initial map.
+startvars:
+   cluster_ras: [101.9578329]       # As a list, in case there are subclusters
+   cluster_decs: [70.2493380]       # As a list, in case there are subclusters
+   cluster_amps: [-0.0006]          # Kelvin_RJ is usually what the TODs are saved in.
+   cluster_widths: [10.0]           # Gaussian sigma, in arcseconds.
+   ptsrc_ras: []                    # Again, a list
+   ptsrc_decs: []                   # Turns out MACS 0647 has no bright (3mm) sources.
+   ptsrc_amps: []                   # Peak of point sources (in Kelvin_RJ, presumably)
+   ptsrc_widths: []                 # Gaussian sigma, in arcseconds.
+
+# See Romero+ 2017 or Ruppin+ 2018; neither find substantial 2mm or 3mm fluxes.

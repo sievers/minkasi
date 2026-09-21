@@ -645,7 +645,7 @@ def downsample_tod(tod_info: dict, fac: int = 10):
             tod_info[key] = downsample_array_r2r(tod_info[key], fac)
 
 
-def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11]):
+def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11], verbose: bool = True):
     """
     Truncate TOD to the closet good FFT length.
     Required 'dat_calib' to be in dat, if it isn't nothing is done.
@@ -657,6 +657,8 @@ def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11]):
         If you have a Tod object you probably want to pass in tod.info.
     primes : Sequence[int]
         Prime numbers to use to calculate good fft lengths.
+    verbose : bool, default = True
+        Include print statement?
     """
     if "dat_calib" not in tod_info:
         return
@@ -667,7 +669,8 @@ def truncate_tod(tod_info: dict, primes: Sequence[int] = [2, 3, 5, 7, 11]):
     ndata_new = lens.max() + 1
     if ndata_new >= ndata:
         return
-    print("truncating from ", ndata, " to ", ndata_new)
+    if verbose:
+        print("truncating from ", ndata, " to ", ndata_new)
     for key in tod_info.keys():
         if not hasattr(tod_info[key], "shape"):
             continue

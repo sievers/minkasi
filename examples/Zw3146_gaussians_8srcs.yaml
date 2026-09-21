@@ -1,0 +1,34 @@
+general:
+   target_name: Zw3146
+
+paths:
+   # locations of files.
+   base_dir: '/home/scratch/cromero/mustang/MUSTANG2/Reductions/Zw3146/'
+   tod_folder: 'TS_EaCMS0f0_51_8_Sep_2026'
+   glob: "Signal_TOD*.fits" # Pattern to search for TODs with
+   output_folder: "mustang/MUSTANG2/MinkasiOutputs"   # Will be made in /home/scratch/<user>/
+   # A folder with the target_name will be put inside output_folder
+   # A "Gaussian_Fits" folder will be put inside that.
+   # And then another folder identifying fitpars will be put inside that.
+
+# Parameters associated with *how* the fitting procedure runs.
+fitpars:
+   maxiter: 10
+   ntods: 5    # Will default to number of TODs it finds when null. Otherwise, specify an integer.
+   fit_widths: True  # With few scans, better to fix it.
+   fit_cen: False    # It just won't find the correct center.
+
+# Can pull initial guesses from literature and/or ds9 from some initial map.
+startvars:
+   cluster_ras: [155.9135204]       # As a list, in case there are subclusters
+   cluster_decs: [4.187364092849]       # As a list, in case there are subclusters
+   cluster_amps: [-0.0005]          # Kelvin_RJ is usually what the TODs are saved in.
+   cluster_widths: [30.0]           # Gaussian sigma, in arcseconds.
+   ptsrc_ras: [155.91522917, 155.91125, 155.92720833, 155.93670417, 155.93860417,
+ 155.90629583, 155.90361667, 155.93826625]          # Again, a list
+   ptsrc_decs: [4.186325, 4.18472222, 4.18661111, 4.17685, 4.17856111, 4.15367222,
+ 4.14973333, 4.19480833]              # Zwicky 3146 has many sources.
+   ptsrc_amps: [6.0e-5,4.0e-5,3.0e-5, 1.0e-3,1.0e-3, 2.0e-4,2.0e-4,1.0e-4]
+   # Peak of point sources (in Kelvin_RJ, presumably)
+   ptsrc_widths: [5.537982, 5.537982, 5.537982, 5.537982, 5.537982, 5.537982, 5.537982, 5.537982]
+   # Gaussian sigma, in arcseconds.

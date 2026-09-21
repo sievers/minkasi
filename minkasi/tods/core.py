@@ -501,7 +501,7 @@ class Tod:
 
     @deprecated("Use tod.set_noise(NoiseSmoothedSVD) instead")
     def set_noise_smoothed_svd(
-        self, fwhm=50, func=None, pars=None, prewhiten=False, fit_powlaw=False
+            self, fwhm=50, func=None, pars=None, prewhiten=False, fit_powlaw=False, rchisq=1.0
     ):
         """If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
         we subtract off before estimating the noise."""
@@ -512,6 +512,7 @@ class Tod:
             pars=pars,
             prewhiten=prewhiten,
             fit_powlaw=fit_powlaw,
+            rchisq=rchisq
         )
 
     def apply_noise(

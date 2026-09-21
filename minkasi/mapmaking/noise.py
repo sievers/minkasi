@@ -608,6 +608,8 @@ class NoiseSmoothedSVD:
         prewhiten: bool = False,
         fit_powlaw: bool = False,
         u_in: Optional[NDArray[np.floating]] = None,
+        rchisq: np.floating = 1.0,
+        verbose: bool = False,
     ):
         """
         Initialize an instance of NoiseSmoothedSVD.
@@ -635,6 +637,12 @@ class NoiseSmoothedSVD:
         u_in : NDArray[np.floating] | None, default: None
             The left singular vectors of the TOD.
             If None they will be computed via the SVD in this function.
+        rchisq : np.floating, default: 1.0
+            (Effective) reduced chi squared for fits. If a previous run
+            yields chi squareds with values departing from unity, we can
+            rescale to get "better" results.
+        verbose : bool, default: False
+            If False: suppresses the "got svd" print statement.
         """
         self.noisevec: Optional[NDArray[np.floating]]
         if prewhiten:
@@ -662,7 +670,8 @@ class NoiseSmoothedSVD:
         else:
             self.vT = np.linalg.inv(self.v)
 
-        print("got svd")
+        if verbose:
+            print("got svd")
 
         dat_rot = np.dot(self.v, dat_use)
         if fit_powlaw:
@@ -673,7 +682,7 @@ class NoiseSmoothedSVD:
         else:
             dat_trans = fft.fft_r2r(dat_rot)
             spec_smooth = smooth_many_vecs(dat_trans**2, fwhm)
-        spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:]
+        spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:] / rchisq
         spec_smooth[:, 0] = 0
         self.mywt: NDArray[np.floating] = spec_smooth
 

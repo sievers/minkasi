@@ -17,6 +17,7 @@ def _prep_rings(
     ],
     amps: Optional[Union[Sequence[float], NDArray[np.floating]]],
     iswcs: bool,
+    verbose: bool = False
 ) -> Tuple[
     NDArray[np.floating],
     NDArray[np.floating],
@@ -66,7 +67,8 @@ def _prep_rings(
         mypix = cent
     mypix = np.array(mypix, dtype=float)
 
-    print("mypix is ", mypix)
+    if verbose:
+        print("mypix is ", mypix)
 
     xvec = np.arange(map.nx, dtype=float)
     yvec = np.arange(map.ny, dtype=float)
@@ -88,6 +90,7 @@ def make_rings(
     ],
     amps: Optional[Union[Sequence[float], NDArray[np.floating]]],
     iswcs: bool = True,
+    verbose: bool = False
 ) -> NDArray[np.floating]:
     """
     Make rings.
@@ -121,7 +124,7 @@ def make_rings(
         nx and ny come from the map and nring is len(edges)-1.
     """
     rings, mypix, xmat, ymat, srcft = _prep_rings(
-        edges, cent, map, pixsize, fwhm, amps, iswcs
+        edges, cent, map, pixsize, fwhm, amps, iswcs, verbose
     )
     rmat = np.sqrt((xmat - mypix[0]) ** 2 + (ymat - mypix[1]) ** 2) * pixsize
     for i, ring in enumerate(rings):
@@ -145,6 +148,9 @@ def make_rings_wSlope(
     aa: float = 1.0,
     bb: float = 1.0,
     rot: float = 0.0,
+    iswcs: bool = True,
+    verbose: bool = False,
+    decrement: bool = True,
 ) -> NDArray[np.floating]:
     """
     Make elliptical rings using the slope of vals.
@@ -177,6 +183,18 @@ def make_rings_wSlope(
         Factor to scale in y.
     rot : float, default: 0.0
         Amount to rotate rings by.
+    iswcs : bool, default: True
+        Are cent parameters WCS coordinates (in degrees)?
+    verbose : bool, default: False
+        Print out (extra) information?
+    decrement : bool, default: True
+        Are you fitting signal that is (entirely) negative? (E.g. the SZ effect, in Kelvin)?
+    prominence : float, default: 50.0
+        Roughly what is the (expected) ratio of signal between the faintest and strongest 
+        signal (brightness) in the rings? This is slightly asking you to know the answer
+        ahead of time -- but it should have negligible (biasing) consequences. For clusters,
+        we *know* that we don't get down to *zero* signal at the outskirts (especially for
+        MUSTANG-2, where "outskirts" (the largest ring) is often still around R500).
 
     Returns
     -------
@@ -185,7 +203,7 @@ def make_rings_wSlope(
         nx and ny come from the map and nring is len(edges)-1.
     """
     rings, mypix, xmat, ymat, srcft = _prep_rings(
-        edges, cent, map, pixsize, fwhm, amps, True
+        edges, cent, map, pixsize, fwhm, amps, iswcs, verbose
     )
     nring = len(rings)
 
@@ -198,24 +216,20 @@ def make_rings_wSlope(
     rmat = (
         np.sqrt((xtr / aa) ** 2 + (ytr / bb) ** 2) * pixsize
     )  # Elliptically scale x,y
-    myvals = vals[:nring] * 1.0  # Get just the values that correspond to rings
-    myvals -= np.max(myvals)  # Set it such that the maximum value approaches 0
-    pk2pk = np.max(myvals) - np.min(myvals)
-    myvals -= (
-        pk2pk / 50.0
-    )  # Let's assume we're down about a factor of 50 at the outskirts.
 
+    myvals, slopes = get_ring_slopes(edges, vals, decrement)
+    
     for i in range(nring):
         # rings[i,(rmat>=edges[i])&(rmat<edges[i+1]=1.0
-        if i == nring - 1:
-            slope = 0.0
-        else:
-            slope = (myvals[i] - myvals[i + 1]) / (
-                edges[i + 1] - edges[i]
-            )  # expect positve slope; want negative one.
+        #if i == nring - 1:
+        #    slope = 0.0
+        #else:
+        #    slope = (myvals[i] - myvals[i + 1]) / (
+        #        edges[i + 1] - edges[i]
+        #    )  # expect positve slope; want negative one.
         rgtinedge = rmat >= edges[i]
         rfromin = rmat - edges[i]
-        initline = rfromin[rgtinedge] * slope
+        initline = rfromin[rgtinedge] * slopes[i]
         if myvals[i] != 0:
             # Should be normalized to 1 now.
             rings[i, rgtinedge] = (myvals[i] - initline) / myvals[i]
@@ -232,3 +246,50 @@ def make_rings_wSlope(
         # rmout   = (rmat == np.max(rannul))
         rings[i, :, :] = np.real(np.fft.ifft2(np.fft.fft2(rings[i, :, :]) * srcft))
     return rings
+
+
+def get_ring_slopes(
+    edges: Union[Sequence[float], NDArray[np.floating]],
+    vals: NDArray[np.floating],
+    decrement: bool = True,
+) -> NDArray[np.floating]:
+    """
+    Calculate the slope from vals and edges.
+
+    Parameters
+    ----------
+    edges : Sequence[float] | NDArray[np.floating]
+        The edges of the rings. Will produce len(edges)-1 rings.
+    vals : NDArray[np.floating]
+        The values to calculate slope from.
+        Should be at least nring in length.
+    """
+
+    nring = len(edges)-1
+    slopes = np.zeros(nring)
+    
+    myvals = vals[:nring] * 1.0  # Get just the values that correspond to rings
+    if decrement:
+        myvals -= np.max(myvals)  # Set it such that the maximum value approaches 0
+        pk2pk = np.max(myvals) - np.min(myvals)
+        myvals -= (
+            pk2pk / 50.0
+        )  # Let's assume we're down about a factor of 50 at the outskirts.
+    else:
+        myvals += np.min(myvals)
+        pk2pk = np.max(myvals) - np.min(myvals)
+        myvals += (
+            pk2pk / 50.0
+        )  # Let's assume we're down about a factor of 50 at the outskirts.
+
+        
+    #if i == nring - 1:
+    #    slope = 0.0
+    #else:
+    slopes[:-1] = np.diff(myvals) / np.diff(edges[:-1])
+    if decrement:
+        slopes *= -1.0
+    #slopes = (myvals[0:-1] - myvals]) / (
+    #edges[i + 1] - edges[i]
+
+    return myvals, slopes

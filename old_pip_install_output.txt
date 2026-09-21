@@ -1,0 +1,53 @@
+[cromero@thales ~/GitHubRepos/minkasi]$ pip install .
+Defaulting to user installation because normal site-packages is not writeable
+Processing /users/cromero/GitHubRepos/minkasi
+  Installing build dependencies ... done
+  Getting requirements to build wheel ... done
+  Preparing metadata (pyproject.toml) ... done
+Requirement already satisfied: requests in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from minkasi==2.0.0) (2.28.1)
+Requirement already satisfied: importlib-metadata in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from minkasi==2.0.0) (4.11.3)
+Requirement already satisfied: numpy in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from minkasi==2.0.0) (1.19.2)
+Requirement already satisfied: astropy in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from minkasi==2.0.0) (4.3.1)
+Requirement already satisfied: scipy in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from minkasi==2.0.0) (1.6.2)
+Collecting jax (from minkasi==2.0.0)
+  Downloading jax-0.3.25.tar.gz (1.1 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.1/1.1 MB 7.6 MB/s eta 0:00:00
+  Preparing metadata (setup.py) ... done
+Collecting typing-extensions==4.7.1 (from minkasi==2.0.0)
+  Obtaining dependency information for typing-extensions==4.7.1 from https://files.pythonhosted.org/packages/ec/6b/63cc3df74987c36fe26157ee12e09e8f9db4de771e0f3404263117e75b95/typing_extensions-4.7.1-py3-none-any.whl.metadata
+  Downloading typing_extensions-4.7.1-py3-none-any.whl.metadata (3.1 kB)
+Requirement already satisfied: pyerfa>=1.7.3 in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from astropy->minkasi==2.0.0) (1.7.3)
+Requirement already satisfied: zipp>=0.5 in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from importlib-metadata->minkasi==2.0.0) (3.11.0)
+Collecting numpy (from minkasi==2.0.0)
+  Obtaining dependency information for numpy from https://files.pythonhosted.org/packages/6d/ad/ff3b21ebfe79a4d25b4a4f8e5cf9fd44a204adb6b33c09010f566f51027a/numpy-1.21.6-cp37-cp37m-manylinux_2_12_x86_64.manylinux2010_x86_64.whl.metadata
+  Downloading numpy-1.21.6-cp37-cp37m-manylinux_2_12_x86_64.manylinux2010_x86_64.whl.metadata (2.1 kB)
+Collecting opt_einsum (from jax->minkasi==2.0.0)
+  Obtaining dependency information for opt_einsum from https://files.pythonhosted.org/packages/bc/19/404708a7e54ad2798907210462fd950c3442ea51acc8790f3da48d2bee8b/opt_einsum-3.3.0-py3-none-any.whl.metadata
+  Downloading opt_einsum-3.3.0-py3-none-any.whl.metadata (6.5 kB)
+Requirement already satisfied: charset-normalizer<3,>=2 in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from requests->minkasi==2.0.0) (2.0.4)
+Requirement already satisfied: idna<4,>=2.5 in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from requests->minkasi==2.0.0) (3.4)
+Requirement already satisfied: urllib3<1.27,>=1.21.1 in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from requests->minkasi==2.0.0) (1.26.14)
+Requirement already satisfied: certifi>=2017.4.17 in /home/local/redhat/RHEL8/stow/anaconda3/lib/python3.7/site-packages (from requests->minkasi==2.0.0) (2022.9.14)
+Downloading typing_extensions-4.7.1-py3-none-any.whl (33 kB)
+Downloading numpy-1.21.6-cp37-cp37m-manylinux_2_12_x86_64.manylinux2010_x86_64.whl (15.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 15.7/15.7 MB 39.5 MB/s eta 0:00:00
+Downloading opt_einsum-3.3.0-py3-none-any.whl (65 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 65.5/65.5 kB 1.5 MB/s eta 0:00:00
+Building wheels for collected packages: minkasi, jax
+  Building wheel for minkasi (pyproject.toml) ... done
+  Created wheel for minkasi: filename=minkasi-2.0.0-cp37-cp37m-linux_x86_64.whl size=132525 sha256=01135becb8e3712d22c16bea26cad7bc409c0006c642f723b194a33188778cbd
+  Stored in directory: /tmp/pip-ephem-wheel-cache-2gh45f42/wheels/15/a1/39/6a7178443b08ebd2ae1f98aa7eaedc47af307be2be8b8f315c
+  Building wheel for jax (setup.py) ... done
+  Created wheel for jax: filename=jax-0.3.25-py3-none-any.whl size=1308496 sha256=cd6a8a955f00c632432af5bc088ec50e4c4e98dc37ae29465728411d31c75edf
+  Stored in directory: /users/cromero/.cache/pip/wheels/a5/79/44/dbae745c48940291d6d4d157f7faa6f0b27f198781073d8c78
+Successfully built minkasi jax
+Installing collected packages: typing-extensions, numpy, opt_einsum, jax, minkasi
+  WARNING: The scripts f2py, f2py3 and f2py3.7 are installed in '/users/cromero/.local/bin' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+spyder 5.2.2 requires pyqt5<5.13, which is not installed.
+spyder 5.2.2 requires pyqtwebengine<5.13, which is not installed.
+Successfully installed jax-0.3.25 minkasi-2.0.0 numpy-1.21.6 opt_einsum-3.3.0 typing-extensions-4.7.1
+
+[notice] A new release of pip is available: 23.2.1 -> 24.0
+[notice] To update, run: python -m pip install --upgrade pip

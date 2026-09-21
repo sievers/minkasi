@@ -1,0 +1,431 @@
+import numpy
+#import numpy as np
+from matplotlib import pyplot as plt
+import minkasi
+from minkasi.parallel import comm, have_mpi
+import time
+import glob
+import yaml
+import os
+import argparse
+from pathlib import Path
+from importlib import reload
+from datetime import datetime
+import shutil
+from importlib import reload
+reload(minkasi)
+plt.ion()
+try:
+    from tqdm import tqdm
+except ImportError:
+    # Fallback: A dummy function that just returns the iterable unchanged
+    def tqdm(iterable, *args, **kwargs):
+        return iterable
+
+def mydot(m1,m2):
+    tot=0.0
+    tot=tot+0.5*numpy.sum(m1[:,0]*m2[:,0])
+    tot=tot+0.5*numpy.sum(m1[:,-1]*m2[:,-1])
+    tot=tot+numpy.sum(m1[:,1:-1]*m2[:,1:-1])
+    return tot
+
+
+def main(config_file):
+
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    mydir = config["paths"]["base_dir"]
+    tod_folder = config["paths"]["tod_folder"]
+    gauss_folder = config["paths"]["gauss_folder"]
+    myglob = config["paths"]["glob"]
+    full_glob = os.path.join(mydir,tod_folder,myglob)
+    tod_names = glob.glob(full_glob)
+    username = os.environ.get("USER")
+    output_base = config["paths"]["output_folder"]
+    date_string = datetime.now().strftime("%d%b%Y")   # Today's date
+    target = config["general"]["target_name"]
+    tshoot = config["general"]["tshoot"]
+    auto_trim = config["general"]["auto_trim"]
+    verbose = config["general"]["verbose"]
+    auto_plot = config["general"]["auto_plot"]
+    save_fits = config["general"]["save_fits"]
+
+    if auto_trim:
+        bad_tod, _ = minkasi.tools.presets_by_source.get_bad_tods(target)
+        tod_names = minkasi.tods.io.cut_blacklist(tod_names, bad_tod)
+
+    
+    ### Parameters regarding *how* we fit.
+    npass = config["fitpars"]["npass"]
+    ntods_in = config["fitpars"]["ntods"]
+    ntods = len(tod_names) if ntods_in is None else ntods_in
+    simclus = config["fitpars"]["simclus"]
+    sub_cm = config["fitpars"]["sub_cm"]
+    chisq = config["fitpars"]["chisq"]
+    svdfwhm = config["fitpars"]["svdfwhm"]        # Number of integrations over which to smooth.
+    svdcut = config["fitpars"]["svdcut"]      # Run set_noise_smoothed_svd_v2()
+    svdstr = '_svd'+str(svdfwhm)+"_"+"{0:.1f}".format(chisq)+"Chi"        # TBS = trimmed bad scans
+    kstart = config["fitpars"]["kstart"]      # Normally 1.
+    rfwhm = config["fitpars"]["rfwhm"]       # Set to 0 if you want to use FWHM (sigmas) from fit_Gauss
+    doconv = config["fitpars"]["doconv"]
+    m2fwhm = config["fitpars"]["m2fwhm"]       # Beam to convolve rings by -- to recover deconvolved profile
+    #rfwhm = 0       # Widths for point sources! (May be different from convolution kernel)
+    pord = config["fitpars"]["pord"]        # Polynomial order.
+    FPFPO = config["fitpars"]["FPFPO"]
+    noslope = config["fitpars"]["noslope"]     # Should usually be false 
+    pix_arcsec = config["fitpars"]["pix_arcsec"]     # Should usually be false 
+    decrement = config["fitpars"]["decrement"]     # True if looking at SZ signal
+
+    mis = repr(npass)
+    nts = repr(ntods)
+
+
+    if gauss_folder.lower() == "most_recent":
+        #output_search = "_".join(['*', mis+'pass', nts+'scans'])
+        outdir_base = os.path.join("/home/scratch", username, output_base, target, "Gaussian_Fits")
+        base = Path(outdir_base)
+        matches = base.glob('*')
+
+        if matches:
+            most_recent = max(matches, key=lambda p: p.stat().st_mtime)
+        else:
+            most_recent = None
+            # The entire point is to restore the files. If they don't exist, no sense continuing.
+            raise SystemExit(
+                f"ERROR: No output directories matching {output_search} found in {base}"
+            )
+        gaussdir = os.path.join("/home/scratch", username, output_base, target, "Gaussian_Fits",
+                                most_recent)
+    else:
+        gaussdir = os.path.join("/home/scratch", username, output_base, target, "Gaussian_Fits",
+                                gauss_folder)
+    
+    output_specific = "_".join([date_string, mis+'pass', nts+'scans'])
+    outdir = os.path.join("/home/scratch", username, output_base, target, "Ring_Fits",
+                          output_specific)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    config_file = Path(config_file)
+    shutil.copy2(config_file, Path(outdir) / config_file.name)
+
+    Gfilename = "_".join([target,"Gaussians.npy"])
+    Gaussian_file = os.path.join(gaussdir,Gfilename)
+
+    ### Elliptical parameters
+    aa = config["startvars"]["aa"]
+    bb = config["startvars"]["bb"]
+    rot = config["startvars"]["rot"]
+
+    ### Ring parameters
+    edge_set = config["startvars"]["edge_set"]
+    RingsOutputs = '_'.join([target,"Rings"])
+    nclus = len(edge_set)
+    #tag = tag+'_'+nts+'scans'
+
+    sig2fwhm = numpy.sqrt(8.0 * numpy.log(2.0)) # FWHM <-> sigma (Gaussian width)
+    fw2sr    = numpy.pi/180.0/3600.0/sig2fwhm   # Converts FWHM in arcsec to sig in radians
+
+    #use_Gaussian_center = False
+    initial_map = os.path.join(outdir,"Minkasi_naivePCG_map.fits")
+
+##############################################################################################
+
+    tod_names=tod_names[minkasi.myrank::minkasi.nproc]
+    todvec=minkasi.tods.TodVec()
+    origvec=minkasi.tods.TodVec()
+
+    for fname in tod_names[:ntods]:
+        t1=time.time()
+        dat=minkasi.tods.io.read_tod_from_fits(fname)
+        t2=time.time()
+        ### Downsample is optional. Ideally MUSTANG-2 TODs are appropriately downsampled.
+        #minkasi.downsample_tod(dat)   #sometimes we have faster sampled data than we need.
+        minkasi.tods.processing.truncate_tod(dat)    #since our length changed, make sure we have a happy length
+
+        #figure out a guess at common mode #and (assumed) linear detector drifts/offset
+        #drifts/offsets are removed, which is important for mode finding.  CM is *not* removed.
+
+        #dd=minkasi.tods.processing.fit_cm_plus_poly(dat['dat_calib'])  
+    
+        #dat['dat_calib']=dd
+        t3=time.time()
+        tod=minkasi.tods.Tod(dat)
+        todvec.add_tod(tod)
+        origvec.add_tod(tod)
+        print('took ',t2-t1,' ',t3-t2,' seconds to read and downsample file ',fname)
+
+    #make a template map with desired pixel size an limits that cover the data
+    #todvec.lims() is MPI-aware and will return global limits, not just
+    #the ones from private TODs
+    lims=todvec.lims()
+    pixsize=pix_arcsec * fw2sr  # 2 arcseconds, stored as radians
+    map=minkasi.maps.SkyMap(lims,pixsize)
+
+    #once we have a map, we can figure out the pixellization of the data.  Save that
+    #so we don't have to recompute.  Also calculate a noise model.  The one here
+    #(and currently the only supported one) is to rotate the data into SVD space, then
+    #smooth the power spectrum of each mode.  Other models would not be hard
+    #to implement.  The smoothing could do with a bit of tuning as well.
+
+    for tod in todvec.tods:
+        ipix=map.get_pix(tod)
+        tod.info['ipix']=ipix
+        #tod.set_noise_smoothed_svd()
+        tod.set_noise(minkasi.mapmaking.noise.NoiseSmoothedSVD)
+    
+    fitp=numpy.load(Gaussian_file)
+    npar_src=4
+    coords=numpy.zeros([fitp.shape[0]//npar_src, 2])
+    coords[:,0]=fitp[0::npar_src]
+    coords[:,1]=fitp[1::npar_src]
+    coords=coords*180/numpy.pi
+    pixcents=map.wcs.wcs_world2pix(coords,1)
+    nsrc=pixcents.shape[0]-nclus
+    print('#############    COORDINATES IN WCS:   ##################')
+    print(coords)
+    print('#############  COORDINATES IN PIXELS:  ##################')
+    print(pixcents)
+    #import pdb;pdb.set_trace()
+    print('#########################################################')
+    #clus1_cent = coords[0,:]
+    #clus2_cent = coords[1,:]
+
+    #edges=numpy.asarray(edges,dtype='double')
+    npar = 0
+    for edges in edge_set:
+        npar = npar + len(edges) - 1
+    #npar = npxc*nclus
+    mm = map.copy()
+    print("Code has inferred that your model accounts for ", nclus, " clusters and ", nsrc, " compact sources.")
+    print("Code is fitting ", npar, " parameters across all *cluster* components.")
+    print("Code is fitting ", npar+nsrc, " parameters across *all* components.")
+    print("==================================================================================")
+
+    #val = numpy.ones(npar+nsrc) * 1e-3    # Initiate with uniform values (zero slope)
+    val = numpy.zeros(npar+nsrc)          # Initiate with uniform values (zero slope)
+    zval = numpy.zeros(npar+nsrc)         # Initiate with zeros
+
+    lhsr = numpy.zeros([npar+nsrc,npar+nsrc])
+    rhsr = numpy.zeros(npar+nsrc)
+    srcp = numpy.zeros(npar_src)
+
+    #get the hit count map.  We use this as a preconditioner
+    #which helps small-scale convergence quite a bit.
+    hits=minkasi.mapmaking.noise.make_hits(todvec,map)
+    if minkasi.myrank==0 and save_fits:
+        hits.write(os.path.join(outdir, RingsOutputs+'_hits.fits'))
+        #hits.write(outroot+'_hits.fits')
+
+    #setup the mapset.  In general this can have many things
+    #in addition to map(s) of the sky, but for now we'll just 
+    #use a single skymap.
+    mapset=minkasi.maps.Mapset()
+    mapset.add_map(map)
+
+    #make A^T N^1 d.  TODs need to understand what to do with maps
+    #but maps don't necessarily need to understand what to do with TODs, 
+    #hence putting make_rhs in the vector of TODs. 
+    #Again, make_rhs is MPI-aware, so this should do the right thing
+    #if you run with many processes.
+    rhs=mapset.copy()
+    todvec.make_rhs(rhs)
+
+    #this is our starting guess.  Default to starting at 0,
+    #but you could start with a better guess if you have one.
+    x0=rhs.copy()
+    x0.clear()
+
+    #preconditioner is 1/ hit count map.  helps a lot for 
+    #convergence.
+    precon=mapset.copy()
+    tmp=hits.map.copy()
+    ii=tmp>0
+    tmp[ii]=1.0/tmp[ii]
+    #precon.maps[0].map[:]=numpy.sqrt(tmp)
+    precon.maps[0].map[:]=tmp[:]
+
+    if kstart > 1:
+        lhs   = numpy.load(os.path.join(outdir, RingsOutputs+'_curve'+'_pass_'+repr(kstart-1)+'.npy'))
+        rhs   = numpy.load(os.path.join(outdir, RingsOutputs+'_deriv'+'_pass_'+repr(kstart-1)+'.npy'))
+        edges_saved = numpy.load(os.path.join(outdir, RingsOutputs+'_edges'+'_pass_'+repr(kstart-1)+'.npy'))
+        cov = numpy.linalg.inv(lhs)
+        val = numpy.matmul(cov,rhs)
+
+    prev_val = val*1.0
+    for k in range(kstart,npass+1):
+        print("Values from the previous pass: ")
+        print(val)
+        print("###########################################################################")
+        lhs=numpy.zeros([npar+nsrc,npar+nsrc])
+        rhs=numpy.zeros(npar+nsrc)
+        srcp=numpy.zeros(npar_src)
+        print('>>> Working on pass ',k)
+        #print('And the tag is: ',tag)
+        #let's re-estimate the noise with the current model subtracted off 
+        mymap=map.copy()
+        for tod,orig in tqdm(zip(todvec.tods, origvec.tods)):
+            ### Copied here just in case...but it should just be called once (before the loop)
+            #ipix=map.get_pix(tod)
+            #tod.info['ipix']=ipix               
+            trucop=orig.copy()              # Don't touch the original data; make a copy.
+            trudat=trucop.info['dat_calib'] # 
+            whodat=trucop.info['dat_calib'] # 
+            tmp=numpy.zeros(trudat.shape)
+            starti = 0
+            for j, edges in enumerate(edge_set):
+                nring = len(edges) - 1
+                ringval = zval[starti:starti+nring] if noslope else prev_val[starti:starti+nring]
+                myrings=minkasi.tools.rings.make_rings_wSlope(edges,coords[j,:], ringval, map, fwhm=m2fwhm, aa=aa, bb=bb, rot=rot)
+                for i in range(nring):
+                    mm.map[:]=myrings[i,:,:]*val[starti + i]
+                    dat=numpy.zeros(tod.info['dat_calib'].shape)
+                    mm.map2tod(tod,dat)
+                    whodat = whodat-dat
+                
+                starti = starti + nring
+                
+            for i in range(nsrc):
+                #srcp[:] = fitp[(i+1)*npar_src:(i+2)*npar_src]  # Source parameters
+                srcp[:] = fitp[(i+nclus)*npar_src:(i+nclus+1)*npar_src]  # Source parameters
+                #print("I DID SOMETHING STUPID.")
+                #print(i, srcp)
+                srcp[-1]=val[i+npar]  # Value (amplitude of the source) applied here!
+                if rfwhm*fw2sr > srcp[-2]: srcp[-2] = rfwhm*fw2sr  # into radians, sigma
+                derivs,pred=minkasi.fitting.core.derivs_from_gauss_c(srcp,tod)
+                whodat = whodat-pred
+
+            ring_tods = trudat - whodat  # This is actually "model_tods", as it includes the point sources.
+            if not FPFPO or k == 0: 
+                if sub_cm:
+                    dd,fcm,cm =minkasi.tods.processing.fit_cm_plus_poly(whodat,full_out=True,ord=pord)  
+                    dd = dd-fcm
+                else:
+                    dd=minkasi.tods.processing.fit_cm_plus_poly(whodat,ord=pord)  
+            else:
+                dd=minkasi.tods.processing.fit_cm_plus_poly(trudat,ord=pord) - ring_tods
+
+            tod.info['dat_calib'][:]=dd  # Set the noise with all known signal subtracted.
+            #tod.set_noise_smoothed_svd(fwhm=svdfwhm, chisq=chisq) # Done here.
+            tod.set_noise(minkasi.mapmaking.noise.NoiseSmoothedSVD) # Done here.
+            tod.info['dat_calib'][:]=dd + ring_tods  # Now restore the known signal... but no polynomial.
+
+        ####################################################################################################
+        ### Now that the noise model has been updated, let's fit (again).
+        ####################################################################################################
+
+        for tod in todvec.tods:
+            model_ts=[None]*(npar+nsrc)
+            model_ts_filt=[None]*(npar+nsrc)
+            starti = 0
+            for j, edges in enumerate(edge_set):
+                nring = len(edges) - 1
+                ringval = zval[starti:starti+nring] if noslope else val[starti:starti+nring]
+                myrings=minkasi.tools.rings.make_rings_wSlope(edges,coords[j,:], ringval, map, fwhm=m2fwhm, aa=aa, bb=bb, rot=rot)
+                for i in range(nring):
+                    mm.map[:]=myrings[i,:,:]  # Don't apply amplitude of previous fit.
+                    dat=numpy.zeros(tod.info['dat_calib'].shape)
+                    mm.map2tod(tod,dat)
+                    dat_filt=tod.apply_noise(dat)
+                    model_ts[i+starti]=dat
+                    model_ts_filt[i+starti]=dat_filt
+                starti = starti + nring        
+            for i in range(nsrc):
+                srcp[:] = fitp[(i+1)*npar_src:(i+2)*npar_src]  # No amplitude applied.
+                srcp[-1] = 1.0
+                derivs,pred = minkasi.fitting.core.derivs_from_gauss_c(srcp, tod)
+                pred_filt = tod.apply_noise(pred)
+                model_ts[i+npar]=pred
+                model_ts_filt[i+npar]=pred_filt
+            for i in range(npar+nsrc):
+                if model_ts[i] is None:
+                    import pdb;pdb.set_trace()
+                if model_ts_filt[i] is None:
+                    import pdb;pdb.set_trace()
+
+                el_rhs = mydot(model_ts_filt[i],tod.info['dat_calib'])
+                rhs[i]=rhs[i] + el_rhs
+                if tshoot:
+                    print("RHS for index ", i,": ", el_rhs)
+                    #print(el_rhs)
+                for j in range(i,npar+nsrc):
+                    el_lhs = mydot(model_ts[i],model_ts_filt[j])
+                    if el_lhs == 0:
+                        print('oh uh')
+                        import pdb;pdb.set_trace()
+                    lhs[i,j]=lhs[i,j]+el_lhs
+                    lhs[j,i]=lhs[i,j]
+
+            if verbose:
+                print('finished tod')
+
+        if have_mpi:
+            lhs=comm.allreduce(lhs)
+            rhs=comm.allreduce(rhs)
+        #lhs=minkasi.parallel.comm.allreduce(lhs)
+        #rhs=minkasi.parallel.comm.allreduce(rhs)
+        if minkasi.myrank==0:
+            numpy.save(os.path.join(outdir, RingsOutputs+'_curve'+'_pass_'+repr(k)+'.npy'),lhs)
+            numpy.save(os.path.join(outdir, RingsOutputs+'_deriv'+'_pass_'+repr(k)+'.npy'),rhs)
+            numpy.save(os.path.join(outdir, RingsOutputs+'_edges'+'_pass_'+repr(k)+'.npy'),edges)
+        #minkasi.comm.Barrier()
+        if have_mpi:
+            comm.Barrier()
+
+        print(numpy.diag(lhs))
+
+        if save_fits:
+            starti = 0
+            ringset=[]
+            for j, edges in enumerate(edge_set):
+                nring = len(edges) - 1
+                ringval = zval[starti:starti+nring] if noslope else val[starti:starti+nring]
+                ringset.append(minkasi.tools.rings.make_rings_wSlope(edges,coords[j,:], ringval, map, fwhm=m2fwhm, aa=aa, bb=bb, rot=rot) )
+                starti = starti + nring
+
+
+        prev_val[:] = val[:]        # Retain values, don't equate objects
+        cov = numpy.linalg.inv(lhs)
+        val = numpy.matmul(cov,rhs)
+                      
+        if save_fits and minkasi.myrank==0:
+            mm = map.copy()
+            mm.map[:] *= 0.0  # Make sure it's zeroed out.
+            starti = 0
+            for j, rings in enumerate(ringset):
+                nring = len(rings)
+                for i in range(nring):
+                    mm.map[:] += rings[i,:,:]*val[starti+i]  # Don't apply amplitude of previous fit.
+                starti = starti + nring        
+            mm.write(os.path.join(outdir, RingsOutputs+'_FittedRings_pass_'+repr(k)+'.fits'))
+
+        print('-----------------------------------------------------')
+        print(val)
+        print('-----------------------------------------------------')
+
+        dmd1   = numpy.matmul(lhs,val)
+        chi1   = numpy.matmul(numpy.transpose(val),dmd1)
+        sigma1 = numpy.sqrt(chi1)
+    
+        print('Assuming all data: ',sigma1,' sigma')
+        print('-----------------------------------------------------')
+    
+        trim   = nsrc
+        if trim > 0:
+            dmd2   = numpy.matmul(lhs[:-trim,:-trim],val[:-trim])
+            chi2   = numpy.matmul(numpy.transpose(val[:-trim]),dmd2)
+            sigma2 = numpy.sqrt(chi2)
+    
+            print('Trimming the data some: ',sigma2,' sigma')
+        print('-----------------------------------------------------')
+
+    if auto_plot:
+        import restore_rings
+        restore_rings.main(config_file)
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", help="YAML configuration file")
+    args = parser.parse_args()
+
+    main(args.config)    
+       

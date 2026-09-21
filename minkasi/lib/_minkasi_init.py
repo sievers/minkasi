@@ -17,6 +17,10 @@ except OSError:
 
 try:
     _libmkfftw_path = Path(__file__).parent.joinpath("_libmkfftw" + suffix)
+    #print(Path(__file__))
+    #print(suffix)
+    #print(_libmkfftw_path)
+    #import pdb;pdb.set_trace()
     libmkfftw = ctypes.cdll.LoadLibrary(_libmkfftw_path.as_posix())
 except OSError:
     print(

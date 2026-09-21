@@ -75,7 +75,7 @@ def set_noise_binned_eig(tod, dat=None, freqs=None, scale_facs=None, thresh=5.0)
 
 @deprecated("Use tod.set_noise(NoiseSmoothedSVD) instead")
 def set_noise_smoothed_svd(
-    tod, fwhm=50, func=None, pars=None, prewhiten=False, fit_powlaw=False
+        tod, fwhm=50, func=None, pars=None, prewhiten=False, fit_powlaw=False, rchisq=1.0
 ):
     """If func comes in as not empty, assume we can call func(pars,tod) to get a predicted model for the tod that
     we subtract off before estimating the noise."""
@@ -120,7 +120,7 @@ def set_noise_smoothed_svd(
     else:
         dat_trans = fft.fft_r2r(dat_rot)
         spec_smooth = smooth_many_vecs(dat_trans**2, fwhm)
-    spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:]
+    spec_smooth[:, 1:] = 1.0 / spec_smooth[:, 1:] / rchisq
     spec_smooth[:, 0] = 0
     tod.info["mywt"] = spec_smooth
     tod.info["noise"] = "smoothed_svd"
