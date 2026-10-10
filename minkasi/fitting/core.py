@@ -4,9 +4,12 @@ import time
 import numpy as np
 
 from ..parallel import comm, have_mpi, myrank
-
+from ..lib import minkasi
 
 def update_lamda(lamda, success):
+    """
+    Update the regularization parameter, lambda.
+    """
     if success:
         if lamda < 0.2:
             return 0
@@ -107,8 +110,11 @@ def get_timestream_chisq_curve_deriv_from_func(
 
 
 def get_ts_derivs_many_funcs(
-    tod, pars, npar_fun, funcs, func_args=None, *args, **kwargs
+    tod, pars, npar_fun, funcs, *args, **kwargs
 ):
+    ### July 2026 this function had the following input declaration:
+    #tod, pars, npar_fun, funcs, *args, func_args=None, **kwargs
+    ### But func_args is not a referenced variable.
     # ndet=tod.info['dat_calib'].shape[0]
     # ndat=tod.info['dat_calib'].shape[1]
     ndet = tod.get_ndet()
@@ -121,7 +127,8 @@ def get_ts_derivs_many_funcs(
     icur = 0
     for i in range(len(funcs)):
         tmp = pars[icur : icur + npar_fun[i]].copy()
-        myderivs, mypred = funcs[i](tmp, tod, fun_num=i, *args, **kwargs)
+        #myderivs, mypred = funcs[i](tmp, tod, *args, fun_num=i,  **kwargs)
+        myderivs, mypred = funcs[i](tmp, tod, *args, **kwargs)
         pred = pred + mypred
         derivs[icur : icur + npar_fun[i], :, :] = myderivs
         icur = icur + npar_fun[i]
@@ -130,8 +137,14 @@ def get_ts_derivs_many_funcs(
 
 
 def get_ts_curve_derivs_many_funcs(
-    todvec, pars, npar_fun, funcs, driver=get_ts_derivs_many_funcs, *args, **kwargs
-):
+        todvec,
+        pars,
+        npar_fun,
+        funcs,
+        *args,
+        driver=get_ts_derivs_many_funcs,
+        **kwargs):
+    
     curve = 0
     grad = 0
     chisq = 0
@@ -164,16 +177,16 @@ def get_ts_curve_derivs_many_funcs(
     return chisq, grad, curve
 
 
-def _par_step(grad, curve, to_fit, lamda, flat_priors=None, return_full=False):
+def _par_step(grad, curve, to_fit, lamda, flat_priors=None, return_full=False, step_scale=1.0):
     curve_use = curve + lamda * np.diag(np.diag(curve))
     if to_fit is None:
-        step = np.dot(invscale(curve_use, True), grad)
+        step = np.dot(invscale(curve_use, True), grad) * step_scale
         errs = np.sqrt(np.diag(invscale(curve_use, True)))
     else:
         curve_use = curve_use[to_fit, :]
         curve_use = curve_use[:, to_fit]
         grad_use = grad[to_fit]
-        step = np.dot(invscale(curve_use), grad_use)
+        step = np.dot(invscale(curve_use), grad_use) * step_scale
         step_use = np.zeros(len(to_fit))
         step_use[to_fit] = step
         errs_tmp = np.sqrt(np.diag(invscale(curve_use, True)))
@@ -201,6 +214,8 @@ def fit_timestreams_with_derivs_manyfun(
     driver=get_ts_derivs_many_funcs,
     priors=None,
     prior_vals=None,
+    og_step=False,
+    verbose=False,
     *args,
     **kwargs,
 ):
@@ -246,11 +261,16 @@ def fit_timestreams_with_derivs_manyfun(
                     pars_new[flat_id] = prior_vals[flat_id][1]
             #print("new gamma: ", pars_new[flat_id])
         else:
-            pars_new = pars + _par_step(grad, curve, to_fit, lamda)
+            this_par_step = _par_step(grad, curve, to_fit, lamda)
+            if verbose:
+                print("Steps are:")
+                print(this_par_step)
+            pars_new = pars + this_par_step
         chisq_new, grad_new, curve_new = get_ts_curve_derivs_many_funcs(
             tods, pars_new, npar_fun, funcs, driver=driver, *args, **kwargs,
         )
-        if chisq_new < chisq:
+        if og_step:
+            lamda = 0
             if myrank == 0:
                 print(
                     "accepting with delta_chisq ",
@@ -263,24 +283,46 @@ def fit_timestreams_with_derivs_manyfun(
             pars = pars_new
             curve = curve_new
             grad = grad_new
-            lamda = update_lamda(lamda, True)
             if (chisq - chisq_new < chitol) & (lamda == 0):
                 step, errs = _par_step(
-                    grad, curve, temp_to_fit, lamda, return_full=True
+                    grad, curve, temp_to_fit, lamda, return_full=True, step_scale=0.5
                 )
                 return pars, chisq_new, curve_new, errs
             else:
                 chisq = chisq_new
         else:
-            if myrank == 0:
-                print(
-                    "rejecting with delta_chisq ",
-                    chisq_new - chisq,
-                    " and lamda ",
-                    lamda,
-                )
-            lamda = update_lamda(lamda, False)
-        sys.stdout.flush()
+            if chisq_new < chisq:
+                if myrank == 0:
+                    print(
+                        "accepting with delta_chisq ",
+                        chisq_new - chisq,
+                        " and lamda ",
+                        lamda,
+                        pars_new.shape,
+                    )
+                    print(repr(pars_new))
+                pars = pars_new
+                curve = curve_new
+                grad = grad_new
+                lamda = update_lamda(lamda, True)
+                if (chisq - chisq_new < chitol) & (lamda == 0):
+                    step, errs = _par_step(
+                        grad, curve, temp_to_fit, lamda, return_full=True
+                    )
+                    return pars, chisq_new, curve_new, errs
+                else:
+                    chisq = chisq_new
+            else:
+                if myrank == 0:
+                    print(
+                        "rejecting with delta_chisq ",
+                        chisq_new - chisq,
+                        " and lamda ",
+                        lamda,
+                    )
+                lamda = update_lamda(lamda, False)
+            sys.stdout.flush()
+            
     if myrank == 0:
         print(
             "fit_timestreams_with_derivs_manyfun failed to converge after ",
@@ -391,3 +433,34 @@ def fit_timestreams_with_derivs(
             chi_ref - chi_new,
         )
     return pp, chi_cur
+
+# ---------------------------------------------------------------------------- #
+# Calls to Python wrappers.
+
+def derivs_from_isobeta_c(params,tod):
+    npar=5;
+    n=tod.info['dat_calib'].size
+    sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    
+    pred=np.zeros(tod.info['dat_calib'].shape)
+    derivs=np.zeros(sz_deriv)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    minkasi.fill_isobeta_derivs_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,derivs.ctypes.data,n)
+
+    return derivs,pred
+
+def derivs_from_gauss_c(params,tod):
+    npar=4
+    n=tod.info['dat_calib'].size
+    sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
+    
+    pred=np.zeros(tod.info['dat_calib'].shape)
+    derivs=np.zeros(sz_deriv)
+
+    dx=tod.info['dx']
+    dy=tod.info['dy']
+    minkasi.fill_gauss_derivs_c(params.ctypes.data,dx.ctypes.data,dy.ctypes.data,pred.ctypes.data,derivs.ctypes.data,n)
+
+    return derivs,pred

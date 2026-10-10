@@ -1,0 +1,39 @@
+general:
+   target_name: MOO1142
+   # For sessions observed prior to 2026, a list of bad scans may exist.
+   auto_trim: False  # Exclude bad scans (from aforementioned list)?
+   verbose: True   # As it sounds -- have code print out lots of info?
+
+paths:
+   # locations of files.
+   base_dir: '/home/scratch/cromero/mustang/MUSTANG2/Reductions/MOO_1142/'
+   tod_folder: 'TS_EaCMS0f0_51_18_Jun_2025'
+   glob: "Signal_TOD*.fits" # Pattern to search for TODs with
+   output_folder: "mustang/MUSTANG2/MinkasiOutputs"   # Will be made in /home/scratch/<user>/
+   # A folder with the target_name will be put inside output_folder
+   # A "Gaussian_Fits" folder will be put inside that.
+   # And then another folder identifying fitpars will be put inside that.
+
+# Parameters associated with *how* the fitting procedure runs.
+fitpars:
+   maxiter: 2
+   ntods: 10    # Will default to number of TODs it finds when null. Otherwise, specify an integer.
+   fit_widths: False  # With few scans, better to fix it.
+   fit_cen: False    # It just won't find the correct center.
+   og_step: False    # Take steps via the original minkasi (circa 2018) method.
+   # Newer method (og_step = False) should be smarter.
+
+# Can pull initial guesses from literature and/or ds9 from some initial map.
+startvars:
+   cluster_ras: [175.69766, 175.68840]        # As a list, in case there are subclusters
+   cluster_decs: [15.453600, 15.455600]       # As a list, in case there are subclusters
+   cluster_amps: [-0.0006, -0.0001]           # Kelvin_RJ is usually what the TODs are saved in.
+   cluster_widths: [30.0, 10.0]               # Gaussian sigma, in arcseconds.
+   #ptsrc_ras: [175.69784, 175.61436]          # From where?
+   ptsrc_ras: [175.69810, 175.61446]          # Again, a list
+   ptsrc_decs: [15.45265, 15.507271]          # From ds9
+   #ptsrc_decs: [15.45318, 15.507738]         # From where??
+   ptsrc_amps: [1.0e-4, 1.8e-3]
+   # Peak of point sources (in Kelvin_RJ, presumably)
+   ptsrc_widths: [5.537982, 5.537982]
+   # Gaussian sigma, in arcseconds.

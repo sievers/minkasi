@@ -1046,3 +1046,136 @@ class SkyMapCarOld:
     def dot(self, map):
         tot = np.sum(self.map * map.map)
         return tot
+
+
+def make_beam_kernel( map: SkyMap,
+                      pixsize: float=2.0,
+                      fwhm: Union[float, int, List[float], NDArray[np.floating]] = 10.0,
+                      norm: Union[float, int, List[float], NDArray[np.floating]] = 1.0,
+                      verbose: bool = False):
+    
+    xvec=np.arange(map.nx)
+    yvec=np.arange(map.ny)
+    xvec[map.nx//2:]=xvec[map.nx//2:]-map.nx
+    yvec[map.ny//2:]=yvec[map.ny//2:]-map.ny
+
+    xmat=np.repeat([xvec],map.ny,axis=0).transpose()
+    ymat=np.repeat([yvec],map.nx,axis=0)
+
+    rmat=np.sqrt(xmat**2+ymat**2)*pixsize
+    if isinstance(fwhm,int)|isinstance(fwhm,float):
+        sig=fwhm/np.sqrt(8*np.log(2.))
+        src_map=np.exp(-0.5*rmat**2./sig**2)
+        src_map=src_map/src_map.sum()
+    else:
+        sig=fwhm[0]/np.sqrt(8*np.log(2))
+        src_map=np.exp(-0.5*rmat**2/sig**2)*norms[0]
+        for i in range(1,len(fwhm)):
+            sig=fwhm[i]/np.sqrt(8*np.log(2))
+            src_map=src_map+np.exp(-0.5*rmat**2/sig**2)*norms[i]
+
+        src_map=src_map/src_map.sum()
+        beam_area=pixsize**2/src_map.max()
+        beam_area=beam_area/3600**2/(360**2/np.pi)
+        if verbose:
+            print('beam_area is ',beam_area*1e9,' nsr')
+
+    
+def make_rings_wSlope(edges: Union[List[float], NDArray[np.floating]],
+                      cent: Union[List[float], NDArray[np.floating]],
+                      vals: Union[List[float], NDArray[np.floating]],
+                      map: SkyMap,
+                      pixsize: float=2.0,
+                      fwhm: Union[float, int, List[float], NDArray[np.floating]] = 10.0,
+                      norm: Union[float, int, List[float], NDArray[np.floating]] = 1.0,
+                      aa: float= 1.0,
+                      bb: float= 1.0,
+                      rot: float= 0.0,
+                      pk_scale: float= 50.0,
+                      is_sz: bool= True) -> NDArray[np.floating]:
+    """
+    Makes 2D maps for each annulus to be fitted. Returns a 3D array with the first dimension
+    indexing the annuli.
+    
+    Parameters
+    ----------
+    edges : Union[List[float], NDArray[np.floating]]
+        Array-like list of edges of annuli in units of pixsize (arcseconds).
+    cent : Union[List[float], NDArray[np.floating]]
+        2-element list or array of the center, in degrees, to use.
+    vals : Union[List[float], NDArray[np.floating]]
+        Amplitudes of the rings (in units of the TOD data, e.g. Kelvin_RJ)
+    map : SkyMap
+        Leverages 
+    pixsize : float. Default is 2.0
+        Pixel size, in arcseconds
+    fwhm : Union[float, int, List[float], NDArray[np.floating]]. Default is 10.0
+        FWHM of the effective beam in arcseconds, Can be array-like if the beam is
+        well described by multiple Gaussians (assumed to be symmetrical).
+    norm : Union[float, int, List[float], NDArray[np.floating]]. Default is 1.0
+        Unnecessary if fwhm is a scalar. If fwhm is array-like, then norm should be
+        of the same length as fwhm with a total equal to unity.
+    aa: float. Default is 1.0
+        Scaling factor for an axis (along RA if rot=0.0). Default is 1.0 (no scaling).
+    bb: float= 1.0
+        Scaling factor for an axis (along Dec if rot=0.0). Default is 1.0 (no scaling).
+    rot: float. Default is 0.0
+        Rotation off of RA.
+    pk_scale: float. Default is 50.0
+    is_sz : bool. Default is True.
+    """
+
+    beam_map = make_beam_kernel(map, fwhm, norm)
+    beam_ft=np.fft.fft2(beam_map)
+
+    nring=len(edges)-1
+    rings=np.zeros([nring,map.nx,map.ny])
+    mypix=map.wcs.wcs_world2pix(cent[0],cent[1],1)
+    print('mypix is ',mypix)
+
+    xvec=np.arange(map.nx)
+    yvec=np.arange(map.ny)
+    xmat=np.repeat([xvec],map.ny,axis=0).transpose()
+    ymat=np.repeat([yvec],map.nx,axis=0)
+
+    xtr  = (xmat-mypix[0])*np.cos(rot) + (ymat-mypix[1])*np.sin(rot) # Rotate and translate x coords
+    ytr  = (ymat-mypix[1])*np.cos(rot) - (xmat-mypix[0])*np.sin(rot) # Rotate and translate y coords
+    rmat = np.sqrt( (xtr/aa)**2 + (ytr/bb)**2 ) * pixsize            # Elliptically scale x,y
+
+    myvals = vals[:nring]*1.0   # Get just the values that correspond to rings
+    if is_sz:
+        myvals -= np.max(myvals) # Set it such that the maximum value approaches 0
+        pk2pk = np.max(myvals) - np.min(myvals)
+        myvals -= pk2pk / pk_scale       # Let's assume we're down about a factor of 50 at the outskirts.
+    else:
+        myvals -= np.min(myvals) # Set it such that the maximum value approaches 0
+        pk2pk = np.max(myvals) - np.min(myvals)
+        myvals += pk2pk / pk_scale       # Let's assume we're down about a factor of 50 at the outskirts.
+
+
+    for i in range(nring):
+        #rings[i,(rmat>=edges[i])&(rmat<edges[i+1]=1.0
+        if i == nring-1:
+            slope=0.0
+        else:
+            if is_sz:
+                slope = (myvals[i]-myvals[i+1])/(edges[i+1]-edges[i]) # expect positve slope; want negative one.
+            else:
+                slope = (myvals[i+1]-myvals[i])/(edges[i+1]-edges[i]) # expect positve slope; want negative one.
+        rgtinedge = (rmat>=edges[i])
+        rfromin   = (rmat-edges[i])
+        initline  = rfromin[rgtinedge]*slope
+        if vals[i] != 0:
+            rings[i,rgtinedge] = (myvals[i] - initline)/myvals[i]  # Should be normalized to 1 now.
+        else:
+            rings[i,rgtinedge] = 1.0
+        rgtoutedge = (rmat>=edges[i+1])
+        rings[i,rgtoutedge]=0.0
+        myannul = [ c1 and not(c2) for c1,c2 in zip(rgtinedge.ravel(),rgtoutedge.ravel())]
+        rannul  = rmat.ravel()[myannul]
+        rmin    = (rmat == np.min(rannul))
+        rmout   = (rmat == np.max(rannul))
+        rings[i,:,:]=np.real(np.fft.ifft2(np.fft.fft2(rings[i,:,:])*beam_ft))
+        
+    return rings
+    

@@ -1,0 +1,63 @@
+general:
+   target_name: MOO1142
+   sig2fwhm: numpy.sqrt(8.0 * numpy.log(2.0)) # FWHM <-> sigma (Gaussian width)
+   fw2sr: numpy.pi/180.0/3600.0/sig2fwhm   # Converts FWHM in arcsec to sig in radians
+   tshoot: False   # This fitting routine is being problematic. Allow troubleshooting.
+   # For sessions observed prior to 2026, a list of bad scans may exist.
+   auto_trim: True  # Exclude bad scans (from aforementioned list)?
+   verbose: False   # As it sounds -- have code print out lots of info?
+   auto_plot: True  # Make a plot at the end?
+   save_fits: True
+   group_parts: True  # Plot partitions together?
+
+paths:
+   # locations of files.
+   base_dir: '/home/scratch/cromero/mustang/MUSTANG2/Reductions/MOO_1142/'
+   tod_folder: 'TS_EaCMS0f0_51_18_Jun_2025'
+   gauss_folder: '18Sep2026_2iters_10scans'  # Where the Gaussian fits are saved.
+   glob: "Signal_TOD*.fits" # Pattern to search for TODs with
+   output_folder: "mustang/MUSTANG2/MinkasiOutputs"   # Will be made in /home/scratch/<user>/
+   # A folder with the target_name will be put inside output_folder
+   # A "Ring_Fits" folder will be put inside that.
+   # And then another folder identifying fitpars will be put inside that.
+   #ring_folder: '18Sep2026_5pass_113scans' 
+   ring_folder: 'most_recent'  # similar to gauss_folder
+
+# Parameters associated with *how* the fitting procedure runs.
+fitpars:
+   npass: 10
+   ntods: null       # Will default to number of TODs it finds when null. Otherwise, specify an integer.
+   ### IDEALLY USERS CAN ALWAYS LEAVE NPARTITIONS=1. BUT I THINK WE HAVE LINGERING DOUBTS ABOUT THE
+   ### UNCERTAINTIES. In other words, we have uncertainties about the uncertainties.
+   # npartitions >~ 6 is a simple way to check uncertainties (reported vs observed scatter).
+   npartitions: 1    # Divide the data (scans) into npartitions.
+   rchisq: 2.25       # Try adjusting due to simulations
+   simclus: False     # Sets nsrcs to 0
+   sub_cm: False
+   svdfwhm: 20        # Number of integrations over which to smooth.
+   svdcut: False      # Run set_noise_smoothed_svd_v2()
+   kstart: 1      # Which pass to start at? (1 unless you've already run some passes)
+   rfwhm:  10.7    # Set to 0 if you want to use FWHM (sigmas) from fit_Gauss (e.g. for pt. srcs)
+   m2fwhm: 10.7 # Beam to convolve rings by (allowed to be different than above.
+   doconv: True
+   #rfwhm: 0       # Set to 0 if you want to use FWHM (sigmas) from fit_Gauss
+   pord: 2        # Polynomial order.
+   FPFPO: True    # Do a polynomial fit when calculating CM?
+   noslope: False     # Should usually be false...but I'm trying to replicate old results (13 May 2019)
+   pix_arcsec: 2.0    # Pixel size, in arcseconds.
+   decrement: True
+
+# Have some idea of where the edges of annuli should go. Maximum radius needs to have non-zero
+# coverage. Early maps only went out to ~4' radius securely. Zwicky 3146 barely got out to 5'.
+
+# Defining the edges is a bit of an art. While there is more area at larger radii, the coverage is less.
+# Therefore, you want to try to give each annulus a similar total weight.
+
+# NB: edges should be a list *of* list(s). The script wants to allow for multiple (sub)clusters.
+# More specifically, it will check that the number of clusters matches that from the Gaussian fits.
+startvars:
+   #edge_set: [ [0, 5, 15, 25, 35, 45, 60, 80, 100, 120, 150, 180, 240, 300] ]
+   edge_set: [ [0, 15, 30, 45, 60, 80, 100, 120, 150, 180, 240], [0, 15, 30, 45, 60, 90, 120, 180, 240] ]
+   aa: [1.0]  # No "major" axis scaling. X = "major" axis
+   bb: [1.0]  # No "minor" axis scaling. Y = "major" axis.
+   rot: [0.0]  # No rotation. X is along RA.

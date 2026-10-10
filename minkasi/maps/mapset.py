@@ -93,7 +93,7 @@ class Mapset(_MapsetBase):
         Parameters
         ----------
         mapset : Mapset
-            Mapset to tahe dot product with.
+            Mapset with which one takes the dot product.
             Should have the same nmap as this Mapset.
 
         Returns

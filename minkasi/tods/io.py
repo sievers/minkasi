@@ -158,7 +158,7 @@ def read_tod_from_fits_cbass(
 
 
 def read_tod_from_fits(
-    fname: str, hdu: int = 1, branch: Optional[float] = None
+        fname: str, hdu: int = 1, branch: Optional[float] = None, verbose: bool = True
 ) -> Dict:
     """
     Read a TOD from a FITS file.
@@ -173,6 +173,8 @@ def read_tod_from_fits(
     branch : float | None, default: None
         Branch in degrees that RA was corrected to.
         Set to None if RA wasnt correctd to a branch.
+    verbose : bool, default: True
+        Print out information about TOD(s)?
 
     Returns
     -------
@@ -265,19 +267,20 @@ def read_tod_from_fits(
     xmax = dx.max() * ff
     ymin = dy.min() * ff
     ymax = dy.max() * ff
-    print(
-        "ndata and ndet are ",
-        ndet,
-        ndata,
-        len(pixid),
-        " on ",
-        fname,
-        "with lims ",
-        xmin,
-        xmax,
-        ymin,
-        ymax,
-    )
+    if verbose:
+        print(
+            "ndata and ndet are ",
+            ndet,
+            ndata,
+            len(pixid),
+            " on ",
+            fname,
+            "with lims ",
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+        )
 
     hdul.close()
 
