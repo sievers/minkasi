@@ -305,6 +305,13 @@ def main(args):
             conv=args.act_conv or act_conversion(args.freq, args.m2_beam),
         )
         act_rhs = map2wav_real(wdata, wmap.needlet.filters)[0]
+        if (
+            minkasi.myrank == 0
+        ):  # ACT only (inverse variance weighted coadd) for comparison
+            wmap.real_map.map = np.divide(
+                wdata, ivar, out=np.zeros_like(wdata), where=ivar > 0
+            )
+            wmap.real_map.write(args.outroot + "_act.fits")
         print(f"reading ACT took {time.time() - t1:.1f} s")
         responses.append(
             cached(

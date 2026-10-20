@@ -14,6 +14,26 @@ import minkasi.minkasi_all as minkasi
 from twores_ex import read_tods, setup_wmap
 
 
+def plot_maps(files, out):
+    """
+    Plot FITS maps side by side, titled by the suffix of the file name (e.g. need, act, combined).
+
+    Parameters
+    ----------
+    files : list[str]
+        FITS maps to plot.
+    out : str
+        Output figure path.
+    """
+    fig, axs = plt.subplots(1, len(files), figsize=(5 * len(files), 4.5), squeeze=False)
+    for ax, f in zip(axs[0], files):
+        im = ax.imshow(fits.getdata(f), origin="lower")
+        ax.set_title(os.path.basename(f).rsplit("_", 1)[-1][:-5])
+        plt.colorbar(im, ax=ax, shrink=0.8)
+    fig.tight_layout()
+    fig.savefig(out, dpi=120)
+
+
 def main(args):
     """
     Time exact and probed ANA for a few filters and save figures and a json summary.
@@ -74,13 +94,7 @@ def main(args):
     fig.tight_layout()
     fig.savefig(f"{args.odir}/rows.png", dpi=120)
     if args.maps:
-        fig, axs = plt.subplots(1, 2, figsize=(10, 4.5))
-        for ax, (f, t) in zip(
-            axs, zip(args.maps, ["PCG (M2 only)", "combined M2+ACT"])
-        ):
-            ax.imshow(fits.getdata(f), origin="lower")
-            ax.set_title(t)
-        fig.savefig(f"{args.odir}/maps.png", dpi=120)
+        plot_maps(args.maps, f"{args.odir}/maps.png")
     with open(f"{args.odir}/summary.json", "w") as f:
         json.dump(res, f, indent=1)
 
@@ -95,11 +109,14 @@ if __name__ == "__main__":
     parser.add_argument("--nfilt", type=int, default=6)
     parser.add_argument("--filters", type=int, nargs="+", default=[2, 3])
     parser.add_argument("--radii", type=float, nargs="+", default=[10.0, 20.0])
-    parser.add_argument(
-        "--maps", nargs="*", default=[], help="PCG and combined FITS maps to plot"
-    )
+    parser.add_argument("--maps", nargs="*", default=[], help="FITS maps to plot")
+    parser.add_argument("--maps-only", action="store_true", help="Only plot --maps")
     parser.add_argument("--debug", action="store_true", help="Only the coarsest filter")
     args = parser.parse_args()
     if args.debug:
         args.filters, args.radii = [2], [10.0]
-    main(args)
+    if args.maps_only:
+        os.makedirs(args.odir, exist_ok=True)
+        plot_maps(args.maps, f"{args.odir}/maps.png")
+    else:
+        main(args)

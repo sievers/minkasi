@@ -24,6 +24,7 @@
 
 <h2>Combined map</h2>
 <img src="figs/maps.png" alt="maps">
+<p>Left: PCG residual (M2 only, small scales, the part subtracted before the ANA step). Middle: ACT only, the inverse variance weighted coadd of the splits on the same pixels (ACT pixels are visible). Right: combined M2+ACT solution for the large scales (filters at &gt; 60&Prime;). All in mJy/beam. The combined map follows the ACT large-scale gradient but shows ringing at the map edges, outside the M2 footprint where the solution is constrained only by the ACT precision; not yet investigated.</p>
 <p>ACT maps (&micro;K<sub>CMB</sub>) are converted to M2 units (mJy/beam, RJ) with <code>act_conversion</code>: thermodynamic to RJ temperature (matches <code>witch.utils.K_CMB2K_RJ</code>, 0.8146 at 90 GHz), then times the M2 beam solid angle. Defaults: 90 GHz, 9&Prime; FWHM beam, giving 4.37e-4 mJy/beam per &micro;K (override with <code>--freq</code>, <code>--m2-beam</code>, <code>--act-conv</code>). The ACT noise is the summed split ivar as a diagonal inverse covariance; TODO: replace with a robust map-space noise covariance estimate.</p>
 <p>The map size is chosen as the even size within 15% above the minimum that has the most divisors (218 &rarr; 240 here) so filters can be downsampled more.</p>
 
