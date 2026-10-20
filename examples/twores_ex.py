@@ -275,6 +275,9 @@ def main(args):
         tod.set_noise(minkasi.NoiseSmoothedSVD)
     hits = minkasi.make_hits(todvec, wmap.real_map)
     hits.write(args.outroot + "_hits.fits")
+    if args.min_hits > 0:
+        wmap.set_mask(hits.map, args.min_hits - 1)  # mask pixels with hits < min_hits
+    mask = 1.0 if wmap.mask is None else wmap.mask
 
     # Run a few PCG iterations to get the small scales to converge, then subtract them.
     mapset = Mapset()
@@ -298,7 +301,7 @@ def main(args):
         save_iters=[args.maxiter],
         outroot=args.outroot,
     )
-    pcg_map = wav2map_real(mapset_out.maps[0].map, need.filters)[0]
+    pcg_map = wav2map_real(mapset_out.maps[0].map, need.filters)[0] * mask
     if minkasi.myrank == 0:
         mapset_out.maps[0].write(args.outroot + "_need.fits")
     minkasi.barrier()
@@ -393,7 +396,7 @@ def main(args):
     print(f"ACT response took {time.time() - t0:.1f} s")
     t0 = time.time()
     wsol = wmap.solve_bands(rhs.maps[0].map + act_rhs, responses)
-    mmap = wav2map_real(wsol, wmap.needlet.filters)[0]
+    mmap = wav2map_real(wsol, wmap.needlet.filters)[0] * mask
     print(f"solve took {time.time() - t0:.1f} s")
     wmap.real_map.map = mmap
     if minkasi.myrank == 0:
@@ -457,6 +460,12 @@ if __name__ == "__main__":
     parser.add_argument("--nfilt", type=int, default=10)
     parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
     parser.add_argument("--maxiter", type=int, default=50)
+    parser.add_argument(
+        "--min-hits",
+        type=float,
+        default=20,
+        help="Mask pixels with fewer hits from mapmaking and the output maps (0 = no mask)",
+    )
     parser.add_argument(
         "--max-res", type=float, default=5.0, help="Arcsec; smallest scale for ANA"
     )

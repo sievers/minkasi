@@ -742,6 +742,7 @@ class WavSkyMap(SkyMap):
         self.needlet = needlet
         self.isglobal_prior = isglobal_prior
         self.downsamps = None
+        self.mask = None
         super().__init__(
             lims,
             pixsize,
@@ -777,6 +778,21 @@ class WavSkyMap(SkyMap):
             ref_equ,
         )  # This is very slightly inefficient as it redoes the ssquaring but is safer in avoiding getting a real_map and wave_map with different shapes
 
+    def set_mask(self, hits, thresh=0):
+        """
+        Mask real-space pixels with hits <= thresh in the pointing: masked pixels neither
+        contribute to TODs (map2tod) nor receive data (tod2map), so they drop out of
+        mapmaking and of the response matrices probed through todvec.dot.
+
+        Parameters
+        ----------
+        hits : NDArray[np.floating]
+            Hits map, shape (nx, ny). None removes the mask.
+        thresh : float, default: 0
+            Pixels with hits <= thresh are masked.
+        """
+        self.mask = None if hits is None else hits > thresh
+
     def map2tod(
         self,
         tod: "Tod",
@@ -808,6 +824,8 @@ class WavSkyMap(SkyMap):
         self.real_map.map = np.squeeze(
             wav2map_real(self.map, self.needlet.filters, n_filt=n_filt), axis=0
         )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
+        if self.mask is not None:
+            self.real_map.map = self.real_map.map * self.mask
         map2tod(dat, self.real_map.map, ipix, do_add, do_omp)
 
     def tod2map(
@@ -849,6 +867,8 @@ class WavSkyMap(SkyMap):
         self.real_map.clear()
 
         tod2map_simple(self.real_map.map, dat, ipix)
+        if self.mask is not None:
+            self.real_map.map *= self.mask
         if not do_add:
             self.map = np.squeeze(
                 map2wav_real(self.real_map.map, self.needlet.filters, n_filt=n_filt),
