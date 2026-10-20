@@ -274,6 +274,7 @@ def main(args):
         tod.info["ipix"] = wmap.get_pix(tod)
         tod.set_noise(minkasi.NoiseSmoothedSVD)
     hits = minkasi.make_hits(todvec, wmap.real_map)
+    hits.write(args.outroot + "_hits.fits")
 
     # Run a few PCG iterations to get the small scales to converge, then subtract them.
     mapset = Mapset()
