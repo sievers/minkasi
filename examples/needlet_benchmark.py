@@ -26,10 +26,9 @@ def plot_maps(files, out, smooth=None):
     out : str
         Output figure path.
     smooth : dict | None
-        Gaussian smoothing (pixels) by file name suffix, e.g. {"need": 8}. Default smooths the noisy
-        PCG based maps (need, combined, final).
+        Gaussian smoothing (pixels) by file name suffix, e.g. {"need": 8}. Default is no smoothing.
     """
-    smooth = {"need": 8, "combined": 4, "final": 8} if smooth is None else smooth
+    smooth = {} if smooth is None else smooth
     fig, axs = plt.subplots(1, len(files), figsize=(5 * len(files), 4.5), squeeze=False)
     for ax, f in zip(axs[0], files):
         name = os.path.basename(f).rsplit("_", 1)[-1][:-5]
