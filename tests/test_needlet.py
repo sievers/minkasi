@@ -8,6 +8,7 @@ from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
     band2map,
+    color_groups,
     map2band,
     map2wav_real,
     wav2map_real,
@@ -148,3 +149,12 @@ def test_solve_bands_recovers_input(wmap):
         got = band2map(sol[i], wmap.needlet.filters[i])
         want = band2map(truth[i], wmap.needlet.filters[i])
         assert np.abs(got - want).max() < 1e-3 * np.abs(want).max()
+
+
+@pytest.mark.parametrize("n,width", [(55, 21), (110, 7), (484, 3), (10, 40)])
+def test_color_groups_tile_and_separate(n, width):
+    groups = color_groups(n, width)
+    assert sorted(np.concatenate(groups)) == list(range(n))
+    for g in groups:
+        gaps = np.diff(np.concatenate([g, [g[0] + n]]))
+        assert len(g) == 1 or gaps.min() >= width

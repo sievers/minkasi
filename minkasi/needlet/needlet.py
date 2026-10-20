@@ -47,19 +47,29 @@ def factors(n):
     )
 
 
-def next_divisor(n, m):
+def color_groups(n, width):
     """
-    Smallest divisor of n that is at least m (n itself if there is none).
+    Split a periodic lattice of n points into groups (colors) such that any two points of
+    one group are at least width apart, including across the wrap, using as few groups as possible.
+    The lattice is cut into floor(n / width) blocks of near equal length and the
+    k-th group takes the k-th point of every block that has one.
 
     Parameters
     ----------
     n : int
-        Number to find the divisor of.
-    m : int
-        Lower bound.
+        Number of lattice points.
+    width : int
+        Minimum separation within a group.
+
+    Returns
+    -------
+    groups : list[NDArray[int]]
+        Indices of each group. Every point is in exactly one group.
     """
-    f = factors(n)
-    return int(f[f >= m][0]) if np.any(f >= m) else int(n)
+    nblock = max(n // width, 1)
+    edges = np.linspace(0, n, nblock + 1).astype(int)
+    lens = np.diff(edges)
+    return [edges[:-1][lens > k] + k for k in range(lens.max())]
 
 
 def band2map(band, filt):
@@ -926,16 +936,16 @@ class WavSkyMap(SkyMap):
         nxr, nyr = len(xs), len(ys)
         down = self.downsamps[nfilt]
         if radius is None:
-            rx, ry, sx, sy = nxr, nyr, nxr, nyr
+            rx, ry = nxr, nyr
         else:
             rx = ry = int(np.ceil(radius / down))
-            sx, sy = next_divisor(nxr, 2 * rx + 1), next_divisor(nyr, 2 * ry + 1)
         full_x, full_y = 2 * rx + 1 >= nxr, 2 * ry + 1 >= nyr
         offx = np.arange(nxr) if full_x else np.arange(-rx, rx + 1)
         offy = np.arange(nyr) if full_y else np.arange(-ry, ry + 1)
         rows, cols, vals = [], [], []
-        for cx, cy in itertools.product(range(sx), range(sy)):
-            ax, ay = np.arange(cx, nxr, sx), np.arange(cy, nyr, sy)
+        for ax, ay in itertools.product(
+            color_groups(nxr, 2 * rx + 1), color_groups(nyr, 2 * ry + 1)
+        ):
             delta = np.zeros((self.nx, self.ny))
             delta[np.ix_(xs[ax], ys[ay])] = 1
             z = map2band(apply(band2map(delta, filt)), filt)

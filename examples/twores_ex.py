@@ -1,176 +1,313 @@
+"""
+Two resolution (MUSTANG-2 TODs + ACT maps) needlet mapmaking example.
+
+Steps: read TODs, run PCG in the needlet basis to remove small scales, compute the (sparse)
+wavelet space noise matrix of the TODs and of ACT, add them and solve for the combined map.
+"""
+
+import argparse
+import glob
+import os
+import time
+
 import numpy as np
-from matplotlib import pyplot as plt
+from pixell import enmap, utils
+from scipy import sparse
 
 import minkasi.minkasi_all as minkasi
-from minkasi.needlet.needlet import WavSkyMap
-from minkasi.needlet.needlet import Needlet, cosmo_box
-from minkasi.needlet.needlet import wav2map_real, map2wav_real
-from minkasi.maps.mapset import PriorMapset, Mapset
+from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
-from minkasi.parallel import comm, get_nthread, have_mpi, nproc, myrank, MPI
-
-import time, glob, os
-import pdb
-
-from pixell import enmap, utils
-
-import astropy.units as u
-from astropy.nddata import block_replicate
-
-import dill as pk
-
-plt.ion()
-
-#find tod files we want to map
-
-name = "MOOJ1142"
-idir = "/mnt/welch/MUSTANG/M2-TODs/{}/".format(name) #CHANGE ME
-tod_names=glob.glob(idir+'Sig*.fits')
-tod_names=tod_names[minkasi.myrank::minkasi.nproc]
-todvec=minkasi.TodVec()
-
-ntods = 2 
-#loop over each file, and read it.
-for i, fname in enumerate(tod_names):
-    if i >= ntods: break
-    t1=time.time()
-    dat=minkasi.read_tod_from_fits(fname)
-    t2=time.time()
-    minkasi.truncate_tod(dat) #truncate_tod chops samples from the end to make
-    minkasi.downsample_tod(dat)   #sometimes we have faster sampled data than we need.
-    minkasi.truncate_tod(dat)    #since our length changed, make sure we have a happy length
-
-    dd=minkasi.fit_cm_plus_poly(dat['dat_calib'])
-
-    dat['dat_calib']=dd
-    t3=time.time()
-    tod=minkasi.Tod(dat)
-    todvec.add_tod(tod)
-    print('took ',t2-t1,' ',t3-t2,' seconds to read and downsample file ',fname)
-
-lims=todvec.lims()
-pixsize=3.0/3600*np.pi/180
-
-#wmap = SkyMap(lims, pixsize, primes = [2,3,5,7], square = True).map #Really shitty way to get the right map geometry for making filters
-wmap = SkyMap(lims, pixsize, square = True, multiple=2).map
-need = Needlet(np.arange(10), lightcone=wmap, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
-fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
-need.get_needlet_filters_2d(fourier_radii)
-
-#wmap = WavSkyMap(need, lims, pixsize, primes = [2,3,5,7], square = True)
-wmap = WavSkyMap(need, lims, pixsize, square = True, multiple=2)
-
-for tod in todvec.tods:
-    ipix=wmap.get_pix(tod)
-    tod.info['ipix']=ipix
-    tod.set_noise(minkasi.NoiseSmoothedSVD)
-
-hits=minkasi.make_hits(todvec,wmap.real_map)
-
-#Run a few iterations to get small scales to converge, subtract off so we only need to do larger scales
-mapset=Mapset()
-mapset.add_map(wmap)
-
-rhs=mapset.copy()
-todvec.make_rhs(rhs)
-
-#this is our starting guess.  Default to starting at 0,
-x0=rhs.copy()
-x0.clear()
-
-#preconditioner is 1/ hit count map.  helps a lot for
-precon=mapset.copy()
-tmp=hits.map.copy()
-ii=tmp>0
-tmp[ii]=1.0/tmp[ii]
-precon.maps[0].map[:]=np.sqrt(tmp)
-precon.maps[0].map[:]=tmp[:]
-
-#outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
-#outroot = '/scratch/r/rbond/jorlo/A399-401'
-outroot = "/mnt/welch/USERS/jorlo/needlets/{}".format(name)
-print("Saving to ", outroot)
-save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
-#run PCG!
-mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)
-
-if minkasi.myrank==0:
-    mapset_out.maps[0].write(outroot+"_need.fits")
-minkasi.barrier()
-#Subtract off modes outside the joint ACT+M2 window
+from minkasi.needlet.needlet import Needlet, WavSkyMap, map2wav_real, wav2map_real
 
 
-for tod in todvec.tods:
-    tmp = np.zeros(tod.info["dat_calib"].shape)
-    mapset_out.maps[0].map2tod(tod, tmp)
-    tod.info["dat_calib"] -= tmp
-    tod.set_noise(minkasi.NoiseSmoothedSVD)
+def load_response(prefix, nfilt):
+    """
+    Load a list of per filter sparse matrices saved by save_response.
+
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the files.
+    nfilt : int
+        Number of filters.
+
+    Returns
+    -------
+    resp : NDArray[object]
+        Sparse matrix per filter, None where nothing was saved.
+    """
+    resp = np.full(nfilt, None, dtype=object)
+    for f in glob.glob(prefix + "_*.npz"):
+        resp[int(f.rsplit("_", 1)[1][:-4])] = sparse.load_npz(f)
+    return resp
 
 
-if os.path.exists("{}_response.pk".format(name)):
-    with open("{}_response.pk".format(name), "rb") as f:
-        response_matrix = pk.load(f)
-else:
-    #response_matrix = wmap.get_response_matrix(todvec, max_res = 9.0)
-    response_matrix = wmap.get_response_matrix(todvec, downsamps = np.ones(len(wmap.needlet.filters)))
-    with open("{}_response.pk".format(name), "wb") as f:
-        pk.dump(response_matrix, f)
+def save_response(prefix, resp):
+    """
+    Save a list of per filter sparse matrices as {prefix}_{filter}.npz.
+
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the files.
+    resp : NDArray[object]
+        Sparse matrix per filter, None for those not computed.
+    """
+    for i, r in enumerate(resp):
+        if r is not None:
+            sparse.save_npz(f"{prefix}_{i}.npz", r)
 
 
-#Read in ACT data and noise
-root = "/mnt/welch/USERS/jorlo/maps/dr6_20230316_splits/cmb_night_*_f090_3pass_4way_set*_ivar.fits"
-paths = glob.glob(root)
+def cached(prefix, compute, redo, nfilt):
+    """
+    Load the response matrices from prefix if present, otherwise compute and save them.
 
-ra = np.mean([lims[0],lims[1]]); dec = np.mean([lims[2], lims[3]])
-rad = 0.5*utils.degree
-point = np.array([dec, ra])
-box = np.array([point - rad, point + rad])
-
-ivar_maps = []
-for path in paths:
-    ivar_map = enmap.read_map(path, box=box)
-    two_res = minkasi.SkyMapTwoRes(np.array(ivar_map), lims, 10, big_wcs=ivar_map.wcs)
-    two_res.set_beam_gauss(3)
-    two_res.set_mask(hits.map)
-
-    ivar_map = two_res.coarse2fine(wmap.real_map.map, ivar_map)
-  
-    ivar_maps.append(ivar_map.ravel())
-ivar_maps = np.array(ivar_maps)
-
-#Unit conversions from uK-arcmin to uK_RJ that are likely very wrong
-#beam_fwhm = 2.2*u.arcmin
-#fwhm_to_sigma = 1. / (8 * np.log(2))**0.5
-#beam_sigma = beam_fwhm * fwhm_to_sigma
-#omega_B_ACT = 2 * np.pi * beam_sigma**2
-#print(omega_B_ACT)
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the cache.
+    compute : Callable
+        Function with no arguments returning the response matrices.
+    redo : bool
+        Ignore any existing cache.
+    nfilt : int
+        Number of filters.
+    """
+    if not redo and glob.glob(prefix + "_*.npz"):
+        return load_response(prefix, nfilt)
+    resp = compute()
+    if minkasi.myrank == 0:
+        save_response(prefix, resp)
+    return resp
 
 
-#big_map /= (np.sqrt(omega_B_ACT.value) * 1.23)
+def read_tods(idir, ntods):
+    """
+    Read, downsample and common mode subtract MUSTANG-2 TODs, splitting files between MPI ranks.
 
-cov_map = np.cov(ivar_maps, rowvar=False)
+    Parameters
+    ----------
+    idir : str
+        Directory holding Sig*.fits.
+    ntods : int
+        Maximum number of TODs to read on this rank.
 
-if os.path.exists("{}_act_response.pk".format(name)):
-    with open("{}_act_response.pk".format(name), "rb") as f:
-        act_response_matrix = pk.load(f)
-else:
-    act_response_matrix = wmap.get_response_matrix_map(cov_map, max_res=60.0)
-    with open("{}_act_response.pk".format(name), "wb") as f:
-        pk.dump(act_response_matrix, f)
+    Returns
+    -------
+    todvec : TodVec
+    """
+    tod_names = sorted(glob.glob(os.path.join(idir, "Sig*.fits")))
+    tod_names = tod_names[minkasi.myrank :: minkasi.nproc][:ntods]
+    todvec = minkasi.TodVec()
+    for fname in tod_names:
+        t1 = time.time()
+        dat = minkasi.read_tod_from_fits(fname)
+        minkasi.truncate_tod(dat)  # chop samples from the end to make a happy length
+        minkasi.downsample_tod(
+            dat
+        )  # sometimes we have faster sampled data than we need
+        minkasi.truncate_tod(dat)
+        dat["dat_calib"] = minkasi.fit_cm_plus_poly(dat["dat_calib"])
+        todvec.add_tod(minkasi.Tod(dat))
+        print(f"read {fname} in {time.time() - t1:.1f} s")
+    return todvec
 
 
-mmap = np.zeros((rhs.maps[0].map.shape))
-wmap.get_downsamps()
-for i in range(len(response_matrix)):
-    cur = response_matrix[i]# + act_response_matrix[i]
-    if not np.any(cur): break #inelegant
-    inv = np.array([np.linalg.inv(mat.reshape(wmap.real_map.map.shape)) for mat in cur])
-    inv = inv.reshape((int(np.sqrt(inv.shape[0])), int(np.sqrt(inv.shape[0])), inv.shape[1], inv.shape[2])) #We can inv first then block expand right?
- 
-    inv = block_replicate(inv, [wmap.downsamps[i], wmap.downsamps[i], 1,1], conserve_sum=False) #TODO: Double check block expansion does the right indexing 
-    inv = inv.reshape((220*220,220*220))
-    mmap[i] =  (inv @ rhs.maps[0].map[i].flatten()).reshape(rhs.maps[0].map[i].shape)
+def read_act(paths, lims, wmap, hits, fac=10, conv=1.0):
+    """
+    Read ACT split maps and inverse variance maps in a box around the field and
+    coadd them onto the (fine) wavelet map pixelization.
+
+    Parameters
+    ----------
+    paths : list[str]
+        ACT ivar maps. The corresponding maps are found by replacing _ivar with _map.
+    lims : list[float]
+        Field limits (radians).
+    wmap : WavSkyMap
+        Map whose real_map pixelization to use.
+    hits : SkyMap
+        Hit map, used as the mask of the coarse to fine mapping.
+    fac : int, default: 10
+        Oversampling factor of the ACT pixels.
+    conv : float, default: 1.0
+        Factor converting ACT map units to the units of the M2 data. Maps are multiplied by
+        it and ivar divided by its square.
+
+    Returns
+    -------
+    ivar : NDArray[np.floating]
+        Total inverse variance on the wmap pixelization, shape (nx, ny).
+    wdata : NDArray[np.floating]
+        Sum over splits of ivar * map on the wmap pixelization, shape (nx, ny).
+    """
+    ra, dec = np.mean(lims[:2]), np.mean(lims[2:])
+    rad = 0.5 * utils.degree
+    box = np.array([np.array([dec, ra]) - rad, np.array([dec, ra]) + rad])
+    ivar = np.zeros_like(wmap.real_map.map)
+    wdata = np.zeros_like(wmap.real_map.map)
+    for path in paths:
+        ivar_map = enmap.read_map(path, box=box) / conv**2
+        act_map = enmap.read_map(path.replace("_ivar", "_map"), box=box) * conv
+        if act_map.ndim == 3:
+            act_map = act_map[0]  # temperature
+        two_res = minkasi.SkyMapTwoRes(
+            np.array(ivar_map), lims, fac, big_wcs=ivar_map.wcs
+        )
+        two_res.set_beam_gauss(3)
+        two_res.set_mask(hits.map)
+        ivar += two_res.coarse2fine(wmap.real_map.map, ivar_map)
+        wdata += two_res.coarse2fine(wmap.real_map.map, ivar_map * act_map)
+    return ivar, wdata
 
 
+def main(args):
+    """
+    Run the whole pipeline.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command line arguments.
+    """
+    todvec = read_tods(args.idir, args.ntods)
+    lims = todvec.lims()
+    pixsize = args.pixsize / 3600 * np.pi / 180
+
+    box = SkyMap(
+        lims, pixsize, square=True, multiple=2
+    ).map  # geometry to build the filters
+    need = Needlet(
+        np.arange(args.nfilt),
+        lightcone=box,
+        L=box.shape[0] * args.pixsize * np.sqrt(2),
+        pixsize=args.pixsize,
+    )
+    need.get_needlet_filters_2d(
+        need.lightcone_box.get_grid_dimless_2d(return_grid=True)
+    )
+    wmap = WavSkyMap(need, lims, pixsize, square=True, multiple=2)
+
+    for tod in todvec.tods:
+        tod.info["ipix"] = wmap.get_pix(tod)
+        tod.set_noise(minkasi.NoiseSmoothedSVD)
+    hits = minkasi.make_hits(todvec, wmap.real_map)
+
+    # Run a few PCG iterations to get the small scales to converge, then subtract them.
+    mapset = Mapset()
+    mapset.add_map(wmap)
+    rhs = mapset.copy()
+    todvec.make_rhs(rhs)
+    x0 = rhs.copy()
+    x0.clear()
+    precon = mapset.copy()
+    tmp = hits.map.copy()
+    ii = tmp > 0
+    tmp[ii] = 1.0 / tmp[ii]
+    precon.maps[0].map[:] = tmp
+    print("Saving to ", args.outroot)
+    mapset_out = minkasi.run_pcg_wprior(
+        rhs,
+        x0,
+        todvec,
+        precon=precon,
+        maxiter=args.maxiter,
+        save_iters=[args.maxiter],
+        outroot=args.outroot,
+    )
+    if minkasi.myrank == 0:
+        mapset_out.maps[0].write(args.outroot + "_need.fits")
+    minkasi.barrier()
+
+    for tod in todvec.tods:
+        tmp = np.zeros(tod.info["dat_calib"].shape)
+        mapset_out.maps[0].map2tod(tod, tmp)
+        tod.info["dat_calib"] -= tmp
+        tod.set_noise(minkasi.NoiseSmoothedSVD)
+
+    rhs = mapset.copy()
+    todvec.make_rhs(rhs)  # residual rhs in the wavelet basis
+    wmap.get_downsamps()
+    cache = os.path.join(args.cache, args.name)
+    kw = dict(max_res=args.max_res, radius=args.radius)
+    t0 = time.time()
+    m2_resp = cached(
+        cache + "_m2",
+        lambda: wmap.get_response_matrix(todvec, **kw),
+        args.redo,
+        need.nfilt,
+    )
+
+    print(f"M2 response took {time.time() - t0:.1f} s")
+    responses = [m2_resp]
+    act_rhs = 0
+    t0 = time.time()
+    paths = sorted(glob.glob(args.act_glob))
+    if args.debug:
+        paths = paths[:2]
+    if paths:
+        t1 = time.time()
+        ivar, wdata = read_act(paths, lims, wmap, hits, conv=args.act_conv)
+        act_rhs = map2wav_real(wdata, wmap.needlet.filters)[0]
+        print(f"reading ACT took {time.time() - t1:.1f} s")
+        responses.append(
+            cached(
+                cache + "_act",
+                lambda: wmap.get_response_matrix_map(ivar, **kw),
+                args.redo,
+                need.nfilt,
+            )
+        )
+
+    print(f"ACT response took {time.time() - t0:.1f} s")
+    t0 = time.time()
+    wsol = wmap.solve_bands(rhs.maps[0].map + act_rhs, responses)
+    mmap = wav2map_real(wsol, wmap.needlet.filters)[0]
+    print(f"solve took {time.time() - t0:.1f} s")
+    wmap.real_map.map = mmap
+    if minkasi.myrank == 0:
+        wmap.real_map.write(args.outroot + "_combined.fits")
 
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--name", default="MOOJ1142")
+    parser.add_argument(
+        "--idir", default="/mnt/welch/MUSTANG/M2-TODs/MOOJ1142/mustang2/"
+    )
+    parser.add_argument("--outroot", default="/mnt/welch/USERS/jorlo/needlets/MOOJ1142")
+    parser.add_argument(
+        "--cache", default=".", help="Directory of the response matrix caches"
+    )
+    parser.add_argument(
+        "--act-glob",
+        default="/mnt/welch/USERS/jorlo/maps/dr6_20230316_splits/cmb_night_*_f090_3pass_4way_set*_ivar.fits",
+    )
+    parser.add_argument(
+        "--act-conv", type=float, default=1.0, help="ACT map units to M2 units"
+    )
+    parser.add_argument("--ntods", type=int, default=2)
+    parser.add_argument("--nfilt", type=int, default=10)
+    parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
+    parser.add_argument("--maxiter", type=int, default=50)
+    parser.add_argument(
+        "--max-res", type=float, default=60.0, help="Arcsec; smallest scale for ANA"
+    )
+    parser.add_argument(
+        "--radius", type=float, default=30.0, help="Pixels; ANA window, <0 for exact"
+    )
+    parser.add_argument(
+        "--redo", action="store_true", help="Recompute cached responses"
+    )
+    parser.add_argument(
+        "--debug", action="store_true", help="Fewer TODs/iterations, coarser pixels"
+    )
+    args = parser.parse_args()
+    if args.radius < 0:
+        args.radius = None
+    if args.debug:
+        args.ntods, args.maxiter, args.pixsize, args.nfilt = 1, 3, 6.0, 6
+        args.max_res = None if args.max_res is None else min(args.max_res, 60.0)
+        args.cache = os.path.join(args.cache, "debug")
+        os.makedirs(args.cache, exist_ok=True)
+    main(args)

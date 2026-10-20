@@ -1,66 +1,29 @@
-from math import factorial
-from numba import prange
+import itertools
 
 import numpy as np
 
-def get_index(nmaps, idx):
-    """
-    Unrolls flat index for diff number into map idicies.
-    
-    Parameters
-    ----------
-    nmaps : int
-        Number of maps
-    idx : int
-        Flat index
-    Returns
-    -------
-    idx0 : int
-        Index of first map
-    idx1 : int
-        Index of second map
-    """
-    idx0 = 0
-    cur_idx = idx
-    
-    nmaps -= 1
-    assert cur_idx < factorial(nmaps), "Index too large"
-    
-    while cur_idx >= nmaps-idx0:
-        cur_idx -= (nmaps - idx0) #Each loop, the number of maps is reduced by one.
-        idx0 += 1
-    idx1 = cur_idx + idx0 + 1
-    
-    return idx0, idx1
 
-def cov_from_maps(maps, ivar):
+def cov_from_maps(maps):
     """
-    Returns an estimate of the mapspace noise covariance from a set of maps.
+    Estimate the map space noise covariance from a set of independent splits of the same sky.
+    The signal cancels in the difference of two splits, so the covariance of each difference
+    (divided by 2, as two noise realizations are summed) estimates the noise covariance.
+    With n splits the estimate has rank at most n-1, so it is only useful with regularization
+    or restricted to a band (e.g. in the wavelet basis).
 
     Parameters
     ----------
-    maps : list[NDArray]
-        List of maps from which to compute mapspace noise cov
-    ivar : NDArray
-        ivar map for the coadded set of maps
+    maps : Sequence[NDArray[np.floating]]
+        Split maps, all with the same shape.
+
     Returns
     -------
-    cov : NDArray
-        Full pixel-pixel mapspace noise cov
+    cov : NDArray[np.floating]
+        Full pixel-pixel noise covariance of the flattened maps, shape (npix, npix).
     """
-
-    assert len(maps) != 1, "More than one map required"
-
-    ndiffs = factorial(len(maps)-1)
-    shape_diffs = list(maps[0].shape)
-    shape_diffs[:0] = [ndiffs]
-
-    diffs = np.empty(shape_diffs)
-
-    for i in prange(ndiffs): #Note this isn't super efficient since i=0 is doing a lot more steps than i=ndiffs-1
-        idx0, idx1 = get_index(len(maps), i)
-
-        diffs[i] = maps[idx0] - maps[idx1]
-
-
-
+    assert len(maps) > 1, "More than one map required"
+    maps = np.array([m.ravel() for m in maps])
+    diffs = np.array(
+        [maps[i] - maps[j] for i, j in itertools.combinations(range(len(maps)), 2)]
+    )
+    return diffs.T @ diffs / (2 * len(diffs))

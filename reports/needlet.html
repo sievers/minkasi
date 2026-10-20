@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>WITCH needlet report</title>
+<style>body{font-family:sans-serif;max-width:900px;margin:2em auto;padding:0 1em}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body>
+<h1>Multi-resolution needlet mapmaking: status</h1>
+<p>Last updated 2026-10-20. Branch <code>needlet</code>, master merged.</p>
+
+<h2>Method as implemented</h2>
+<p>For each needlet band <i>i</i> the noise precision is computed on a downsampled lattice of pixels, G<sub>i</sub> = K<sub>i</sub><sup>T</sup> O K<sub>i</sub>, with K<sub>i</sub> the band-limited real-space response of a unit coefficient. O is <i>P<sup>T</sup>N<sup>-1</sup>P</i> for the M2 TODs and a map-space inverse covariance for ACT. The combined coefficients solve (G<sub>M2</sub>+G<sub>ACT</sub>)c = K<sup>T</sup>(rhs<sub>M2</sub>+rhs<sub>ACT</sub>) per band; the map is <code>wav2map_real</code> of the zero-filled coefficients. Cross-band blocks are neglected (design of the project).</p>
+<img src="figs/bands.png" alt="needlet bands">
+
+<h2>Speed-up of the response matrix</h2>
+<p><b>Old:</b> one full TOD pass (plus ~2*nfilt full FFTs) per lattice pixel, dense (npix<sub>red</sub> x npix) float32; the committed run stored ~87 GB.
+<b>New:</b> impulses spaced further apart than a window of half width <code>radius</code> are probed together, so only ~(2*radius/downsamp)<sup>2</sup> TOD passes per band are needed; single-band rfft transforms replace the full transforms; the result is a sparse symmetric matrix on the lattice. <code>radius=None</code> reproduces the exact matrix (tested against the original brute force transforms to 1e-6).</p>
+<p>Benchmark (MOOJ1142, one TOD, 6&Prime; pixels, 110&times;110 map, downsamps 22,11,5,2,1,1; <code>examples/needlet_benchmark.py</code>):</p>
+<table><tr><th>filter</th><th>lattice pts</th><th>exact (s)</th><th>radius</th><th>time (s)</th><th>speed-up</th><th>max rel. error</th><th>nnz fraction</th></tr>
+<tr><td>2</td><td>484</td><td>7.9</td><td>10</td><td>0.46</td><td>17x</td><td>3.8%</td><td>5%</td></tr>
+<tr><td>2</td><td>484</td><td>7.9</td><td>20</td><td>1.9</td><td>4.1x</td><td>1.0%</td><td>17%</td></tr>
+<tr><td>3</td><td>3025</td><td>30.9</td><td>10</td><td>1.1</td><td>27x</td><td>1.3%</td><td>4%</td></tr>
+<tr><td>3</td><td>3025</td><td>30.9</td><td>20</td><td>6.8</td><td>4.6x</td><td>0.5%</td><td>15%</td></tr>
+<tr><td>3</td><td>3025</td><td>30.9</td><td>40</td><td>94.8</td><td>0.3x</td><td>0.10%</td><td>56%</td></tr></table>
+<p>Radius 40 is slower than exact because the window covers most of the lattice and the Python extraction loop dominates; use <code>radius=None</code> there. Even the "exact" path is much faster than before (single-band FFTs, no per-pixel allocation). Errors are relative to the largest entry of the exact matrix.</p>
+<img src="figs/rows.png" alt="exact vs probed rows">
+<p>Full-size example (<code>twores_ex.py</code>, 3&Prime; pixels, 218&times;218, 2 TODs, 10 filters, ANA for scales &gt; 60&Prime;, radius 30): M2 ANA 15 s, ACT 2 s, whole script ~1 min, versus an 87 GB dense cache before.</p>
+
+<h2>Combined map</h2>
+<img src="figs/maps.png" alt="maps">
+<p><b>Caveat:</b> the ACT term needs a unit conversion (&micro;K to M2 units); with the default <code>--act-conv 1</code> the ACT map dominates and the combined map is not physically meaningful.</p>
+
+<h2>Tests</h2>
+<p><code>tests/test_needlet.py</code>: band transforms vs full transforms, exact ANA vs brute force, probing accuracy, map response, solve round trip, colouring.</p>
+</body></html>
