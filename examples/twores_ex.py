@@ -109,7 +109,7 @@ def act_conversion(freq=90e9, beam_fwhm=9.0):
     return ((1 * u.uK).to(u.mJy / u.sr, equiv) * omega).to_value(u.mJy)
 
 
-def setup_wmap(todvec, pixsize, nfilt):
+def setup_wmap(todvec, pixsize, nfilt, pad_frac=0.0):
     """
     Build the needlet and the WavSkyMap covering the TODs. The map is square with a highly
     composite size so that filters can be downsampled by many factors; the bounds only need
@@ -123,16 +123,21 @@ def setup_wmap(todvec, pixsize, nfilt):
         Pixel size in arcsec.
     nfilt : int
         Number of needlet filters.
+    pad_frac : float, default: 0.0
+        Fraction of the data extent added on every side. The filters are periodic, so
+        this moves the artefacts of the map edges away from the data.
 
     Returns
     -------
     wmap : WavSkyMap
     """
-    lims = todvec.lims()
+    x0, x1, y0, y1 = todvec.lims()
+    px, py = pad_frac * (x1 - x0), pad_frac * (y1 - y0)
+    lims = [x0 - px, x1 + px, y0 - py, y1 + py]
     ps = pixsize / 3600 * np.pi / 180
-    n0 = SkyMap(lims, ps, square=True, multiple=2).map.shape[0]
+    n0 = SkyMap(list(lims), ps, square=True, multiple=2).map.shape[0]
     n = highly_composite_size(n0)
-    box = SkyMap(lims, ps, nx=n, ny=n).map
+    box = SkyMap(list(lims), ps, nx=n, ny=n).map
     need = Needlet(
         np.arange(nfilt), lightcone=box, L=n * pixsize * np.sqrt(2), pixsize=pixsize
     )
@@ -172,6 +177,34 @@ def read_tods(idir, ntods):
         todvec.add_tod(minkasi.Tod(dat))
         print(f"read {fname} in {time.time() - t1:.1f} s")
     return todvec
+
+
+def edge_taper(shape, width):
+    """
+    Window that is 1 in the interior and falls to 0 at the edges with a cosine ramp.
+
+    Parameters
+    ----------
+    shape : tuple[int]
+        Shape of the map.
+    width : int
+        Ramp width in pixels. 0 gives no taper.
+
+    Returns
+    -------
+    NDArray[np.floating]
+        2D window of the given shape.
+    """
+    if width <= 0:
+        return np.ones(shape)
+
+    def ramp(n):
+        r = np.ones(n)
+        edge = 0.5 * (1 - np.cos(np.pi * (np.arange(width) + 0.5) / width))
+        r[:width], r[-width:] = edge, edge[::-1]
+        return r
+
+    return ramp(shape[0])[:, None] * ramp(shape[1])[None, :]
 
 
 def read_act(paths, lims, wmap, hits, fac=10, conv=1.0):
@@ -232,8 +265,7 @@ def main(args):
         Parsed command line arguments.
     """
     todvec = read_tods(args.idir, args.ntods)
-    lims = todvec.lims()
-    wmap = setup_wmap(todvec, args.pixsize, args.nfilt)
+    wmap = setup_wmap(todvec, args.pixsize, args.nfilt, args.pad_frac)
     need = wmap.needlet
 
     for tod in todvec.tods:
@@ -297,14 +329,8 @@ def main(args):
         t1 = time.time()
         # TODO: ivar is treated as a diagonal map space inverse covariance. Replace this with a
         # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
-        ivar, wdata = read_act(
-            paths,
-            lims,
-            wmap,
-            hits,
-            conv=args.act_conv or act_conversion(args.freq, args.m2_beam),
-        )
-        act_rhs = map2wav_real(wdata, wmap.needlet.filters)[0]
+        conv = args.act_conv or act_conversion(args.freq, args.m2_beam)
+        ivar, wdata = read_act(paths, wmap.lims, wmap, hits, conv=conv)
         if (
             minkasi.myrank == 0
         ):  # ACT only (inverse variance weighted coadd) for comparison
@@ -312,10 +338,14 @@ def main(args):
                 wdata, ivar, out=np.zeros_like(wdata), where=ivar > 0
             )
             wmap.real_map.write(args.outroot + "_act.fits")
+        # The filters are periodic but the ACT map is not: taper the weights at the edges
+        taper = edge_taper(ivar.shape, args.taper)
+        ivar, wdata = ivar * taper, wdata * taper
+        act_rhs = map2wav_real(wdata, wmap.needlet.filters)[0]
         print(f"reading ACT took {time.time() - t1:.1f} s")
         responses.append(
             cached(
-                cache + "_act",
+                f"{cache}_act_t{args.taper}_c{conv:.3g}",
                 lambda: wmap.get_response_matrix_map(ivar, **kw),
                 args.redo,
                 need.nfilt,
@@ -357,6 +387,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--m2-beam", type=float, default=9.0, help="M2 beam FWHM in arcsec"
+    )
+    parser.add_argument(
+        "--taper", type=int, default=0, help="Pixels; edge taper of the ACT weights"
+    )
+    parser.add_argument(
+        "--pad-frac",
+        type=float,
+        default=0.25,
+        help="Map padding, fraction of data extent",
     )
     parser.add_argument("--ntods", type=int, default=2)
     parser.add_argument("--nfilt", type=int, default=10)

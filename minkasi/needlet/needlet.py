@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 from scipy.interpolate import interp1d
 from scipy.linalg import norm
-from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import ArpackNoConvergence, eigsh, spsolve
 
 from ..mapmaking.map2tod import map2tod
 from ..mapmaking.tod2map import (
@@ -65,6 +65,33 @@ def highly_composite_size(n, slack=0.15):
     """
     cands = [m for m in range(int(n), int(np.ceil(n * (1 + slack))) + 1) if m % 2 == 0]
     return max(cands, key=lambda m: (len(factors(m)), -m))
+
+
+def min_eigenvalue(G, dense_below=2500):
+    """
+    Smallest eigenvalue of a symmetric sparse matrix. Exact (dense) for small matrices,
+    otherwise a loosely converged Lanczos estimate, which is enough to decide on a diagonal shift.
+
+    Parameters
+    ----------
+    G : scipy.sparse matrix
+        Symmetric matrix.
+    dense_below : int, default: 2500
+        Size up to which the dense eigensolver is used.
+
+    Returns
+    -------
+    float
+        (Estimate of) the smallest eigenvalue.
+    """
+    if G.shape[0] <= dense_below:
+        return np.linalg.eigvalsh(G.toarray())[0]
+    try:
+        return eigsh(
+            G, k=1, which="SA", tol=1e-2, maxiter=500, return_eigenvectors=False
+        )[0]
+    except ArpackNoConvergence as e:
+        return e.eigenvalues.min() if len(e.eigenvalues) else -abs(G.diagonal()).max()
 
 
 def color_groups(n, width):
@@ -926,7 +953,7 @@ class WavSkyMap(SkyMap):
             to_ret[idx] = map2band(band2map(temp, filt), filt).ravel()
         return to_ret
 
-    def probe_band(self, apply, nfilt, radius=None, threshold=0.0):
+    def probe_band(self, apply, nfilt, radius=None, threshold=0.0, exact_below=5000):
         """
         Compute G = K^T O K for the lattice of band nfilt, where K maps lattice coefficients
         to the band-limited real space map and O is the operator `apply`.
@@ -945,6 +972,10 @@ class WavSkyMap(SkyMap):
             Half width of kept window, in full resolution pixels. None keeps everything (exact).
         threshold : float, default: 0
             Entries below threshold * max|G| are dropped.
+        exact_below : int, default: 5000
+            Bands with at most this many lattice points are computed exactly whatever the radius.
+            Truncating G makes it indefinite (the kernels of the large scale filters have long
+            tails), which is only acceptable if the number of points makes exactness too slow.
 
         Returns
         -------
@@ -955,7 +986,7 @@ class WavSkyMap(SkyMap):
         xs, ys = self.nx_space[nfilt], self.ny_space[nfilt]
         nxr, nyr = len(xs), len(ys)
         down = self.downsamps[nfilt]
-        if radius is None:
+        if radius is None or nxr * nyr <= exact_below:
             rx, ry = nxr, nyr
         else:
             rx = ry = int(np.ceil(radius / down))
@@ -991,6 +1022,7 @@ class WavSkyMap(SkyMap):
         downsamps: Optional[list[int]] = None,
         radius: Optional[float] = None,
         threshold: float = 0.0,
+        exact_below: int = 5000,
     ):
         """
         Computes A^T N^-1 A (ANA) for a set of tods in the WavSkyMap basis, one filter
@@ -1017,6 +1049,8 @@ class WavSkyMap(SkyMap):
             and the output sparse. None computes everything exactly.
         threshold : float, default : 0
             Relative size below which entries are dropped.
+        exact_below : int, default : 5000
+            Filters with at most this many lattice points are computed exactly. See probe_band.
 
         Returns
         ------
@@ -1036,7 +1070,9 @@ class WavSkyMap(SkyMap):
 
         to_ret = np.full(self.needlet.nfilt, None, dtype=object)
         for nfilt in self.select_filters(max_res, nfilts):
-            to_ret[nfilt] = self.probe_band(apply, nfilt, radius, threshold)
+            to_ret[nfilt] = self.probe_band(
+                apply, nfilt, radius, threshold, exact_below
+            )
         return to_ret
 
     def get_response_matrix_map(
@@ -1046,6 +1082,7 @@ class WavSkyMap(SkyMap):
         nfilts: Optional[list[int]] = None,
         radius: Optional[float] = None,
         threshold: float = 0.0,
+        exact_below: int = 5000,
     ):
         """
         Computes K^T O K, the map space analogue of get_response_matrix, where O is a map space
@@ -1057,7 +1094,7 @@ class WavSkyMap(SkyMap):
         imap : NDArray[np.floating] | scipy.sparse matrix
             Inverse covariance of the map. Either a (nx*ny, nx*ny) matrix or
             an array with nx*ny/(nx, ny) entries, taken to be the diagonal.
-        max_res, nfilts, radius, threshold :
+        max_res, nfilts, radius, threshold, exact_below :
             See get_response_matrix.
 
         Returns
@@ -1076,15 +1113,19 @@ class WavSkyMap(SkyMap):
             apply = lambda m: (imap @ m.ravel()).reshape(self.nx, self.ny)
         to_ret = np.full(self.needlet.nfilt, None, dtype=object)
         for nfilt in self.select_filters(max_res, nfilts):
-            to_ret[nfilt] = self.probe_band(apply, nfilt, radius, threshold)
+            to_ret[nfilt] = self.probe_band(
+                apply, nfilt, radius, threshold, exact_below
+            )
         return to_ret
 
     def solve_bands(self, rhs, responses, ridge=1e-8):
         """
-        Solve the per filter normal equations G c = rhs for the lattice coefficients, with
-        G the sum of the supplied response matrices, and return the wavelet map
-        (coefficients zero filled onto the full resolution grid).
-        Filters for which no response is available are left as zero.
+        Approximate ML solution using only the diagonal (same filter) blocks of the
+        wavelet space precision matrix. The filters satisfy sum_i F_i^2 = 1, so the
+        contribution of filter i is F_i^2 G_i^-1 F_i^2 r, with G_i the sum of the supplied response
+        matrices and r the real space rhs; for white noise this reduces to r. (Using F_i G_i^-1 F_i r instead
+        counts the overlap between neighbouring filters twice and has sharp edges in k space.)
+        Filters for which no response is available contribute nothing.
 
         Parameters
         ----------
@@ -1095,24 +1136,32 @@ class WavSkyMap(SkyMap):
             to sum, each an object array with sparse matrices or None for each filter.
         ridge : float, default: 1e-8
             Relative diagonal regularization added to G, to keep unhit pixels invertible.
+            If G is indefinite (e.g. truncated response matrices) it is also shifted by its most
+            negative eigenvalue.
 
         Returns
         -------
         wmap : NDArray[np.floating]
-            Wavelet map of shape (nfilt, nx, ny). Use wav2map_real to get the real space map.
+            Wavelet map of shape (nfilt, nx, ny), F_i Z c_i for lattice coefficients c_i.
+            Use wav2map_real to get the real space map.
         """
         wmap = np.zeros((self.needlet.nfilt, self.nx, self.ny))
         for i in range(self.needlet.nfilt):
             mats = [r[i] for r in responses if r[i] is not None]
             if not mats:
                 continue
+            filt = self.needlet.filters[i]
             G = reduce(lambda a, b: a + b, mats).tocsc()
-            G = G + ridge * G.diagonal().max() * sparse.identity(
-                G.shape[0], format="csc"
-            )
+            lmin = min_eigenvalue(G)
+            shift = ridge * G.diagonal().max() + max(
+                0, -1.1 * lmin
+            )  # truncation can make G indefinite
+            G = G + shift * sparse.identity(G.shape[0], format="csc")
             xs, ys = self.nx_space[i], self.ny_space[i]
-            c = spsolve(G, rhs[i][np.ix_(xs, ys)].ravel())
-            wmap[i][np.ix_(xs, ys)] = c.reshape(len(xs), len(ys))
+            c = spsolve(G, map2band(rhs[i], filt)[np.ix_(xs, ys)].ravel())
+            coeffs = np.zeros((self.nx, self.ny))
+            coeffs[np.ix_(xs, ys)] = c.reshape(len(xs), len(ys))
+            wmap[i] = band2map(coeffs, filt)
         return wmap
 
     def get_wav_beam(self, fwhm_pix: float):

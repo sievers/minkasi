@@ -112,7 +112,7 @@ def test_probed_response_close_to_exact(wmap, todvec):
     down = np.ones(wmap.needlet.nfilt, dtype=int)
     exact = wmap.get_response_matrix(todvec, nfilts=[2], downsamps=down)[2].toarray()
     approx = wmap.get_response_matrix(
-        todvec, nfilts=[2], downsamps=down, radius=wmap.nx // 3
+        todvec, nfilts=[2], downsamps=down, radius=wmap.nx // 3, exact_below=0
     )[2].toarray()
     assert np.abs(approx - exact).max() < 0.05 * np.abs(exact).max()
 
@@ -128,27 +128,40 @@ def test_map_response_diagonal_and_matrix_agree(wmap):
     assert np.allclose(a.toarray(), a.toarray().T)
 
 
-def test_solve_bands_recovers_input(wmap):
-    """With N^-1 = identity and no TODs, G c = K^T K c must invert K^T K c_true."""
-    down = np.array([1, 1, 1, 2])
-    wmap.set_downsamps(down)
+def test_solve_bands_white_noise_is_identity(wmap):
+    """With unit precision the filters partition unity, so the solve must return the rhs map."""
+    wmap.set_downsamps(np.ones(wmap.needlet.nfilt, dtype=int))
     rng = np.random.default_rng(3)
-    ones = np.ones((wmap.nx, wmap.ny))
-    resp = wmap.get_response_matrix_map(ones, nfilts=[1, 3])
-    truth = np.zeros((wmap.needlet.nfilt, wmap.nx, wmap.ny))
-    for i in (1, 3):
-        xs, ys = wmap.nx_space[i], wmap.ny_space[i]
-        truth[i][np.ix_(xs, ys)] = rng.normal(size=(len(xs), len(ys)))
-    rhs = np.zeros_like(truth)
-    for i in (1, 3):
-        k = band2map(truth[i], wmap.needlet.filters[i])
-        rhs[i] = map2band(k, wmap.needlet.filters[i])
-    sol = wmap.solve_bands(rhs, [resp], ridge=1e-9)
-    for i in (1, 3):
-        xs, ys = wmap.nx_space[i], wmap.ny_space[i]
-        got = band2map(sol[i], wmap.needlet.filters[i])
-        want = band2map(truth[i], wmap.needlet.filters[i])
-        assert np.abs(got - want).max() < 1e-3 * np.abs(want).max()
+    d = np.fft.irfft2(
+        np.fft.rfft2(rng.normal(size=(wmap.nx, wmap.ny)))
+        * (
+            np.hypot(
+                *np.meshgrid(
+                    np.fft.fftfreq(wmap.nx), np.fft.rfftfreq(wmap.ny), indexing="ij"
+                )
+            )
+            < 0.15
+        ),
+        s=(wmap.nx, wmap.ny),
+    )  # band limited so no mode is lost below the highest filter
+    resp = wmap.get_response_matrix_map(np.ones((wmap.nx, wmap.ny)))
+    rhs = map2wav_real(d, wmap.needlet.filters)[0]
+    out = wav2map_real(wmap.solve_bands(rhs, [resp], ridge=1e-6), wmap.needlet.filters)[
+        0
+    ]
+    assert np.abs(out - d).max() < 0.02 * np.abs(d).max()
+
+
+def test_solve_bands_handles_indefinite_precision(wmap):
+    """A truncated, indefinite G must still give a finite solution of similar size."""
+    wmap.set_downsamps(np.full(wmap.needlet.nfilt, 2))
+    resp = wmap.get_response_matrix_map(np.ones((wmap.nx, wmap.ny)), nfilts=[2])
+    G = resp[2].tolil()
+    G.setdiag(G.diagonal() * 0.3)  # breaks positive definiteness
+    rhs = np.random.default_rng(4).normal(size=(wmap.needlet.nfilt, wmap.nx, wmap.ny))
+    out = wmap.solve_bands(rhs, [np.array([None, None, G.tocsr(), None], dtype=object)])
+    assert np.isfinite(out).all()
+    assert np.abs(out).max() < 100 * np.abs(rhs).max()
 
 
 @pytest.mark.parametrize("n,width", [(55, 21), (110, 7), (484, 3), (10, 40)])

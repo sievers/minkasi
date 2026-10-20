@@ -72,7 +72,9 @@ def main(args):
         info = {"npix_red": n, "t_exact": t_exact, "radius": {}}
         for r in args.radii:
             t0 = time.time()
-            approx = wmap.get_response_matrix(todvec, nfilts=[i], radius=r)[i]
+            approx = wmap.get_response_matrix(
+                todvec, nfilts=[i], radius=r, exact_below=0
+            )[i]
             dt = time.time() - t0
             err = abs(approx - exact).max() / abs(exact).max()
             info["radius"][r] = {
