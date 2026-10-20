@@ -171,6 +171,6 @@ for i in range(len(response_matrix)):
     inv = inv.reshape((220*220,220*220))
     mmap[i] =  (inv @ rhs.maps[0].map[i].flatten()).reshape(rhs.maps[0].map[i].shape)
 
-asdf
+
 
 
