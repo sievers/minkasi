@@ -1,61 +1,106 @@
+import itertools
+import sys
 import time
-
-from numba import jit, prange
-
-from astropy.io import fits
-from astropy import wcs
-
-import numpy as np
-from numpy.typing import NDArray
-
+from functools import reduce
 from typing import (
-    TYPE_CHECKING,
     Callable,
-    List,
     Optional,
-    Sequence,
-    Tuple,
     Union,
-    NamedTuple,
 )
 
-from scipy.linalg import norm
+import matplotlib.pyplot as plt
+import numpy as np
 import scipy.integrate as integrate
+from astropy import wcs
+from astropy.io import fits
+from numpy.typing import NDArray
+from scipy import sparse
 from scipy.interpolate import interp1d
+from scipy.linalg import norm
+from scipy.sparse.linalg import spsolve
 
-from ..maps.mapset import Mapset
-from ..maps.utils import get_wcs
 from ..mapmaking.map2tod import map2tod
 from ..mapmaking.tod2map import (
     tod2map_cached,
-    tod2map_everyone,
-    tod2map_omp,
     tod2map_simple,
 )
-from ..parallel import comm, get_nthread, have_mpi, nproc, myrank, MPI
-from ..tods import Tod, TodVec
-from ..tools.py_fft import find_good_fft_lens, irfftn, rfftn
+from ..maps.mapset import Mapset
 from ..maps.skymap import SkyMap
-
-import matplotlib.pyplot as plt
-
-import copy
-import sys
-
-from functools import reduce
+from ..tods import Tod, TodVec
+from ..tools.py_fft import irfftn, rfftn
 
 if sys.version_info >= (3, 11):
-    from typing import Self
+    pass
 else:
-    from typing_extensions import Self
-
+    pass
 
 
 # TODO: This function should probably go elsewhere
 def factors(n):
-    return np.array(sorted(reduce(
-        list.__add__,
-        ([i, n//i] for i in range(1, int(n**0.5) + 1) if n % i == 0))))
+    return np.array(
+        sorted(
+            reduce(
+                list.__add__,
+                ([i, n // i] for i in range(1, int(n**0.5) + 1) if n % i == 0),
+            )
+        )
+    )
+
+
+def next_divisor(n, m):
+    """
+    Smallest divisor of n that is at least m (n itself if there is none).
+
+    Parameters
+    ----------
+    n : int
+        Number to find the divisor of.
+    m : int
+        Lower bound.
+    """
+    f = factors(n)
+    return int(f[f >= m][0]) if np.any(f >= m) else int(n)
+
+
+def band2map(band, filt):
+    """
+    Single filter version of wav2map_real: real space map of the wavelet coefficients of one filter.
+
+    Parameters
+    ----------
+    band : NDArray[np.floating]
+        Wavelet coefficients of shape (nx, ny).
+    filt : NDArray[np.floating]
+        The filter window for this band, shape (nx, ny).
+
+    Returns
+    -------
+    NDArray[np.floating]
+        Real space map, shape (nx, ny).
+    """
+    ft = np.fft.rfft2(np.fft.fftshift(band))
+    ft = ft * np.fft.fftshift(filt)[:, : band.shape[1] // 2 + 1]
+    return np.fft.fftshift(np.fft.irfft2(ft, s=band.shape))
+
+
+def map2band(imap, filt):
+    """
+    Single filter version of map2wav_real. The filter is symmetric so this equals band2map.
+
+    Parameters
+    ----------
+    imap : NDArray[np.floating]
+        Real space map, shape (nx, ny).
+    filt : NDArray[np.floating]
+        The filter window for this band, shape (nx, ny).
+
+    Returns
+    -------
+    NDArray[np.floating]
+        Wavelet coefficients, shape (nx, ny).
+    """
+    return band2map(imap, filt)
+
 
 ################################################################
 #                       Basis Functions                        #
@@ -303,7 +348,7 @@ class Needlet:
         L: np.floating,
         lightcone: NDArray[np.floating],
         pixsize: np.floating,
-        basisKwargs: dict = {},
+        basisKwargs: Optional[dict] = None,
         basis: Callable[..., NDArray[np.floating]] = Standard,
         B: Union[None, np.floating] = None,
         kmax_dimless: Union[None, int] = None,
@@ -364,7 +409,7 @@ class Needlet:
                 self.k_arr[-1] ** (1 / self.js[-1]) * 1.01
             )  # Set needlet width to just cover k_arr
 
-        self.basisKwargs = basisKwargs
+        self.basisKwargs = {} if basisKwargs is None else dict(basisKwargs)
 
         if self.basis.__name__ == "Standard" and "B" not in self.basisKwargs.keys():
             self.basisKwargs["B"] = self.B
@@ -448,7 +493,7 @@ class Needlet:
                 ax[0, i].set_xticklabels([])
 
                 ax[1, i].imshow(self.filters[i + n])
-                ax[1, i].set_title(f"2D filter for j={i+n}")
+                ax[1, i].set_title(f"2D filter for j={i + n}")
                 ax[1, i].set_yticklabels([])
                 ax[1, i].set_xticklabels([])
 
@@ -502,12 +547,12 @@ class Needlet:
         self.sum_sq = np.zeros_like(self.k_arr)
         x_arr = self.k_arr
         if scale:
-            x_arr *= scale
+            x_arr = x_arr * scale
         for j, b in enumerate(self.bands):
             ax.plot(x_arr, b, label=f"j={j}")
             self.sum_sq += b**2
 
-        ax.plot(x_arr, self.sum_sq, label=f"$\sum b^2$", color="k")
+        ax.plot(x_arr, self.sum_sq, label=r"$\sum b^2$", color="k")
         ax.set_xscale("log")
         ax.legend(loc="lower right", ncols=self.nfilt // 2)
         ax.set_xlabel("k [dimless]")
@@ -711,10 +756,7 @@ class WavSkyMap(SkyMap):
             hdu = fits.PrimaryHDU(tmp, header=header)
         else:
             hdu = fits.PrimaryHDU(self.real_map.map, header=header)
-        try:
-            hdu.writeto(fname, overwrite=True)
-        except:
-            hdu.writeto(fname, clobber=True)
+        hdu.writeto(fname, overwrite=True)
 
     def apply_prior(self, p: "WavSkyMap", Ap: "WavSkyMap"):
         """
@@ -738,166 +780,199 @@ class WavSkyMap(SkyMap):
         """
         Ap.map = Ap.map + self.map * p.map
 
+    def get_lattice(self, downsamps):
+        """
+        Get the evenly spaced sub-lattice of pixels kept at each filter after downsampling.
+
+        Parameters
+        ----------
+        downsamps : NDArray[int]
+            Downsampling factor per filter. Each must divide both nx and ny.
+
+        Returns
+        -------
+        nx_space, ny_space : NDArray[object]
+            Per filter, the (reduced) arrays of retained x and y pixel indices.
+        """
+        nx_space = np.empty(self.needlet.nfilt, dtype=object)
+        ny_space = np.empty(self.needlet.nfilt, dtype=object)
+        for i, down in enumerate(downsamps):
+            down = int(down)
+            if self.nx % down or self.ny % down:
+                raise ValueError(
+                    f"downsamp {down} must divide the map shape {self.nx, self.ny}"
+                )
+            nx_space[i] = np.arange(down // 2, self.nx, down)
+            ny_space[i] = np.arange(down // 2, self.ny, down)
+        return nx_space, ny_space
+
     def get_downsamps(self):
         """
-        Resizes maps so that the pixelization matches the smallest scale of the needlet, given a needlet basis.
-        That needlet basis should probably be the one associated with need.filt but for right now it doesn't need to be.
-        I should enfore this. Currently not used, downsampling is handled directly in get_response_matrix.
-        Keeping as this mostly works and may one day need it.
-
+        Resizes maps so that the pixelization matches the smallest scale of the needlet,
+        and sets downsamps, nxs_red, nys_red, nx_space, ny_space accordingly.
+        The downsamp of each filter is the largest common factor of nx and ny that
+        does not undersample the filter.
         """
-
         map_size = (
             np.rad2deg(max(self.lims[1] - self.lims[0], self.lims[3] - self.lims[2]))
             * 3600
         )
-        size_factors = factors(self.nx)
+        size_factors = factors(np.gcd(self.nx, self.ny))
         downsamps = np.empty(self.needlet.nfilt, dtype=int)
-        self.nxs_red = np.empty(self.needlet.nfilt, dtype=int)
-        self.nys_red = np.empty(self.needlet.nfilt, dtype=int)
-        self.nx_space = np.empty(self.needlet.nfilt, dtype=object)
-        self.ny_space = np.empty(self.needlet.nfilt, dtype=object)
         for i in range(self.needlet.nfilt):
             lims = self.needlet.get_need_lims(i, real_space=True)
             n_samp = map_size / lims[0]
             downsamp = max(np.floor(self.nx / n_samp), 1)
-            flags = np.where((size_factors <= downsamp))[0]
-            downsamp = size_factors[flags[-1]]
-            downsamps[i] = downsamp
-            nx_red = int(self.nx / downsamp)
-            ny_red = int(self.ny / downsamp)  # TODO: make this a good FFT number
-            self.nxs_red[i] = nx_red
-            self.nys_red[i] = ny_red
+            downsamps[i] = size_factors[size_factors <= downsamp][-1]
+        self.set_downsamps(downsamps)
 
-            # Evenly sample the downsampled nx
-            x_step = int(self.nx / nx_red)
-            y_step = int(self.ny / ny_red)
-            nx_space = np.arange(int(x_step / 2), self.nx, x_step)
-            ny_space = np.arange(int(y_step / 2), self.ny, y_step)
-
-            self.nx_space[i] = np.array([int(n) for n in nx_space])
-            self.ny_space[i] = np.array([int(n) for n in ny_space])
-
-        self.downsamps = downsamps
-
-    def check_response_matrix(
-        self,
-        filt_num: int,
-        down_samp: Union[None, NDArray[int]] = None,
-    ) -> Union[NDArray[np.floating], NamedTuple]:
+    def set_downsamps(self, downsamps):
         """
-        Get the response matrix for needlet filt_num.
-        Each entry of the response matrix is the map that results from passing a map
-        that is 1 at uniquely one pixel thru map2wav with one needlet.
-        The map is flattened for convenience.
-        This function is used to check that we haven't over downsampled the
-        needlet response matrix. Most common usage is to take the SVD of this
-        and look at S, it should fall off a cliff in the last couple modes.
+        Manually set the downsampling factor of each filter and the resulting lattices.
+
+        Parameters
+        ----------
+        downsamps : NDArray[int]
+            Downsampling factor per filter.
+        """
+        self.downsamps = np.asarray(downsamps, dtype=int)
+        self.nx_space, self.ny_space = self.get_lattice(self.downsamps)
+        self.nxs_red = np.array([len(n) for n in self.nx_space])
+        self.nys_red = np.array([len(n) for n in self.ny_space])
+
+    def select_filters(self, max_res=None, nfilts=None):
+        """
+        Get the filters to compute from max_res or nfilts (mutually exclusive).
+
+        Parameters
+        ----------
+        max_res : np.floating | None
+            Maximum resolution, in arcseconds. Wavelets with maximum extent below it are skipped.
+        nfilts : list[int] | None
+            Explicit list of filters.
+
+        Returns
+        -------
+        nfilts : list[int]
+            Filters to compute.
+        """
+        if max_res is not None:
+            if nfilts is not None:
+                raise ValueError("Cannot specify max_res and nfilts")
+            i = 0
+            while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
+                i += 1  # not the fastest way to do this but it's only done once
+            return list(range(i + 1))
+        return list(range(self.needlet.nfilt)) if nfilts is None else list(nfilts)
+
+    def check_response_matrix(self, filt_num: int, down_samp=None):
+        """
+        Get the dense response matrix of needlet filt_num: row i is the band map of a unit
+        impulse at retained pixel i, flattened. Used to check we haven't over downsampled;
+        the SVD of this should not fall off a cliff in the last couple of modes.
 
         Parameters
         ---------
         filt_num : int
             The needlet to compute the repsponse matrix for.
         down_samp : None | NDArray[int]
-            The amount to downsample the input map by.
-            You can downsample the map down to ~the needlet scale without loosing information
-            If not specified then it computes and uses the most aggresive downsampling.
+            Downsample factor per filter. If None the most aggressive (from get_downsamps) is used.
+
         Returns
         -------
-        to_ret : NDArray[np.floating] | NamedTuple
-            If do_svd is False, then returns the response matrix.
-            Otherwise returns the SVD of the response matrix.
-            See numpy documentation for SVD documentation.
+        to_ret : NDArray[np.floating]
+            Response matrix of shape (nx_red * ny_red, nx * ny).
         """
         if down_samp is None:
             self.get_downsamps()
-            down_samp = self.downsamps[filt_num]
         else:
-            down_samp = down_samp[filt_num]
-        nxs_red, nys_red = int(self.nx / down_samp), int(
-            self.ny / down_samp
-        )  # TODO: make this a good FFT number
-        to_ret = np.zeros((nxs_red * nys_red, self.nx * self.ny))
-
-        nx_space = np.linspace(
-            0, self.nx - 1, nxs_red
-        )  # Evenly sample the downsampled nx
-        ny_space = np.linspace(0, self.ny - 1, nys_red)
-
-        nx_space = np.array([int(n) for n in nx_space])
-        ny_space = np.array([int(n) for n in ny_space])
-        if have_mpi:
-            if myrank == 0:
-                flags = np.zeros(
-                    nproc - 1, dtype=bool
-                )  # Flags to track which process are done
-                while not np.all(flags):
-                    status = MPI.Status()
-                    temp = comm.recv(
-                        source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
-                    )
-                    sender = status.Get_source()
-                    tag = status.Get_tag()
-                    if type(temp) == str:
-                        print("Task ", sender, " is done")
-                        flags[sender - 1] = temp
-                    else:
-                        to_ret[tag] = temp
-
-            else:
-                for nx in range(myrank - 1, nxs_red, nproc - 1):
-                    for ny in range(nys_red):
-                        idx = nys_red * nx + ny
-                        temp = np.zeros((self.nx, self.ny))
-                        temp[nx_space[nx], ny_space[ny]] = 1
-                        temp = np.ravel(
-                            np.squeeze(
-                                map2wav_real(
-                                    temp, self.needlet.filters[filt_num : filt_num + 1]
-                                )
-                            )
-                        )
-                        comm.send(temp, dest=0, tag=idx)
-                comm.send("Done", dest=0, tag=0)
-
-            comm.barrier()
-
-        else:
-            for nx in range(nxs_red):
-                for ny in range(nys_red):
-                    idx = nys_red * nx + ny
-                    temp = np.zeros((self.nx, self.ny))
-                    temp[nx_space[nx], ny_space[ny]] = 1
-                    to_ret[idx, :] = np.ravel(
-                        np.squeeze(
-                            map2wav_real(
-                                temp, self.needlet.filters[filt_num : filt_num + 1]
-                            )
-                        )
-                    )
-
+            self.set_downsamps(down_samp)
+        nx_space, ny_space = self.nx_space[filt_num], self.ny_space[filt_num]
+        filt = self.needlet.filters[filt_num]
+        to_ret = np.zeros((len(nx_space) * len(ny_space), self.nx * self.ny))
+        for idx, (x, y) in enumerate(itertools.product(nx_space, ny_space)):
+            temp = np.zeros((self.nx, self.ny))
+            temp[x, y] = 1
+            to_ret[idx] = map2band(band2map(temp, filt), filt).ravel()
         return to_ret
 
-    # @jit(parallel=True, forceobj=True, nopython=False)
-    # @profile
+    def probe_band(self, apply, nfilt, radius=None, threshold=0.0):
+        """
+        Compute G = K^T O K for the lattice of band nfilt, where K maps lattice coefficients
+        to the band-limited real space map and O is the operator `apply`.
+        Rows are computed by probing: impulses spaced further apart than the window
+        are summed into one map and passed through `apply` together, so only
+        a few applications are needed instead of one per pixel. With radius=None every
+        pixel is probed separately and the result is exact.
+
+        Parameters
+        ----------
+        apply : Callable
+            Operator taking and returning a real space map of shape (nx, ny).
+        nfilt : int
+            Filter to compute.
+        radius : float | None, default: None
+            Half width of kept window, in full resolution pixels. None keeps everything (exact).
+        threshold : float, default: 0
+            Entries below threshold * max|G| are dropped.
+
+        Returns
+        -------
+        G : scipy.sparse.csr_matrix
+            Symmetric matrix of shape (nx_red * ny_red, nx_red * ny_red).
+        """
+        filt = self.needlet.filters[nfilt]
+        xs, ys = self.nx_space[nfilt], self.ny_space[nfilt]
+        nxr, nyr = len(xs), len(ys)
+        down = self.downsamps[nfilt]
+        if radius is None:
+            rx, ry, sx, sy = nxr, nyr, nxr, nyr
+        else:
+            rx = ry = int(np.ceil(radius / down))
+            sx, sy = next_divisor(nxr, 2 * rx + 1), next_divisor(nyr, 2 * ry + 1)
+        full_x, full_y = 2 * rx + 1 >= nxr, 2 * ry + 1 >= nyr
+        offx = np.arange(nxr) if full_x else np.arange(-rx, rx + 1)
+        offy = np.arange(nyr) if full_y else np.arange(-ry, ry + 1)
+        rows, cols, vals = [], [], []
+        for cx, cy in itertools.product(range(sx), range(sy)):
+            ax, ay = np.arange(cx, nxr, sx), np.arange(cy, nyr, sy)
+            delta = np.zeros((self.nx, self.ny))
+            delta[np.ix_(xs[ax], ys[ay])] = 1
+            z = map2band(apply(band2map(delta, filt)), filt)
+            for a, b in itertools.product(ax, ay):
+                ix = offx if full_x else (a + offx) % nxr
+                iy = offy if full_y else (b + offy) % nyr
+                vals.append(z[np.ix_(xs[ix], ys[iy])].ravel())
+                cols.append((ix[:, None] * nyr + iy[None, :]).ravel())
+                rows.append(np.full(vals[-1].size, a * nyr + b))
+        vals = np.concatenate(vals)
+        keep = np.abs(vals) > threshold * np.abs(vals).max()
+        G = sparse.coo_matrix(
+            (vals[keep], (np.concatenate(rows)[keep], np.concatenate(cols)[keep])),
+            shape=(nxr * nyr, nxr * nyr),
+        ).tocsr()
+        return ((G + G.T) / 2).tocsr()
+
     def get_response_matrix(
         self,
         todvec: "TodVec",
         max_res: Optional[np.floating] = None,
         nfilts: Optional[list[int]] = None,
         downsamps: Optional[list[int]] = None,
+        radius: Optional[float] = None,
+        threshold: float = 0.0,
     ):
         """
-        Computes A^-1N^TA (ANA) for a set of tods in the WavSkyMap basis.
-        ANA can be inverted to directly solve for the map, however is very
-        expensive to compute. In general ANA only needs to be computed for
-        the overlap scales, and other methods (e.g. pcg) can be used for
-        the very high/very low resolution scales.
+        Computes A^T N^-1 A (ANA) for a set of tods in the WavSkyMap basis, one filter
+        (diagonal block) at a time, on the downsampled lattice of each filter.
+        ANA can be inverted to directly solve for the map, however is expensive to compute.
+        In general ANA only needs to be computed for the overlap scales, and other methods
+        (e.g. pcg) can be used for the very high/very low resolution scales.
 
         Parameters:
         -----------
         todvec : TodVec
-            TODs over which to comput ANA
+            TODs over which to compute ANA
         max_res : np.floating, default : None
             Maximum resolution, in arcseconds, at which to compute ANA.
             Wavelets with maximum extent less than max_res are skipped.
@@ -906,159 +981,109 @@ class WavSkyMap(SkyMap):
             Exclusive with max_res.
         downsamps : list[int], default : None
             Explicitly set downsamp rates. If None, good downsamps are computed.
+        radius : float, default : None
+            Half width in pixels beyond which ANA is neglected. This makes the computation much
+            faster (one TOD pass per ~(2*radius/downsamp)^2 pixels rather than one per pixel)
+            and the output sparse. None computes everything exactly.
+        threshold : float, default : 0
+            Relative size below which entries are dropped.
 
         Returns
         ------
-        to_ret : NDArray[np.floating]
-            Reduced ANA at the specified wavelet scales
+        to_ret : NDArray[object]
+            Sparse ANA of each computed filter, None for filters not computed.
         """
         if downsamps is None:
-            if self.downsamps is None:
-                self.get_downsamps()
-            downsamps = self.downsamps
-            nxs = self.nx_space
-            nyx = self.ny_space
+            self.get_downsamps()
         else:
-            nxs = np.empty(self.needlet.nfilt, dtype=object)
-            nys = np.empty(self.needlet.nfilt, dtype=object)
-            for i in range(self.needlet.nfilt):
-                nx_red = int(self.nx / downsamps[i])
-                ny_red = int(self.ny / downsamps[i])  # TODO: make this a good FFT number
-    
-                # Evenly sample the downsampled nx
-                x_step = int(self.nx / nx_red)
-                y_step = int(self.ny / ny_red)
-                nx_space = np.arange(int(x_step / 2), self.nx, x_step)
-                ny_space = np.arange(int(y_step / 2), self.ny, y_step)
-    
-                nxs[i] = np.array([int(n) for n in nx_space])
-                nys[i] = np.array([int(n) for n in ny_space])
+            self.set_downsamps(downsamps)
+        mapset = Mapset()
+        mapset.add_map(self.real_map.copy())
 
+        def apply(imap):
+            mapset.maps[0].map[:] = imap
+            return todvec.dot(mapset, cache_maps=False).maps[0].map
 
-        # We want to return 0 at all scales we don't compute
-        to_ret = np.zeros(self.needlet.nfilt, dtype=object)
-
-        if max_res is not None:
-            if nfilts is not None:
-                raise ArgError("Cannot specify max_res and nfilts")
-            i = 0
-            while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
-                i += 1  # not the fastest way to do this but it's only done once
-            nfilts = range(i + 1)
-
-        for nfilt, filt in enumerate(self.needlet.filters):
-            if nfilts is not None:
-                if nfilt not in nfilts:
-                    continue
-            down_samp = downsamps[nfilt]
-            nx_space = nxs[nfilt]
-            ny_space = nys[nfilt]
-            nxs_red = len(nx_space)
-            nys_red = len(ny_space)  # TODO: why isn't this already true?
-            # to_ret_cur = np.empty((nxs_red * nys_red, self.needlet.nfilt, self.nx , self.ny), dtype=np.float32, order="C")
-            to_ret_cur = np.empty(
-                (nxs_red * nys_red, self.nx * self.ny), dtype=np.float32, order="C"
-            )
-
-            real_map = self.real_map.copy()
-            mapset = Mapset()
-            mapset.add_map(real_map)
-            for nx in prange(nxs_red):
-                for ny in range(nys_red):
-                    idx = nys_red * nx + ny
-
-                    toc = time.time()
-                    unit_impulse = np.zeros((self.needlet.nfilt, self.nx, self.ny))
-                    unit_impulse[nfilt, nx_space[nx], ny_space[ny]] = (
-                        1  # Make a map in wavelet space that is one at only one place
-                    )
-                    unit_impulse = unit_impulse[None,]  # Dummy axis
-
-                    m_wav2map = wav2map_real(
-                        unit_impulse, self.needlet.filters
-                    )  # What is the mapspace response of that wavelet
-
-                    mapset.maps[0].map[:] = m_wav2map
-
-                    map_accum = todvec.dot(
-                        mapset, cache_maps=False
-                    )  # This gets the noise response of the tods to
-                    # the realspace map generated by the unit impulse
-                    # wavelet
-                    temp = map2wav_real(map_accum.maps[0].map, self.needlet.filters)[
-                        0, nfilt
-                    ]
-
-                    #temp = np.array(
-                    #    [temp[idx, idy] for idx in nx_space for idy in ny_space]
-                    #)
-
-                    to_ret_cur[idx] = temp.flatten()
-                    tic = time.time()
-                    print(nfilt, nx, ny, end="\r")
-                    # print(tic-toc, end='\r')
-                    # print("Whole will take ", (tic-toc)*np.sum(self.nxs_red**2))
-            to_ret[nfilt] = to_ret_cur
+        to_ret = np.full(self.needlet.nfilt, None, dtype=object)
+        for nfilt in self.select_filters(max_res, nfilts):
+            to_ret[nfilt] = self.probe_band(apply, nfilt, radius, threshold)
         return to_ret
 
     def get_response_matrix_map(
         self,
-        imap: NDArray[np.floating],
+        imap,
         max_res: Optional[np.floating] = None,
         nfilts: Optional[list[int]] = None,
+        radius: Optional[float] = None,
+        threshold: float = 0.0,
     ):
+        """
+        Computes K^T O K, the map space analogue of get_response_matrix, where O is a map space
+        inverse covariance (precision) matrix, using the downsamps currently set on this map
+        (computed if not set).
+
+        Parameters:
+        -----------
+        imap : NDArray[np.floating] | scipy.sparse matrix
+            Inverse covariance of the map. Either a (nx*ny, nx*ny) matrix or
+            an array with nx*ny/(nx, ny) entries, taken to be the diagonal.
+        max_res, nfilts, radius, threshold :
+            See get_response_matrix.
+
+        Returns
+        ------
+        to_ret : NDArray[object]
+            Sparse response of each computed filter, None for filters not computed.
+        """
         if self.downsamps is None:
             self.get_downsamps()
-    
-        down_samps = self.downsamps
-        # We want to return 0 at all scales we don't compute
-        to_ret = np.zeros(self.needlet.nfilt, dtype=object)
-
-        if max_res is not None:
-            if nfilts is not None:
-                raise ArgError("Cannot specify max_res and nfilts")
-            i = 0
-            while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
-                i += 1  # not the fastest way to do this but it's only done once
-            nfilts = range(i + 1)
-
-        for nfilt, filt in enumerate(self.needlet.filters):
-            if nfilts is not None:
-                if nfilt not in nfilts:
-                    continue 
-            down_samp = down_samps[nfilt]
-            nx_space = self.nx_space[nfilt]
-            ny_space = self.ny_space[nfilt]
-            nxs_red = len(nx_space)
-            nys_red = len(ny_space)  # TODO: why isn't this already true?
-            to_ret_cur = np.empty(
-                (nxs_red * nys_red, self.nx * self.ny), dtype=np.float32, order="C"
-            )
-
-            real_map = self.real_map.copy()
-            mapset = Mapset()
-            mapset.add_map(real_map)
-            for nx in prange(nxs_red):
-                for ny in range(nys_red):
-                    idx = nys_red * nx + ny
-                    unit_impulse = np.zeros((self.needlet.nfilt, self.nx, self.ny))
-                    unit_impulse[nfilt, nx_space[nx], ny_space[ny]] = (
-                            1  #TODO: This should be a wavelet space rep of beam, not unit 
-                    )
-                    unit_impulse = unit_impulse[None,]  # Dummy axis
-
-                    m_wav2map = wav2map_real(
-                        unit_impulse, self.needlet.filters
-                    )
-                    
-                    temp = map2wav_real((imap @ m_wav2map.ravel()[...,None]).reshape((self.nx, self.ny)), self.needlet.filters)[0, nfilt]
-                    #temp = np.array(
-                    #    [temp[idx, idy] for idx in nx_space for idy in ny_space]
-                    #)
-                    to_ret_cur[idx] = temp.flatten()
-                    print(nfilt, nx, ny, end="\r")
-            to_ret[nfilt] = to_ret_cur
+        if getattr(imap, "ndim", 2) == 2 and imap.shape == (self.nx, self.ny):
+            imap = imap.ravel()
+        if getattr(imap, "ndim", 2) == 1:
+            diag = imap.reshape(self.nx, self.ny)
+            apply = lambda m: diag * m
+        else:
+            apply = lambda m: (imap @ m.ravel()).reshape(self.nx, self.ny)
+        to_ret = np.full(self.needlet.nfilt, None, dtype=object)
+        for nfilt in self.select_filters(max_res, nfilts):
+            to_ret[nfilt] = self.probe_band(apply, nfilt, radius, threshold)
         return to_ret
+
+    def solve_bands(self, rhs, responses, ridge=1e-8):
+        """
+        Solve the per filter normal equations G c = rhs for the lattice coefficients, with
+        G the sum of the supplied response matrices, and return the wavelet map
+        (coefficients zero filled onto the full resolution grid).
+        Filters for which no response is available are left as zero.
+
+        Parameters
+        ----------
+        rhs : NDArray[np.floating]
+            Wavelet space A^T N^-1 d of shape (nfilt, nx, ny).
+        responses : Sequence[NDArray[object]]
+            Response matrices (e.g. from get_response_matrix and get_response_matrix_map)
+            to sum, each an object array with sparse matrices or None for each filter.
+        ridge : float, default: 1e-8
+            Relative diagonal regularization added to G, to keep unhit pixels invertible.
+
+        Returns
+        -------
+        wmap : NDArray[np.floating]
+            Wavelet map of shape (nfilt, nx, ny). Use wav2map_real to get the real space map.
+        """
+        wmap = np.zeros((self.needlet.nfilt, self.nx, self.ny))
+        for i in range(self.needlet.nfilt):
+            mats = [r[i] for r in responses if r[i] is not None]
+            if not mats:
+                continue
+            G = reduce(lambda a, b: a + b, mats).tocsc()
+            G = G + ridge * G.diagonal().max() * sparse.identity(
+                G.shape[0], format="csc"
+            )
+            xs, ys = self.nx_space[i], self.ny_space[i]
+            c = spsolve(G, rhs[i][np.ix_(xs, ys)].ravel())
+            wmap[i][np.ix_(xs, ys)] = c.reshape(len(xs), len(ys))
+        return wmap
 
     def get_wav_beam(self, fwhm_pix: float):
         """
@@ -1070,14 +1095,16 @@ class WavSkyMap(SkyMap):
            FWHM of beam in pixels.
         """
 
-        xvec = np.arange(-self.map.shape[1]/2, self.map.shape[1]/2,1) 
-        yvec = np.arange(-self.map.shape[2]/2, self.map.shape[2]/2,1)
+        xvec = np.arange(-self.map.shape[1] / 2, self.map.shape[1] / 2, 1)
+        yvec = np.arange(-self.map.shape[2] / 2, self.map.shape[2] / 2, 1)
         xx, yy = np.meshgrid(yvec, xvec)
         rsqr = xx**2 + yy**2
         sig_pix = fwhm_pix / np.sqrt(8 * np.log(2))
         beam = np.exp(-0.5 * rsqr / (sig_pix**2))
         beam = beam / np.sum(beam)
         self.wavbeam = map2wav_real(np.fft.fftshift(beam), self.needlet.filters)[0]
+
+
 ###############################################################################################
 
 
