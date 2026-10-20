@@ -47,6 +47,26 @@ def factors(n):
     )
 
 
+def highly_composite_size(n, slack=0.15):
+    """
+    Pick a map size with many divisors, so that the filters can be downsampled more aggressively.
+
+    Parameters
+    ----------
+    n : int
+        Minimum size.
+    slack : float, default: 0.15
+        Maximum fractional increase over n.
+
+    Returns
+    -------
+    int
+        The even integer in [n, n*(1+slack)] with the most divisors (the smallest of ties).
+    """
+    cands = [m for m in range(int(n), int(np.ceil(n * (1 + slack))) + 1) if m % 2 == 0]
+    return max(cands, key=lambda m: (len(factors(m)), -m))
+
+
 def color_groups(n, width):
     """
     Split a periodic lattice of n points into groups (colors) such that any two points of

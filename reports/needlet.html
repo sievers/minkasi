@@ -24,7 +24,8 @@
 
 <h2>Combined map</h2>
 <img src="figs/maps.png" alt="maps">
-<p><b>Caveat:</b> the ACT term needs a unit conversion (&micro;K to M2 units); with the default <code>--act-conv 1</code> the ACT map dominates and the combined map is not physically meaningful.</p>
+<p>ACT maps (&micro;K<sub>CMB</sub>) are converted to M2 units (mJy/beam, RJ) with <code>act_conversion</code>: thermodynamic to RJ temperature (matches <code>witch.utils.K_CMB2K_RJ</code>, 0.8146 at 90 GHz), then times the M2 beam solid angle. Defaults: 90 GHz, 9&Prime; FWHM beam, giving 4.37e-4 mJy/beam per &micro;K (override with <code>--freq</code>, <code>--m2-beam</code>, <code>--act-conv</code>). The ACT noise is the summed split ivar as a diagonal inverse covariance; TODO: replace with a robust map-space noise covariance estimate.</p>
+<p>The map size is chosen as the even size within 15% above the minimum that has the most divisors (218 &rarr; 240 here) so filters can be downsampled more.</p>
 
 <h2>Tests</h2>
 <p><code>tests/test_needlet.py</code>: band transforms vs full transforms, exact ANA vs brute force, probing accuracy, map response, solve round trip, colouring.</p>

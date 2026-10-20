@@ -10,6 +10,7 @@ import glob
 import os
 import time
 
+import astropy.units as u
 import numpy as np
 from pixell import enmap, utils
 from scipy import sparse
@@ -17,7 +18,13 @@ from scipy import sparse
 import minkasi.minkasi_all as minkasi
 from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
-from minkasi.needlet.needlet import Needlet, WavSkyMap, map2wav_real, wav2map_real
+from minkasi.needlet.needlet import (
+    Needlet,
+    WavSkyMap,
+    highly_composite_size,
+    map2wav_real,
+    wav2map_real,
+)
 
 
 def load_response(prefix, nfilt):
@@ -79,6 +86,60 @@ def cached(prefix, compute, redo, nfilt):
     if minkasi.myrank == 0:
         save_response(prefix, resp)
     return resp
+
+
+def act_conversion(freq=90e9, beam_fwhm=9.0):
+    """
+    Factor converting ACT maps (uK CMB) to the units of the M2 data (mJy/beam, RJ).
+
+    Parameters
+    ----------
+    freq : float, default: 90e9
+        Observing frequency in Hz.
+    beam_fwhm : float, default: 9.0
+        FWHM of the M2 beam in arcsec.
+
+    Returns
+    -------
+    float
+        mJy/beam per uK_CMB.
+    """
+    omega = (2 * np.pi * (beam_fwhm * u.arcsec / (8 * np.log(2)) ** 0.5) ** 2).to(u.sr)
+    equiv = u.thermodynamic_temperature(freq * u.Hz, 2.7255 * u.K)
+    return ((1 * u.uK).to(u.mJy / u.sr, equiv) * omega).to_value(u.mJy)
+
+
+def setup_wmap(todvec, pixsize, nfilt):
+    """
+    Build the needlet and the WavSkyMap covering the TODs. The map is square with a highly
+    composite size so that filters can be downsampled by many factors; the bounds only need
+    to contain the data.
+
+    Parameters
+    ----------
+    todvec : TodVec
+        TODs to cover.
+    pixsize : float
+        Pixel size in arcsec.
+    nfilt : int
+        Number of needlet filters.
+
+    Returns
+    -------
+    wmap : WavSkyMap
+    """
+    lims = todvec.lims()
+    ps = pixsize / 3600 * np.pi / 180
+    n0 = SkyMap(lims, ps, square=True, multiple=2).map.shape[0]
+    n = highly_composite_size(n0)
+    box = SkyMap(lims, ps, nx=n, ny=n).map
+    need = Needlet(
+        np.arange(nfilt), lightcone=box, L=n * pixsize * np.sqrt(2), pixsize=pixsize
+    )
+    need.get_needlet_filters_2d(
+        need.lightcone_box.get_grid_dimless_2d(return_grid=True)
+    )
+    return WavSkyMap(need, lims, ps, nx=n, ny=n)
 
 
 def read_tods(idir, ntods):
@@ -172,21 +233,8 @@ def main(args):
     """
     todvec = read_tods(args.idir, args.ntods)
     lims = todvec.lims()
-    pixsize = args.pixsize / 3600 * np.pi / 180
-
-    box = SkyMap(
-        lims, pixsize, square=True, multiple=2
-    ).map  # geometry to build the filters
-    need = Needlet(
-        np.arange(args.nfilt),
-        lightcone=box,
-        L=box.shape[0] * args.pixsize * np.sqrt(2),
-        pixsize=args.pixsize,
-    )
-    need.get_needlet_filters_2d(
-        need.lightcone_box.get_grid_dimless_2d(return_grid=True)
-    )
-    wmap = WavSkyMap(need, lims, pixsize, square=True, multiple=2)
+    wmap = setup_wmap(todvec, args.pixsize, args.nfilt)
+    need = wmap.needlet
 
     for tod in todvec.tods:
         tod.info["ipix"] = wmap.get_pix(tod)
@@ -247,7 +295,15 @@ def main(args):
         paths = paths[:2]
     if paths:
         t1 = time.time()
-        ivar, wdata = read_act(paths, lims, wmap, hits, conv=args.act_conv)
+        # TODO: ivar is treated as a diagonal map space inverse covariance. Replace this with a
+        # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
+        ivar, wdata = read_act(
+            paths,
+            lims,
+            wmap,
+            hits,
+            conv=args.act_conv or act_conversion(args.freq, args.m2_beam),
+        )
         act_rhs = map2wav_real(wdata, wmap.needlet.filters)[0]
         print(f"reading ACT took {time.time() - t1:.1f} s")
         responses.append(
@@ -284,7 +340,16 @@ if __name__ == "__main__":
         default="/mnt/welch/USERS/jorlo/maps/dr6_20230316_splits/cmb_night_*_f090_3pass_4way_set*_ivar.fits",
     )
     parser.add_argument(
-        "--act-conv", type=float, default=1.0, help="ACT map units to M2 units"
+        "--act-conv",
+        type=float,
+        default=None,
+        help="ACT map units (uK_CMB) to M2 units; default computed from --freq and --m2-beam",
+    )
+    parser.add_argument(
+        "--freq", type=float, default=90e9, help="Hz, for the unit conversion"
+    )
+    parser.add_argument(
+        "--m2-beam", type=float, default=9.0, help="M2 beam FWHM in arcsec"
     )
     parser.add_argument("--ntods", type=int, default=2)
     parser.add_argument("--nfilt", type=int, default=10)

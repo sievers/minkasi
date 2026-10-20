@@ -7,14 +7,11 @@ import json
 import os
 import time
 
-import numpy as np
 from matplotlib import pyplot as plt
 from astropy.io import fits
 
 import minkasi.minkasi_all as minkasi
-from minkasi.maps.skymap import SkyMap
-from minkasi.needlet.needlet import Needlet, WavSkyMap
-from twores_ex import read_tods
+from twores_ex import read_tods, setup_wmap
 
 
 def main(args):
@@ -29,19 +26,8 @@ def main(args):
     os.makedirs(args.odir, exist_ok=True)
     todvec = read_tods(args.idir, 1)
     pix = args.pixsize
-    ps = pix / 3600 * np.pi / 180
-    lims = todvec.lims()
-    box = SkyMap(lims, ps, square=True, multiple=2).map
-    need = Needlet(
-        np.arange(args.nfilt),
-        lightcone=box,
-        L=box.shape[0] * pix * np.sqrt(2),
-        pixsize=pix,
-    )
-    need.get_needlet_filters_2d(
-        need.lightcone_box.get_grid_dimless_2d(return_grid=True)
-    )
-    wmap = WavSkyMap(need, lims, ps, square=True, multiple=2)
+    wmap = setup_wmap(todvec, pix, args.nfilt)
+    need = wmap.needlet
     for tod in todvec.tods:
         tod.info["ipix"] = wmap.get_pix(tod)
         tod.set_noise(minkasi.NoiseSmoothedSVD)
