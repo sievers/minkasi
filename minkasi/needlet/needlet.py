@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 from scipy.interpolate import interp1d
 from scipy.linalg import norm
-from scipy.sparse.linalg import ArpackNoConvergence, eigsh, spsolve
+from scipy.sparse.linalg import ArpackNoConvergence, cg, eigsh, spsolve
 
 from ..mapmaking.map2tod import map2tod
 from ..mapmaking.tod2map import (
@@ -1135,8 +1135,8 @@ class WavSkyMap(SkyMap):
             Exclusive with max_res.
         downsamps : list[int], default : None
             Explicitly set downsamp rates. If None, good downsamps are computed.
-        radius : float, default : None
-            Half width in pixels beyond which ANA is neglected. This makes the computation much
+        radius : float | Sequence[float], default : None
+            Half width in pixels beyond which ANA is neglected (one value per filter if a sequence). This makes the computation much
             faster (one TOD pass per ~(2*radius/downsamp)^2 pixels rather than one per pixel)
             and the output sparse. None computes everything exactly.
         threshold : float, default : 0
@@ -1163,7 +1163,11 @@ class WavSkyMap(SkyMap):
         to_ret = np.full(self.needlet.nfilt, None, dtype=object)
         for nfilt in self.select_filters(max_res, nfilts):
             to_ret[nfilt] = self.probe_band(
-                apply, nfilt, radius, threshold, exact_below
+                apply,
+                nfilt,
+                radius[nfilt] if np.ndim(radius) else radius,
+                threshold,
+                exact_below,
             )
         return to_ret
 
@@ -1216,7 +1220,11 @@ class WavSkyMap(SkyMap):
         to_ret = np.full(self.needlet.nfilt, None, dtype=object)
         for nfilt in self.select_filters(max_res, nfilts):
             to_ret[nfilt] = self.probe_band(
-                apply, nfilt, radius, threshold, exact_below
+                apply,
+                nfilt,
+                radius[nfilt] if np.ndim(radius) else radius,
+                threshold,
+                exact_below,
             )
         return to_ret
 
@@ -1262,7 +1270,20 @@ class WavSkyMap(SkyMap):
             )  # truncation can make G indefinite
             G = G + shift * sparse.identity(G.shape[0], format="csc")
             xs, ys = self.nx_space[i], self.ny_space[i]
-            c = spsolve(G, map2band(rhs[i], filt)[np.ix_(xs, ys)].ravel())
+            b = map2band(rhs[i], filt)[np.ix_(xs, ys)].ravel()
+            if G.shape[0] <= 20000:
+                c = spsolve(G, b)
+            else:  # direct solves fill in too much for large lattices
+                dinv = 1 / G.diagonal()
+                c, info = cg(
+                    G,
+                    b,
+                    rtol=1e-8,
+                    maxiter=2000,
+                    M=sparse.diags(dinv),
+                )
+                if info:
+                    print(f"filter {i}: cg did not converge ({info})")
             coeffs = np.zeros((self.nx, self.ny))
             coeffs[np.ix_(xs, ys)] = c.reshape(len(xs), len(ys))
             wmap[i] = band2map(coeffs, filt)

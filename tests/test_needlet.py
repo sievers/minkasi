@@ -1,21 +1,20 @@
+import minkasi.minkasi_all as minkasi
 import numpy as np
 import pytest
-from scipy import sparse
-
-import minkasi.minkasi_all as minkasi
 from minkasi.maps.mapset import Mapset
+from minkasi.maps.skymap import SkyMap
 from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
     apply_beam,
     band2map,
-    gaussian_beam_ft,
     color_groups,
+    gaussian_beam_ft,
     map2band,
     map2wav_real,
     wav2map_real,
 )
-from minkasi.maps.skymap import SkyMap
+from scipy import sparse
 
 PIXSIZE = 30.0 / 3600 * np.pi / 180  # radians
 

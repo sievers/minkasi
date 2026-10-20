@@ -7,11 +7,11 @@ import json
 import os
 import time
 
-from matplotlib import pyplot as plt
+import minkasi.minkasi_all as minkasi
 from astropy.io import fits
+from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter
 
-import minkasi.minkasi_all as minkasi
 from twores_ex import read_tods, setup_wmap
 
 

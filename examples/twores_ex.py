@@ -11,11 +11,8 @@ import os
 import time
 
 import astropy.units as u
-import numpy as np
-from pixell import enmap, utils
-from scipy import sparse
-
 import minkasi.minkasi_all as minkasi
+import numpy as np
 from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
 from minkasi.needlet.needlet import (
@@ -28,28 +25,8 @@ from minkasi.needlet.needlet import (
     map2wav_real,
     wav2map_real,
 )
-
-
-def load_response(prefix, nfilt):
-    """
-    Load a list of per filter sparse matrices saved by save_response.
-
-    Parameters
-    ----------
-    prefix : str
-        Path prefix of the files.
-    nfilt : int
-        Number of filters.
-
-    Returns
-    -------
-    resp : NDArray[object]
-        Sparse matrix per filter, None where nothing was saved.
-    """
-    resp = np.full(nfilt, None, dtype=object)
-    for f in glob.glob(prefix + "_*.npz"):
-        resp[int(f.rsplit("_", 1)[1][:-4])] = sparse.load_npz(f)
-    return resp
+from pixell import enmap, utils
+from scipy import sparse
 
 
 def save_response(prefix, resp):
@@ -68,26 +45,42 @@ def save_response(prefix, resp):
             sparse.save_npz(f"{prefix}_{i}.npz", r)
 
 
-def cached(prefix, compute, redo, nfilt):
+def cached(prefix, compute, redo, nfilt, bands):
     """
-    Load the response matrices from prefix if present, otherwise compute and save them.
+    Load the response matrices of the requested bands from the cache at prefix and compute and
+    save only those that are missing. The cache does not record how the matrices were made
+    (TODs, radius, units, ...): use a new directory or redo when these change.
 
     Parameters
     ----------
     prefix : str
         Path prefix of the cache.
     compute : Callable
-        Function with no arguments returning the response matrices.
+        Function taking a list of bands and returning the response matrices (see
+        WavSkyMap.get_response_matrix).
     redo : bool
         Ignore any existing cache.
     nfilt : int
         Number of filters.
+    bands : list[int]
+        Bands needed.
+
+    Returns
+    -------
+    resp : NDArray[object]
+        Sparse matrix per filter, None for the bands not requested.
     """
-    if not redo and glob.glob(prefix + "_*.npz"):
-        return load_response(prefix, nfilt)
-    resp = compute()
-    if minkasi.myrank == 0:
-        save_response(prefix, resp)
+    have = [i for i in bands if not redo and os.path.exists(f"{prefix}_{i}.npz")]
+    missing = [i for i in bands if i not in have]
+    resp = np.full(nfilt, None, dtype=object)
+    for i in have:
+        resp[i] = sparse.load_npz(f"{prefix}_{i}.npz")
+    if missing:
+        new = compute(missing)
+        for i in missing:
+            resp[i] = new[i]
+        if minkasi.myrank == 0:
+            save_response(prefix, new)
     return resp
 
 
@@ -319,14 +312,23 @@ def main(args):
     todvec.make_rhs(rhs)  # residual rhs in the wavelet basis
     wmap.get_downsamps()
     cache = os.path.join(args.cache, args.name)
-    kw = dict(max_res=args.max_res, radius=args.radius)
+    # window of the response matrices: a few filter extents, never more than --radius
+    radii = [
+        min(
+            args.radius or np.inf,
+            2 * need.get_need_lims(i, real_space=True)[1] / args.pixsize,
+        )
+        for i in range(need.nfilt)
+    ]
+    kw = {"max_res": args.max_res, "radius": None if args.radius is None else radii}
     kw_bands = wmap.select_filters(args.max_res)
     t0 = time.time()
     m2_resp = cached(
         cache + "_m2",
-        lambda: wmap.get_response_matrix(todvec, **kw),
+        lambda b: wmap.get_response_matrix(todvec, nfilts=b, radius=kw["radius"]),
         args.redo,
         need.nfilt,
+        kw_bands,
     )
 
     print(f"M2 response took {time.time() - t0:.1f} s")
@@ -374,15 +376,16 @@ def main(args):
         responses.append(
             cached(
                 f"{cache}_act_t{args.taper}_c{conv:.3g}_b{args.act_beam}_pw_tr{args.act_min_transfer}",
-                lambda: wmap.get_response_matrix_map(
+                lambda b: wmap.get_response_matrix_map(
                     ivar,
                     forward=forward,
                     adjoint=adjoint,
-                    nfilts=act_bands,
-                    radius=args.radius,
+                    nfilts=b,
+                    radius=kw["radius"],
                 ),
                 args.redo,
                 need.nfilt,
+                act_bands,
             )
         )
 
@@ -454,7 +457,7 @@ if __name__ == "__main__":
     parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
     parser.add_argument("--maxiter", type=int, default=50)
     parser.add_argument(
-        "--max-res", type=float, default=60.0, help="Arcsec; smallest scale for ANA"
+        "--max-res", type=float, default=5.0, help="Arcsec; smallest scale for ANA"
     )
     parser.add_argument(
         "--radius", type=float, default=30.0, help="Pixels; ANA window, <0 for exact"
