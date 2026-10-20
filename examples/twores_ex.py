@@ -21,6 +21,9 @@ from minkasi.maps.skymap import SkyMap
 from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
+    apply_beam,
+    block_average,
+    gaussian_beam_ft,
     highly_composite_size,
     map2wav_real,
     wav2map_real,
@@ -88,9 +91,9 @@ def cached(prefix, compute, redo, nfilt):
     return resp
 
 
-def act_conversion(freq=90e9, beam_fwhm=9.0):
+def act_conversion(freq=90e9, beam_fwhm=9.0, unit="Jy"):
     """
-    Factor converting ACT maps (uK CMB) to the units of the M2 data (mJy/beam, RJ).
+    Factor converting ACT maps (uK CMB) to the units of the M2 data (unit/beam, RJ).
 
     Parameters
     ----------
@@ -98,15 +101,18 @@ def act_conversion(freq=90e9, beam_fwhm=9.0):
         Observing frequency in Hz.
     beam_fwhm : float, default: 9.0
         FWHM of the M2 beam in arcsec.
+    unit : str, default: "Jy"
+        Flux unit of the M2 TODs, "Jy" or "mJy". The median per sample noise of the MOOJ1142
+        TODs is about 2 in their units, which is only realistic for Jy/beam.
 
     Returns
     -------
     float
-        mJy/beam per uK_CMB.
+        unit/beam per uK_CMB.
     """
     omega = (2 * np.pi * (beam_fwhm * u.arcsec / (8 * np.log(2)) ** 0.5) ** 2).to(u.sr)
     equiv = u.thermodynamic_temperature(freq * u.Hz, 2.7255 * u.K)
-    return ((1 * u.uK).to(u.mJy / u.sr, equiv) * omega).to_value(u.mJy)
+    return ((1 * u.uK).to(u.Jy / u.sr, equiv) * omega).to_value(u.Unit(unit))
 
 
 def setup_wmap(todvec, pixsize, nfilt, pad_frac=0.0):
@@ -207,7 +213,10 @@ def edge_taper(shape, width):
     return ramp(shape[0])[:, None] * ramp(shape[1])[None, :]
 
 
-def read_act(paths, lims, wmap, hits, fac=10, conv=1.0):
+ACT_OSAMP = 10  # fine pixels per ACT pixel
+
+
+def read_act(paths, lims, wmap, hits, fac=ACT_OSAMP, conv=1.0):
     """
     Read ACT split maps and inverse variance maps in a box around the field and
     coadd them onto the (fine) wavelet map pixelization.
@@ -295,6 +304,7 @@ def main(args):
         save_iters=[args.maxiter],
         outroot=args.outroot,
     )
+    pcg_map = wav2map_real(mapset_out.maps[0].map, need.filters)[0]
     if minkasi.myrank == 0:
         mapset_out.maps[0].write(args.outroot + "_need.fits")
     minkasi.barrier()
@@ -310,6 +320,7 @@ def main(args):
     wmap.get_downsamps()
     cache = os.path.join(args.cache, args.name)
     kw = dict(max_res=args.max_res, radius=args.radius)
+    kw_bands = wmap.select_filters(args.max_res)
     t0 = time.time()
     m2_resp = cached(
         cache + "_m2",
@@ -329,7 +340,7 @@ def main(args):
         t1 = time.time()
         # TODO: ivar is treated as a diagonal map space inverse covariance. Replace this with a
         # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
-        conv = args.act_conv or act_conversion(args.freq, args.m2_beam)
+        conv = args.act_conv or act_conversion(args.freq, args.m2_beam, args.m2_unit)
         ivar, wdata = read_act(paths, wmap.lims, wmap, hits, conv=conv)
         if (
             minkasi.myrank == 0
@@ -341,12 +352,35 @@ def main(args):
         # The filters are periodic but the ACT map is not: taper the weights at the edges
         taper = edge_taper(ivar.shape, args.taper)
         ivar, wdata = ivar * taper, wdata * taper
-        act_rhs = map2wav_real(wdata, wmap.needlet.filters)[0]
+        # ACT sees the sky through its beam and the PCG model is already removed from the M2
+        # TODs, so ACT enters through its residual with respect to the beam smoothed PCG map.
+        beam_ft = gaussian_beam_ft(ivar.shape, args.act_beam * 60 / args.pixsize)
+
+        def forward(m):  # beam, then the ACT pixel average
+            return block_average(apply_beam(m, beam_ft), ACT_OSAMP)
+
+        def adjoint(m):
+            return apply_beam(block_average(m, ACT_OSAMP), beam_ft)
+
+        # ACT only constrains the bands its beam transmits; deconvolving the others amplifies noise
+        fwhm_pix = args.act_beam * 60 / args.pixsize
+        transfer = wmap.band_transfer(fwhm_pix)
+        act_bands = [i for i in kw_bands if transfer[i] >= args.act_min_transfer]
+        print("ACT used in bands", act_bands, "beam transfer", transfer.round(3))
+        resid = wdata - ivar * forward(pcg_map)
+        act_rhs = map2wav_real(adjoint(resid), wmap.needlet.filters)[0]
+        act_rhs[[i for i in range(need.nfilt) if i not in act_bands]] = 0
         print(f"reading ACT took {time.time() - t1:.1f} s")
         responses.append(
             cached(
-                f"{cache}_act_t{args.taper}_c{conv:.3g}",
-                lambda: wmap.get_response_matrix_map(ivar, **kw),
+                f"{cache}_act_t{args.taper}_c{conv:.3g}_b{args.act_beam}_pw_tr{args.act_min_transfer}",
+                lambda: wmap.get_response_matrix_map(
+                    ivar,
+                    forward=forward,
+                    adjoint=adjoint,
+                    nfilts=act_bands,
+                    radius=args.radius,
+                ),
                 args.redo,
                 need.nfilt,
             )
@@ -360,6 +394,9 @@ def main(args):
     wmap.real_map.map = mmap
     if minkasi.myrank == 0:
         wmap.real_map.write(args.outroot + "_combined.fits")
+        # The combined solution is for the residual after PCG: add the PCG map back.
+        wmap.real_map.map = mmap + pcg_map
+        wmap.real_map.write(args.outroot + "_final.fits")
 
 
 if __name__ == "__main__":
@@ -386,6 +423,12 @@ if __name__ == "__main__":
         "--freq", type=float, default=90e9, help="Hz, for the unit conversion"
     )
     parser.add_argument(
+        "--m2-unit",
+        default="Jy",
+        choices=["Jy", "mJy"],
+        help="Flux unit of the M2 TODs",
+    )
+    parser.add_argument(
         "--m2-beam", type=float, default=9.0, help="M2 beam FWHM in arcsec"
     )
     parser.add_argument(
@@ -396,6 +439,15 @@ if __name__ == "__main__":
         type=float,
         default=0.25,
         help="Map padding, fraction of data extent",
+    )
+    parser.add_argument(
+        "--act-beam", type=float, default=2.1, help="ACT beam FWHM in arcmin"
+    )
+    parser.add_argument(
+        "--act-min-transfer",
+        type=float,
+        default=0.05,
+        help="Minimum ACT beam transfer of a band for ACT to be used in it",
     )
     parser.add_argument("--ntods", type=int, default=2)
     parser.add_argument("--nfilt", type=int, default=10)

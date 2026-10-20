@@ -7,7 +7,9 @@ from minkasi.maps.mapset import Mapset
 from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
+    apply_beam,
     band2map,
+    gaussian_beam_ft,
     color_groups,
     map2band,
     map2wav_real,
@@ -162,6 +164,27 @@ def test_solve_bands_handles_indefinite_precision(wmap):
     out = wmap.solve_bands(rhs, [np.array([None, None, G.tocsr(), None], dtype=object)])
     assert np.isfinite(out).all()
     assert np.abs(out).max() < 100 * np.abs(rhs).max()
+
+
+def test_map_response_with_beam_matches_dense(wmap):
+    """Beam-observed map response equals K^T B D B K computed row by row."""
+    rng = np.random.default_rng(5)
+    ivar = rng.uniform(1, 2, size=(wmap.nx, wmap.ny))
+    beam = gaussian_beam_ft((wmap.nx, wmap.ny), 6.0)
+    wmap.set_downsamps(np.full(wmap.needlet.nfilt, 2))
+    got = wmap.get_response_matrix_map(
+        ivar, nfilts=[2], forward=lambda m: apply_beam(m, beam)
+    )[2].toarray()
+    filt = wmap.needlet.filters[2]
+    xs, ys = wmap.nx_space[2], wmap.ny_space[2]
+    for r in (0, 100, len(got) - 1):
+        delta = np.zeros((wmap.nx, wmap.ny))
+        delta[xs[r // len(ys)], ys[r % len(ys)]] = 1
+        z = map2band(
+            apply_beam(ivar * apply_beam(band2map(delta, filt), beam), beam), filt
+        )
+        assert np.allclose(got[r], z[np.ix_(xs, ys)].ravel(), atol=1e-10)
+    assert np.allclose(got, got.T)
 
 
 @pytest.mark.parametrize("n,width", [(55, 21), (110, 7), (484, 3), (10, 40)])

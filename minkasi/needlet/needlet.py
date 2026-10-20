@@ -94,6 +94,75 @@ def min_eigenvalue(G, dense_below=2500):
         return e.eigenvalues.min() if len(e.eigenvalues) else -abs(G.diagonal()).max()
 
 
+def gaussian_beam_ft(shape, fwhm_pix):
+    """
+    Fourier transform (rfft2 layout) of a unit-area Gaussian beam on a periodic grid.
+
+    Parameters
+    ----------
+    shape : tuple[int]
+        Shape (nx, ny) of the map.
+    fwhm_pix : float
+        Beam FWHM in pixels.
+
+    Returns
+    -------
+    NDArray[np.floating]
+        Multiplier of shape (nx, ny // 2 + 1); apply with apply_beam.
+    """
+    sig = fwhm_pix / np.sqrt(8 * np.log(2))
+    k2 = (
+        np.fft.fftfreq(shape[0])[:, None] ** 2 + np.fft.rfftfreq(shape[1])[None, :] ** 2
+    )
+    return np.exp(-2 * np.pi**2 * sig**2 * k2)
+
+
+def apply_beam(imap, beam_ft):
+    """
+    Convolve a map with a beam.
+
+    Parameters
+    ----------
+    imap : NDArray[np.floating]
+        Map of shape (nx, ny).
+    beam_ft : NDArray[np.floating]
+        Output of gaussian_beam_ft.
+
+    Returns
+    -------
+    NDArray[np.floating]
+        Smoothed map.
+    """
+    return np.fft.irfft2(np.fft.rfft2(imap) * beam_ft, s=imap.shape)
+
+
+def block_average(imap, fac):
+    """
+    Replace every fac x fac block of pixels by its mean, i.e. observe a map with
+    pixels fac times larger and put the result back on the fine grid. Symmetric and idempotent.
+
+    Parameters
+    ----------
+    imap : NDArray[np.floating]
+        Map of shape (nx, ny) with nx and ny multiples of fac.
+    fac : int
+        Block size in pixels.
+
+    Returns
+    -------
+    NDArray[np.floating]
+        Block averaged map.
+    """
+    nx, ny = imap.shape
+    nxb, nyb = nx - nx % fac, ny - ny % fac
+    out = imap.copy()
+    blocks = (
+        imap[:nxb, :nyb].reshape(nxb // fac, fac, nyb // fac, fac).mean(axis=(1, 3))
+    )
+    out[:nxb, :nyb] = np.repeat(np.repeat(blocks, fac, axis=0), fac, axis=1)
+    return out
+
+
 def color_groups(n, width):
     """
     Split a periodic lattice of n points into groups (colors) such that any two points of
@@ -897,6 +966,29 @@ class WavSkyMap(SkyMap):
         self.nxs_red = np.array([len(n) for n in self.nx_space])
         self.nys_red = np.array([len(n) for n in self.ny_space])
 
+    def band_transfer(self, fwhm_pix):
+        """
+        Amplitude transfer of a Gaussian beam in each filter band (average over the squared filter),
+        used to decide in which bands a beam smoothed map carries information.
+
+        Parameters
+        ----------
+        fwhm_pix : float
+            Beam FWHM in pixels.
+
+        Returns
+        -------
+        NDArray[np.floating]
+            Transfer per filter, between 0 and 1.
+        """
+        sig = fwhm_pix / np.sqrt(8 * np.log(2))
+        kx = np.fft.fftshift(np.fft.fftfreq(self.nx))[:, None]
+        ky = np.fft.fftshift(np.fft.fftfreq(self.ny))[None, :]
+        beam = np.exp(-2 * np.pi**2 * sig**2 * (kx**2 + ky**2))
+        return np.array(
+            [(f**2 * beam).sum() / (f**2).sum() for f in self.needlet.filters]
+        )
+
     def select_filters(self, max_res=None, nfilts=None):
         """
         Get the filters to compute from max_res or nfilts (mutually exclusive).
@@ -1083,6 +1175,8 @@ class WavSkyMap(SkyMap):
         radius: Optional[float] = None,
         threshold: float = 0.0,
         exact_below: int = 5000,
+        forward=None,
+        adjoint=None,
     ):
         """
         Computes K^T O K, the map space analogue of get_response_matrix, where O is a map space
@@ -1096,6 +1190,11 @@ class WavSkyMap(SkyMap):
             an array with nx*ny/(nx, ny) entries, taken to be the diagonal.
         max_res, nfilts, radius, threshold, exact_below :
             See get_response_matrix.
+        forward : Callable | None, default: None
+            If given, the map is observed through this linear operator (e.g. beam and pixel
+            window, see apply_beam and block_average), so the result is K^T F^T O F K.
+        adjoint : Callable | None, default: None
+            Adjoint of forward, taken to be forward itself (symmetric) if None.
 
         Returns
         ------
@@ -1111,6 +1210,9 @@ class WavSkyMap(SkyMap):
             apply = lambda m: diag * m
         else:
             apply = lambda m: (imap @ m.ravel()).reshape(self.nx, self.ny)
+        if forward is not None:
+            op, adj = apply, adjoint or forward
+            apply = lambda m: adj(op(forward(m)))
         to_ret = np.full(self.needlet.nfilt, None, dtype=object)
         for nfilt in self.select_filters(max_res, nfilts):
             to_ret[nfilt] = self.probe_band(
@@ -1118,7 +1220,7 @@ class WavSkyMap(SkyMap):
             )
         return to_ret
 
-    def solve_bands(self, rhs, responses, ridge=1e-8):
+    def solve_bands(self, rhs, responses, ridge=1e-3):
         """
         Approximate ML solution using only the diagonal (same filter) blocks of the
         wavelet space precision matrix. The filters satisfy sum_i F_i^2 = 1, so the
@@ -1134,8 +1236,10 @@ class WavSkyMap(SkyMap):
         responses : Sequence[NDArray[object]]
             Response matrices (e.g. from get_response_matrix and get_response_matrix_map)
             to sum, each an object array with sparse matrices or None for each filter.
-        ridge : float, default: 1e-8
-            Relative diagonal regularization added to G, to keep unhit pixels invertible.
+        ridge : float, default: 1e-3
+            Diagonal regularization added to G, relative to its mean diagonal. It acts as a zero
+            mean prior that keeps modes the data cannot constrain (e.g. beyond the ACT beam, or
+            outside the M2 footprint) from amplifying noise.
             If G is indefinite (e.g. truncated response matrices) it is also shifted by its most
             negative eigenvalue.
 
@@ -1153,7 +1257,7 @@ class WavSkyMap(SkyMap):
             filt = self.needlet.filters[i]
             G = reduce(lambda a, b: a + b, mats).tocsc()
             lmin = min_eigenvalue(G)
-            shift = ridge * G.diagonal().max() + max(
+            shift = ridge * G.diagonal().mean() + max(
                 0, -1.1 * lmin
             )  # truncation can make G indefinite
             G = G + shift * sparse.identity(G.shape[0], format="csc")

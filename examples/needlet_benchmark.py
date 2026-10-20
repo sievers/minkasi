@@ -9,12 +9,13 @@ import time
 
 from matplotlib import pyplot as plt
 from astropy.io import fits
+from scipy.ndimage import gaussian_filter
 
 import minkasi.minkasi_all as minkasi
 from twores_ex import read_tods, setup_wmap
 
 
-def plot_maps(files, out):
+def plot_maps(files, out, smooth=None):
     """
     Plot FITS maps side by side, titled by the suffix of the file name (e.g. need, act, combined).
 
@@ -24,11 +25,20 @@ def plot_maps(files, out):
         FITS maps to plot.
     out : str
         Output figure path.
+    smooth : dict | None
+        Gaussian smoothing (pixels) by file name suffix, e.g. {"need": 8}. Default smooths the noisy
+        PCG based maps (need, combined, final).
     """
+    smooth = {"need": 8, "combined": 4, "final": 8} if smooth is None else smooth
     fig, axs = plt.subplots(1, len(files), figsize=(5 * len(files), 4.5), squeeze=False)
     for ax, f in zip(axs[0], files):
-        im = ax.imshow(fits.getdata(f), origin="lower")
-        ax.set_title(os.path.basename(f).rsplit("_", 1)[-1][:-5])
+        name = os.path.basename(f).rsplit("_", 1)[-1][:-5]
+        sig = smooth.get(name, 0)
+        im = ax.imshow(
+            gaussian_filter(fits.getdata(f), sig) if sig else fits.getdata(f),
+            origin="lower",
+        )
+        ax.set_title(name + (f" (smoothed {sig} px)" if sig else ""))
         plt.colorbar(im, ax=ax, shrink=0.8)
     fig.tight_layout()
     fig.savefig(out, dpi=120)
