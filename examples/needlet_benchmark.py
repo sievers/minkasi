@@ -29,20 +29,23 @@ def plot_maps(files, out, smooth=None, hits=None, min_hits=20):
     smooth : dict | None
         Gaussian smoothing (pixels) by file name suffix, e.g. {"need": 8}. Default is no smoothing.
     hits : str | None
-        FITS hits map; pixels with fewer than min_hits hits are masked (shown blank).
+        FITS hits map; pixels with fewer than min_hits hits are masked. They are filled with the
+        ACT map (the file ending in _act.fits) when it is among files, else shown blank.
     min_hits : float, default: 20
         Hits threshold of the mask.
     """
     smooth = {} if smooth is None else smooth
     bad = None if hits is None else fits.getdata(hits).squeeze() < min_hits
+    act = next((f for f in files if f.endswith("_act.fits")), None)
+    act = None if act is None else fits.getdata(act).squeeze().astype(float)
     fig, axs = plt.subplots(1, len(files), figsize=(5 * len(files), 4.5), squeeze=False)
     for ax, f in zip(axs[0], files):
         name = os.path.basename(f).rsplit("_", 1)[-1][:-5]
         sig = smooth.get(name, 0)
         dat = fits.getdata(f).squeeze().astype(float)
         dat = gaussian_filter(dat, sig) if sig else dat
-        if bad is not None:
-            dat[bad] = np.nan
+        if bad is not None and name != "act":
+            dat[bad] = np.nan if act is None else act[bad]
         im = ax.imshow(dat, origin="lower")
         ax.set_title(name + (f" (smoothed {sig} px)" if sig else ""))
         plt.colorbar(im, ax=ax, shrink=0.8)
