@@ -16,9 +16,13 @@ from scipy.ndimage import gaussian_filter
 from twores_ex import read_tods, setup_wmap
 
 
-def plot_maps(files, out, smooth=None, hits=None, min_hits=20):
+def plot_maps(files, out, smooth=None, hits=None, min_hits=20, act_sigma=17.9):
     """
     Plot FITS maps side by side, titled by the suffix of the file name (e.g. need, act, combined).
+
+    If both an ACT map (file ending in _act.fits) and a final map are given, an extra panel shows
+    the final map smoothed to the ACT beam on the colour scale of ACT, for a like for like comparison.
+    Colour limits of the other panels are the 1st and 99th percentiles of the unmasked pixels.
 
     Parameters
     ----------
@@ -30,24 +34,41 @@ def plot_maps(files, out, smooth=None, hits=None, min_hits=20):
         Gaussian smoothing (pixels) by file name suffix, e.g. {"need": 8}. Default is no smoothing.
     hits : str | None
         FITS hits map; pixels with fewer than min_hits hits are masked. They are filled with the
-        ACT map (the file ending in _act.fits) when it is among files, else shown blank.
+        ACT map when it is among files, else shown blank.
     min_hits : float, default: 20
         Hits threshold of the mask.
+    act_sigma : float, default: 17.9
+        Gaussian sigma in pixels of the ACT beam (2.1 arcmin FWHM at 3 arcsec pixels).
     """
     smooth = {} if smooth is None else smooth
     bad = None if hits is None else fits.getdata(hits).squeeze() < min_hits
-    act = next((f for f in files if f.endswith("_act.fits")), None)
-    act = None if act is None else fits.getdata(act).squeeze().astype(float)
-    fig, axs = plt.subplots(1, len(files), figsize=(5 * len(files), 4.5), squeeze=False)
-    for ax, f in zip(axs[0], files):
-        name = os.path.basename(f).rsplit("_", 1)[-1][:-5]
+    maps = {
+        os.path.basename(f).rsplit("_", 1)[-1][:-5]: fits.getdata(f)
+        .squeeze()
+        .astype(float)
+        for f in files
+    }
+    act = maps.get("act")
+    panels = []
+    for name, dat in maps.items():
         sig = smooth.get(name, 0)
-        dat = fits.getdata(f).squeeze().astype(float)
         dat = gaussian_filter(dat, sig) if sig else dat
         if bad is not None and name != "act":
             dat[bad] = np.nan if act is None else act[bad]
-        im = ax.imshow(dat, origin="lower")
-        ax.set_title(name + (f" (smoothed {sig} px)" if sig else ""))
+        ok = ~bad if bad is not None else np.ones(dat.shape, bool)
+        panels.append((name + (f" (smoothed {sig} px)" if sig else ""), dat, ok))
+    if act is not None and "final" in maps:
+        dat = gaussian_filter(np.where(bad, 0, maps["final"]), act_sigma)
+        dat[bad] = act[bad]
+        panels.append(("final, ACT beam (ACT scale)", dat, None))
+    fig, axs = plt.subplots(
+        1, len(panels), figsize=(5 * len(panels), 4.5), squeeze=False
+    )
+    for ax, (title, dat, ok) in zip(axs[0], panels):
+        ref = act if ok is None else dat[ok]
+        lo, hi = np.percentile(ref, [1, 99])
+        im = ax.imshow(dat, origin="lower", vmin=lo, vmax=hi)
+        ax.set_title(title)
         plt.colorbar(im, ax=ax, shrink=0.8)
     fig.tight_layout()
     fig.savefig(out, dpi=120)
