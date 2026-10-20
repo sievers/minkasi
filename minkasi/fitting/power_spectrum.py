@@ -1,6 +1,9 @@
 import numpy as np
 
-from ..tools import fft
+try:
+    from ..tools import fft
+except ImportError:
+    from ..tools import py_fft as fft
 from .core import update_lamda
 
 

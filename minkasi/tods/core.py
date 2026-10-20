@@ -1,18 +1,22 @@
 import copy
 import sys
 import time
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union, overload, Type
 
 import numpy as np
 from numpy.typing import NDArray
-from typing_extensions import deprecated
+from typing_extensions import deprecated, Literal
 
 from ..mapmaking.noise import NoiseModelType, NoiseSmoothedSVD, WithDetWeights
 from ..parallel import MPI, comm, have_mpi
-from ..tools import fft
 from . import _depracated
 from .cuts import CutsCompact
 from .utils import slice_with_copy
+
+try:
+    from ..tools import fft
+except ImportError:
+    from ..tools import py_fft as fft
 
 if TYPE_CHECKING:
     from ..maps import Mapset, MapType, SkyMap
@@ -74,7 +78,7 @@ class Tod:
         self.noise_kwargs: dict = {}
         self.noise_modelclass: type[NoiseModelType]
 
-    def lims(self) -> list[float, float, float, float]:
+    def lims(self) -> List[float]:
         """
         Get RA/dec limits of this TOD.
 
@@ -135,12 +139,12 @@ class Tod:
 
     def get_nsamp(self) -> int:
         """
-        Get total number of samples in this TOD.
+         Get total number of samples in this TOD.
 
-        Returns
+         Returns
         -------
-        nsamp : int
-            Number of samples.
+         nsamp : int
+             Number of samples.
         """
         return self.get_ndet() * self.get_ndata()
 
@@ -347,7 +351,7 @@ class Tod:
 
     def set_noise(
         self,
-        modelclass: type[NoiseModelType] = NoiseSmoothedSVD,
+        modelclass: Type[NoiseModelType] = NoiseSmoothedSVD,
         dat: Optional[NDArray[np.floating]] = None,
         delayed: bool = False,
         *args,
@@ -481,6 +485,12 @@ class Tod:
         dd = dd * tmp
         return dd
 
+    def iter_init(self):
+        return
+
+    def iter_finalize(self):
+        return
+
     @deprecated("Use tod.set_noise(NoiseCMWhite) instead")
     def set_noise_cm_white(self):
         _depracated.set_noise_cm_white(self)
@@ -611,24 +621,37 @@ class Tod:
 
     @overload
     def dot(
-        self, mapset: "Mapset", mapset_out: "Mapset", times: Literal[True] = True
-    ) -> NDArray[np.floating]:
-        ...
+        self,
+        mapset: "Mapset",
+        mapset_out: "Mapset",
+        times: Literal[True] = True,
+        mask: Optional["Mapset"] = None,
+    ) -> NDArray[np.floating]: ...
 
     @overload
     def dot(
-        self, mapset: "Mapset", mapset_out: "Mapset", times: Literal[False] = False
-    ) -> None:
-        ...
+        self,
+        mapset: "Mapset",
+        mapset_out: "Mapset",
+        times: Literal[False] = False,
+        mask: Optional["Mapset"] = None,
+    ) -> None: ...
 
     @overload
     def dot(
-        self, mapset: "Mapset", mapset_out: "Mapset", times: bool = False
-    ) -> Optional[NDArray[np.floating]]:
-        ...
+        self,
+        mapset: "Mapset",
+        mapset_out: "Mapset",
+        times: bool = False,
+        mask: Optional["Mapset"] = None,
+    ) -> Optional[NDArray[np.floating]]: ...
 
     def dot(
-        self, mapset: "Mapset", mapset_out: "Mapset", times: bool = False
+        self,
+        mapset: "Mapset",
+        mapset_out: "Mapset",
+        times: bool = False,
+        mask: Optional["Mapset"] = None,
     ) -> Optional[NDArray[np.floating]]:
         """
         Project mapset into a TOD, apply noise model, and reproject into maps.
@@ -641,6 +664,8 @@ class Tod:
             Output mapset.
         times : bool, default: False
             If True compute the time each step takes and return it as a (3,) array.
+        mask : Mapset | None, default: None
+            If mask is not none, apply the (map-space) mask to the tods.
 
         Returns
         ------
@@ -650,11 +675,17 @@ class Tod:
             Only returned it time is True.
         """
         t1 = time.time()
+        if mask is not None:
+            for i, imap in enumerate(mapset.maps):
+                imap.map *= mask.maps[i].map
         tmp = self.mapset2tod(mapset)
         t2 = time.time()
         tmp = self.apply_noise(tmp)
         t3 = time.time()
         self.tod2mapset(mapset_out, tmp)
+        if mask is not None:
+            for i, imap in enumerate(mapset_out.maps):
+                imap.map *= mask.maps[i].map
         t4 = time.time()
         if times:
             return np.asarray([t2 - t1, t3 - t2, t4 - t3])
@@ -788,7 +819,7 @@ class TodVec:
         self.tods[-1].set_tag(self.ntod)
         self.ntod = self.ntod + 1
 
-    def lims(self) -> Optional[list[float, float, float, float]]:
+    def lims(self) -> Optional[List[float]]:
         """
         Get global limits of all TODs.
         This function is MPI aware, so the limits are the same across processes.
@@ -866,7 +897,10 @@ class TodVec:
             tod.set_apix()
 
     def dot_cached(
-        self, mapset: "Mapset", mapset_out: Optional["Mapset"] = None
+        self,
+        mapset: "Mapset",
+        mapset_out: Optional["Mapset"] = None,
+        mask: Optional["Mapset"] = None,
     ) -> "Mapset":
         """
         Take dot of all the TODs in this TodVec.
@@ -880,6 +914,8 @@ class TodVec:
         mapset_out : Mapset | None.
             Output Mapset. If None then a blank copy of Mapset is used.
             See Tod.dot for details.
+        mask : Mapset | None, default: None
+            If mask is not none, apply the (map-space) mask to the tods.
 
         Returns
         -------
@@ -891,7 +927,7 @@ class TodVec:
             mapset_out.clear()
         mapset_out.get_caches()
         for tod in self.tods:
-            tod.dot(mapset, mapset_out)
+            tod.dot(mapset, mapset_out, mask=mask)
         mapset_out.clear_caches()
         if have_mpi:
             mapset_out.mpi_reduce()
@@ -905,9 +941,9 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[False] = False,
         cache_maps: bool = False,
+        mask: Optional["Mapset"] = None,
         skip_reduce: bool = False,
-    ) -> "Mapset":
-        ...
+    ) -> "Mapset": ...
 
     @overload
     def dot(
@@ -916,9 +952,9 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: Literal[True] = True,
         cache_maps: bool = False,
+        mask: Optional["Mapset"] = None,
         skip_reduce: bool = False,
-    ) -> Tuple["Mapset", NDArray[np.floating]]:
-        ...
+    ) -> Tuple["Mapset", NDArray[np.floating]]: ...
 
     @overload
     def dot(
@@ -927,9 +963,9 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
+        mask: Optional["Mapset"] = None,
         skip_reduce: bool = False,
-    ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
-        ...
+    ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]: ...
 
     def dot(
         self,
@@ -937,6 +973,7 @@ class TodVec:
         mapset_out: Optional["Mapset"] = None,
         report_times: bool = False,
         cache_maps: bool = False,
+        mask: Optional["Mapset"] = None,
         skip_reduce: bool = False,
     ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
         """
@@ -955,8 +992,10 @@ class TodVec:
             If True return the time it takes to run dot on each TOD.
         cache_maps : bool, default: False
             Run TodVec.dot_cached.
+        mask : Mapset | None, default: None
+            If mask is not none, apply the (map-space) mask to the tods.
         skip_reduce : bool, default: False
-            Alows you to skip reducing manually. Used when calling dot with one process while having mpi
+            Allows you to skip reducing manually. Used when calling dot with one process while having mpi
             e.g. in a loop
 
         Returns
@@ -972,7 +1011,7 @@ class TodVec:
             mapset_out.clear()
 
         if cache_maps:
-            mapset_out = self.dot_cached(mapset, mapset_out)
+            mapset_out = self.dot_cached(mapset, mapset_out, mask=mask)
             return mapset_out
 
         times = np.zeros(self.ntod)
@@ -980,7 +1019,9 @@ class TodVec:
         for i in range(self.ntod):
             tod = self.tods[i]
             t1 = time.time()
-            mytimes = tod.dot(mapset, mapset_out, True)
+            tod.iter_init()
+            mytimes = tod.dot(mapset, mapset_out, True, mask=mask)
+            tod.iter_finalize()
             t2 = time.time()
             tot_times = tot_times + mytimes
             times[i] = t2 - t1

@@ -31,10 +31,15 @@ from .tods.processing import *
 from .tods.utils import *
 
 from .tools.array_ops import *
-from .tools.fft import *
+
+try:
+    from .tools.fft import *
+except ImportError:
+    from .tools.py_fft import *
 from .tools.map_io import *
 from .tools.pyregion_tools import *
 from .tools.rings import *
 from .tools.smooth import *
 from .tools.units import *
 from .tools.zernike import *
+from .tools.presets_by_source import *

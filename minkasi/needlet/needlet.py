@@ -34,7 +34,7 @@ from ..mapmaking.tod2map import (
 )
 from ..parallel import comm, get_nthread, have_mpi, nproc, myrank, MPI
 from ..tods import Tod, TodVec
-from ..tools.fft import find_good_fft_lens, rfftn, irfftn
+from ..tools.py_fft import find_good_fft_lens, irfftn, rfftn
 from ..maps.skymap import SkyMap
 
 import matplotlib.pyplot as plt

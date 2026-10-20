@@ -1,9 +1,12 @@
 import copy
 
 import numpy as np
-import pyregion
 from astropy.io import fits
 from astropy.wcs import WCS
+try:
+    import pyregion
+except ImportError:
+    print("Can't import pyregion")
 
 __all__ = ["region_binner", "bootstrap"]
 

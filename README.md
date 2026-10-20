@@ -42,6 +42,19 @@ export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/.local/lib
 
 to your `.bashrc` or equivalent.
 
+When you pip install by default `pip` will try to build its on version of the libraries,
+to avoid this we can set a system variable to tell the install script to instead use the
+versions compiled with the makefile.
+
+```
+export MINKASI_COMPILED=0
+```
+
+note that this is only needed during installation, when running `minkasi` will automatically
+fall back looking for these files if it can't find the `pip` installed ones.
+
+
+Then we can pip install `minkasi` as usual.
 If you are actively developing `minkasi` and want an live copy installed do:
 
 ```
@@ -50,6 +63,25 @@ pip install -e .
 
 Note that this will not make changes to the C libraries automatically propagate.
 If you will be editing those files it is recommended to follow the instructions in the **C Library Installation** first and rerun the build process whenever you make a change.
+
+### FFTW
+
+Minkasi optionally supports using [FFTW](https://www.fftw.org/) to perform the FFTs used in noise estimate. FFTW is a C subroutine library for computing FFTs, and is in general the fastest
+library available. It can, however, be tricky to install, particularly on macOS. Therefore, by default minkasi will use scipy+jax to perform FFTs. If you have FFTW installed and would like 
+to use it, do
+
+```
+export MINKASI_FFTW=1
+```
+
+before installing minkasi. 
+
+### Example Mapmaking and Unit Test
+
+A number of example scripts are provided which demonstrate various aspects of `minkasi`'s functionality. The most important is `examples/minkasi_mpi_example.py`, which demonstrates our
+best practice mapmaking proceedure. This script relies on data which is publically available [here](https://github.com/sievers/M2-TODs). This script also serves as a unit test: running
+it should produce results that match `examples/RXJ1347_unit.zip`. If you make functional modifications to `minkasi` please run the unit test before opening an pull request and if there
+are significant changes to the results contact a developer. 
 
 ### Troubleshooting
 
@@ -101,6 +133,19 @@ export LIBRARY_PATH=$LIBRARY_PATH:PATH_TO_DIR
 
 ```
 module load gcc fftw
+```
+
+### Installing on macOS
+The easiest way to install `minkasi` on macOS is to use [conda](https://docs.conda.io/) together with the conda compilers. First, install the compilers and `fftw` from conda-forge:
+
+```
+conda install -c conda-forge compilers fftw
+```
+
+Then install `minkasi` as usual:
+
+```
+pip install .
 ```
 
 #### NERSC

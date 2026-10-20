@@ -87,14 +87,15 @@ def get_grad_mask_2d(
 
 @runtime_checkable
 class NoiseModelType(Protocol):
-    def __init__(self, dat: NDArray[np.floating], /):
+    def __init__(self, dat: NDArray[np.floating]):
         pass
 
     def apply_noise(self, dat: NDArray[np.floating]) -> NDArray[np.floating]:
         return np.empty(0)
 
 
-class WithDetWeights(NoiseModelType):
+@runtime_checkable
+class WithDetWeights(NoiseModelType, Protocol):
     def get_det_weights(self) -> NDArray[np.floating]:
         return np.empty(0)
 
@@ -647,7 +648,7 @@ class NoiseSmoothedSVD:
 
         if u_in is None:
             u, s, _ = np.linalg.svd(dat_use, True)
-            ndet = s.size
+            ndet = u.shape[0]
         else:
             u = u_in
             assert u.shape[0] == u.shape[1]

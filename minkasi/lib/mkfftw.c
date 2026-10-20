@@ -13,6 +13,12 @@
 //gcc -I{HIPPO_FFTW_DIR}/include -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -L${HIPPO_FFTW_DIR}/lib    -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3  -lm -lgomp
 //gcc -fopenmp -std=c99 -O3 -shared -fPIC -o libmkfftw.so mkfftw.c -lfftw3f_threads -lfftw3f -lfftw3_threads -lfftw3 -lgomp -lpthread
 
+void init_threaded()
+{
+  fftw_init_threads();
+  //printf("FFTW threads initialized.\n");
+}
+
 void set_threaded(int nthread)
 {
   //int nthread;

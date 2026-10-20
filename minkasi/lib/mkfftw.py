@@ -89,3 +89,7 @@ read_wisdom_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 
 write_wisdom_c = mylib.write_wisdom
 write_wisdom_c.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+init_threaded_c = mylib.init_threaded
+init_threaded_c.argtypes = []
+init_threaded_c()

@@ -121,7 +121,7 @@ def get_ts_derivs_many_funcs(
     icur = 0
     for i in range(len(funcs)):
         tmp = pars[icur : icur + npar_fun[i]].copy()
-        myderivs, mypred = funcs[i](tmp, tod, *args, **kwargs)
+        myderivs, mypred = funcs[i](tmp, tod, fun_num=i, *args, **kwargs)
         pred = pred + mypred
         derivs[icur : icur + npar_fun[i], :, :] = myderivs
         icur = icur + npar_fun[i]
@@ -201,11 +201,13 @@ def fit_timestreams_with_derivs_manyfun(
     driver=get_ts_derivs_many_funcs,
     priors=None,
     prior_vals=None,
+    *args,
+    **kwargs,
 ):
     lamda = 0
     t1 = time.time()
     chisq, grad, curve = get_ts_curve_derivs_many_funcs(
-        tods, pars, npar_fun, funcs, driver=driver
+        tods, pars, npar_fun, funcs, driver=driver, *args, **kwargs,
     )
     t2 = time.time()
     if myrank == 0:
@@ -223,10 +225,10 @@ def fit_timestreams_with_derivs_manyfun(
         )  # Make a copy of to fit, so we can temporarily set values to false
         if np.any(priors):
             # first build a mask that will identify parameters with flat priors
-            flat_mask = np.where((priors == "flat"))[0]
+            flat_mask = np.where((priors == np.array("flat")))[0]
 
             for flat_id in flat_mask:
-                print(pars[flat_id])
+                #print(pars[flat_id])
                 if (pars[flat_id] == prior_vals[flat_id][0]) or (
                     pars[flat_id] == prior_vals[flat_id][1]
                 ):
@@ -236,17 +238,17 @@ def fit_timestreams_with_derivs_manyfun(
             # Make the new step
             pars_new = pars + _par_step(grad, curve, temp_to_fit, lamda)
             # check to see if we're outside the range for the flat priors: if so, peg them
-            print("old gamma: ", pars_new[flat_id])
+            #print("old gamma: ", pars_new[flat_id])
             for flat_id in flat_mask:
                 if pars_new[flat_id] < prior_vals[flat_id][0]:
                     pars_new[flat_id] = prior_vals[flat_id][0]
                 elif pars_new[flat_id] > prior_vals[flat_id][1]:
                     pars_new[flat_id] = prior_vals[flat_id][1]
-            print("new gamma: ", pars_new[flat_id])
+            #print("new gamma: ", pars_new[flat_id])
         else:
             pars_new = pars + _par_step(grad, curve, to_fit, lamda)
         chisq_new, grad_new, curve_new = get_ts_curve_derivs_many_funcs(
-            tods, pars_new, npar_fun, funcs, driver=driver
+            tods, pars_new, npar_fun, funcs, driver=driver, *args, **kwargs,
         )
         if chisq_new < chisq:
             if myrank == 0:
