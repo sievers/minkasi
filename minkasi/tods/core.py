@@ -942,6 +942,7 @@ class TodVec:
         report_times: Literal[False] = False,
         cache_maps: bool = False,
         mask: Optional["Mapset"] = None,
+        skip_reduce: bool = False,
     ) -> "Mapset": ...
 
     @overload
@@ -952,6 +953,7 @@ class TodVec:
         report_times: Literal[True] = True,
         cache_maps: bool = False,
         mask: Optional["Mapset"] = None,
+        skip_reduce: bool = False,
     ) -> Tuple["Mapset", NDArray[np.floating]]: ...
 
     @overload
@@ -962,6 +964,7 @@ class TodVec:
         report_times: bool = False,
         cache_maps: bool = False,
         mask: Optional["Mapset"] = None,
+        skip_reduce: bool = False,
     ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]: ...
 
     def dot(
@@ -971,6 +974,7 @@ class TodVec:
         report_times: bool = False,
         cache_maps: bool = False,
         mask: Optional["Mapset"] = None,
+        skip_reduce: bool = False,
     ) -> Union["Mapset", Tuple["Mapset", NDArray[np.floating]]]:
         """
         Take dot of all the TODs in this TodVec.
@@ -990,6 +994,9 @@ class TodVec:
             Run TodVec.dot_cached.
         mask : Mapset | None, default: None
             If mask is not none, apply the (map-space) mask to the tods.
+        skip_reduce : bool, default: False
+            Allows you to skip reducing manually. Used when calling dot with one process while having mpi
+            e.g. in a loop
 
         Returns
         -------
@@ -1019,8 +1026,10 @@ class TodVec:
             tot_times = tot_times + mytimes
             times[i] = t2 - t1
         if have_mpi:
-            mapset_out.mpi_reduce()
-        print(tot_times)
+            if not skip_reduce:
+                mapset_out.mpi_reduce()
+        if report_times:
+            print(tot_times)
         if report_times:
             return mapset_out, times
         return mapset_out

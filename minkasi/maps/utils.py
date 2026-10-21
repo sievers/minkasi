@@ -118,14 +118,13 @@ def get_aligned_map_subregion_car(
     # get the ra/dec limits in big pixel coordinates
     corner1: NDArray[np.floating] = np.asarray(big_wcs.wcs_world2pix(ll[0], ll[2], 0))
     corner2: NDArray[np.floating] = np.asarray(big_wcs.wcs_world2pix(ll[1], ll[3], 0))
-
     # get the pixel edges for the corners.  FITS works in
     # pixel centers, so edges are a half-pixel off
     corner1[0] = np.ceil(corner1[0]) + 0.5
     corner1[1] = np.floor(corner1[1]) - 0.5
     corner2[0] = np.floor(corner2[0]) - 0.5
     corner2[1] = np.ceil(corner2[1]) + 0.5
-
+    print(corner1, corner2)
     corner1_radec: NDArray[np.floating] = np.asarray(
         big_wcs.wcs_pix2world(corner1[0], corner1[1], 0)
     )
@@ -148,8 +147,9 @@ def get_aligned_map_subregion_car(
     small_wcs: wcs.WCS = get_wcs(
         lims_use * np.pi / 180, pixsize * np.pi / 180, ref_equ=True
     )
-    imin: int = int(np.round(corner2[0] + 0.5))
+    imin: int = int(np.round(corner1[0] + 0.5))
     jmin: int = int(np.round(corner1[1] + 0.5))
+    print(imin, jmin)
     map_corner: NDArray[np.integer] = np.asarray([imin, jmin], dtype="int")
     lims_use = lims_use * np.pi / 180
 

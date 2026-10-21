@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>WITCH needlet report</title>
+<style>body{font-family:sans-serif;max-width:900px;margin:2em auto;padding:0 1em}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body>
+<h1>Multi-resolution needlet mapmaking: status</h1>
+<p>Last updated 2026-10-20. Branch <code>needlet</code>, master merged.</p>
+
+<h2>Method as implemented</h2>
+<p>For each needlet band <i>i</i> the noise precision is computed on a downsampled lattice of pixels, G<sub>i</sub> = K<sub>i</sub><sup>T</sup> O K<sub>i</sub>, with K<sub>i</sub> the band-limited real-space response of a unit coefficient. O is <i>P<sup>T</sup>N<sup>-1</sup>P</i> for the M2 TODs and a map-space inverse covariance for ACT. The combined coefficients solve (G<sub>M2</sub>+G<sub>ACT</sub>)c = K<sup>T</sup>(rhs<sub>M2</sub>+rhs<sub>ACT</sub>) per band; the map is <code>wav2map_real</code> of the zero-filled coefficients. Cross-band blocks are neglected (design of the project).</p>
+<img src="figs/bands.png" alt="needlet bands">
+
+<h2>Speed-up of the response matrix</h2>
+<p><b>Old:</b> one full TOD pass (plus ~2*nfilt full FFTs) per lattice pixel, dense (npix<sub>red</sub> x npix) float32; the committed run stored ~87 GB.
+<b>New:</b> impulses spaced further apart than a window of half width <code>radius</code> are probed together, so only ~(2*radius/downsamp)<sup>2</sup> TOD passes per band are needed; single-band rfft transforms replace the full transforms; the result is a sparse symmetric matrix on the lattice. <code>radius=None</code> reproduces the exact matrix (tested against the original brute force transforms to 1e-6).</p>
+<p>Benchmark (MOOJ1142, one TOD, 6&Prime; pixels, 110&times;110 map, downsamps 22,11,5,2,1,1; <code>examples/needlet_benchmark.py</code>):</p>
+<table><tr><th>filter</th><th>lattice pts</th><th>exact (s)</th><th>radius</th><th>time (s)</th><th>speed-up</th><th>max rel. error</th><th>nnz fraction</th></tr>
+<tr><td>2</td><td>484</td><td>7.9</td><td>10</td><td>0.46</td><td>17x</td><td>3.8%</td><td>5%</td></tr>
+<tr><td>2</td><td>484</td><td>7.9</td><td>20</td><td>1.9</td><td>4.1x</td><td>1.0%</td><td>17%</td></tr>
+<tr><td>3</td><td>3025</td><td>30.9</td><td>10</td><td>1.1</td><td>27x</td><td>1.3%</td><td>4%</td></tr>
+<tr><td>3</td><td>3025</td><td>30.9</td><td>20</td><td>6.8</td><td>4.6x</td><td>0.5%</td><td>15%</td></tr>
+<tr><td>3</td><td>3025</td><td>30.9</td><td>40</td><td>94.8</td><td>0.3x</td><td>0.10%</td><td>56%</td></tr></table>
+<p>Radius 40 is slower than exact because the window covers most of the lattice and the Python extraction loop dominates; use <code>radius=None</code> there. Even the "exact" path is much faster than before (single-band FFTs, no per-pixel allocation). Errors are relative to the largest entry of the exact matrix.</p>
+<img src="figs/rows.png" alt="exact vs probed rows">
+<p>Full-size example (<code>twores_ex.py</code>, 3&Prime; pixels, 218&times;218, 2 TODs, 10 filters, ANA for scales &gt; 60&Prime;, radius 30): M2 ANA 15 s, ACT 2 s, whole script ~1 min, versus an 87 GB dense cache before.</p>
+
+<h2>Combined map (MOOJ1142, 20 TODs)</h2>
+<img src="figs/maps.png" alt="maps">
+<p>PCG (M2 only, all scales, 50 iterations), ACT only (inverse variance weighted coadd of the splits), the combined correction (M2 ANA solved for all bands down to the 5&Prime; scale, bands 0&ndash;8; ACT only in bands 0&ndash;3) and final = PCG + combined. Units are Jy/beam, the units of the M2 TODs. The final map is padded by 25% of the data extent on each side. The panels are not smoothed; pixels with fewer than 20 hits are filled with the ACT map (plotting only). A fifth panel shows the final map smoothed to the ACT beam on the ACT colour scale; colour limits elsewhere are the 1st&ndash;99th percentiles of unmasked pixels.</p>
+<p>With 20 TODs the final map has a central rms (smoothed 6 px) of 5.3&times;10<sup>-5</sup> against 2.3&times;10<sup>-4</sup> for PCG alone, and, smoothed to the ACT beam, correlates with ACT at 0.91 inside the footprint (PCG alone: &minus;0.61). The large-scale artifact of the PCG map (a &plusmn;0.5 mJy gradient from the poorly constrained large-scale modes) is removed by the combined solve. With only 2 TODs M2 is too noisy for the cold spot to show above the PCG noise (about 1 mJy per pixel).</p>
+
+<h3>Solving down to 5&Prime;</h3>
+<p>The M2 response is built for every band with extent above <code>--max-res</code> (default 5&Prime;; bands 0&ndash;8 at 3&Prime; pixels), not just the coarse ones. Fine bands have large lattices (band 7: 360&sup2; = 129,600 points), so each band gets its own probing radius (twice the filter's real-space extent, capped by <code>--radius</code>), <code>solve_bands</code> switches to Jacobi-preconditioned CG above 20,000 points, and the response cache is per band. With 20 TODs the M2 response took 2400 s for bands 5&ndash;8 plus reuse of 0&ndash;4 caches, the solve 1090 s (60 min wall, 1 node), no CG convergence warnings. The final map is essentially unchanged relative to bands 0&ndash;3 only (central rms smoothed 6 px: 4.82&times;10<sup>-5</sup> in both; difference rms 2.5&times;10<sup>-5</sup>): PCG already converges the small scales, and the fine bands only fix the noise weighting there.</p>
+
+<h3>Model of the ACT term</h3>
+<ul>
+<li><b>Units.</b> ACT &micro;K<sub>CMB</sub> are converted to Jy/beam (RJ) with <code>act_conversion</code> (thermodynamic to RJ temperature, matching <code>witch.utils.K_CMB2K_RJ</code>, times the M2 beam solid angle; 90 GHz and 9&Prime; FWHM by default, 4.37&times;10<sup>-7</sup> Jy/beam per &micro;K). The TODs are taken to be in Jy: their median per sample noise is about 2, realistic for Jy/beam but not for mJy. With the factor 1000 wrong ACT was effectively weighted far too low against M2, which hid the cold spot (<code>--m2-unit mJy</code> switches back).</li>
+<li><b>Residual.</b> The combined solve is for the correction to the PCG map (already subtracted from the TODs), so ACT enters through <i>ACT &minus; (beam and pixel smoothed PCG map)</i>, not the absolute map.</li>
+<li><b>Beam and pixel window.</b> ACT sees the sky through a 2.1&prime; Gaussian beam (<code>--act-beam</code>) and 30&Prime; pixels; the response matrix is K<sup>T</sup> B P<sup>T</sup> N<sup>-1</sup> P B K.</li>
+<li><b>Which bands.</b> ACT is used in bands where the beam amplitude transfer is at least 5% (<code>--act-min-transfer</code>): transfers are 0.95, 0.79, 0.46, 0.09, 0.002 for bands 0&ndash;4, so bands 0&ndash;3. Dropping band 3 from the combined solve made the result worse (correlation with ACT 0.71, central rms 8.9&times;10<sup>-5</sup>, arcs of residual M2 artifact around the footprint), so band 3 is kept. The M2 and ACT precisions per band relative to each other show no band without information: M2/ACT diagonal ratio is 2&times;10<sup>-6</sup>, 8&times;10<sup>-5</sup>, 2&times;10<sup>-3</sup>, 5&times;10<sup>-2</sup> in bands 0&ndash;3 with the M2 filter transfer of the ACT map 0.5&ndash;0.9.</li>
+<li><b>Regularisation.</b> Bands where ACT is weakly sensitive amplify its noise by about 1/transfer outside the M2 footprint; a ridge of 10<sup>-3</sup> times the mean diagonal of G (<code>solve_bands(ridge=)</code>) acts as a zero-mean prior. A ridge relative to the median diagonal was singular for M2-only bands, where most pixels have no data.</li>
+<li>ACT noise is the summed split ivar as a diagonal inverse covariance. TODO: replace by a robust map-space noise covariance estimate.</li>
+</ul>
+<p>Remaining ringing in the periphery of the final map comes from band 3 (low ACT transfer, no M2 data outside the footprint) and from the periodic wrap of the filters.</p>
+
+<h2>Tests</h2>
+<p><code>tests/test_needlet.py</code>: band transforms vs full transforms, exact ANA vs brute force, probing accuracy, map response, solve round trip, colouring.</p>
+</body></html>
