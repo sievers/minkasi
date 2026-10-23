@@ -1,21 +1,51 @@
-import numpy as np
-import minkasi.minkasi_all as minkasi
+"""
+PCG mapmaking of MUSTANG-2 TODs (blacklist cut), masking pixels with few hits.
+"""
 
-import time
+import argparse
 import glob
 import os
+import time
 
-# reload(minkasi)
+import minkasi.minkasi_all as minkasi
+import numpy as np
 
-name = "RXJ1347"
-# set file root for output maps
-outroot = "/mnt/welch/USERS/jorlo/Reductions/{}_Mask/{}_Mask".format(name, name)
-# Note the end of this path is a filename, files will be written to
-# RXJ1347/RXJ1347_1.fits, RXJ1347/RXJ1347_5.fits, etc. thru RXJ1347/RXJ1347_final.fits
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--name", default="RXJ1347", help="Source name")
+parser.add_argument(
+    "--idir", help="TOD directory, default the MUSTANG-2 TODs of --name"
+)
+parser.add_argument(
+    "--outroot",
+    help="Output file root, default under /mnt/welch/USERS/jorlo/Reductions",
+)
+parser.add_argument("--pixsize", type=float, default=2.0, help="Arcseconds")
+parser.add_argument("--ntods", type=int, help="Maximum number of TODs per MPI rank")
+parser.add_argument(
+    "--ntods-total",
+    type=int,
+    help="Use only this many TODs in total (after the blacklist)",
+)
+parser.add_argument(
+    "--thresh", type=float, default=50, help="Mask pixels with at most this many hits"
+)
+parser.add_argument(
+    "--npass",
+    type=int,
+    default=5,
+    help="Noise re-estimation passes after the first 50 PCG steps",
+)
+parser.add_argument("--debug", action="store_true", help="Two TODs, one noise pass")
+args = parser.parse_args()
+name = args.name
+args.ntods = 2 if args.debug else args.ntods
+npass = 1 if args.debug else args.npass
+outroot = args.outroot or "/mnt/welch/USERS/jorlo/Reductions/{}_Mask/{}_Mask".format(
+    name, name
+)
+os.makedirs(os.path.dirname(outroot), exist_ok=True)
+idir = args.idir or "/mnt/welch/MUSTANG/M2-TODs/{}/mustang2/".format(name)
 
-
-# find tod files we want to map
-idir = "/mnt/welch/MUSTANG/M2-TODs/{}/mustang2/".format(name)  # CHANGE ME
 tod_names = glob.glob(idir + "/Sig*.fits")
 if len(tod_names) == 0:
     print("We found no TOD files.  Double check your path?")
@@ -28,7 +58,7 @@ tod_names = minkasi.cut_blacklist(tod_names, bad_tod)
 
 # if running MPI, you would want to split up files between processes
 # one easy way is to say to this:
-tod_names = tod_names[minkasi.myrank :: minkasi.nproc]
+tod_names = tod_names[: args.ntods_total][minkasi.myrank :: minkasi.nproc][: args.ntods]
 # NB - minkasi checks to see if MPI is around, if not
 # it sets rank to 0 an nproc to 1, so this would still
 # run in a non-MPI environment
@@ -65,7 +95,7 @@ for fname in tod_names:
 # todvec.lims() is MPI-aware and will return global limits, not just
 # the ones from private TODs
 lims = todvec.lims()
-pixsize = 2.0 / 3600 * np.pi / 180
+pixsize = args.pixsize / 3600 * np.pi / 180
 map = minkasi.SkyMap(lims, pixsize)
 
 # once we have a map, we can figure out the pixellization of the data.  Save that
@@ -81,10 +111,12 @@ for tod in todvec.tods:
 # get the hit count map.  We use this as a preconditioner
 # which helps small-scale convergence quite a bit.
 hits = minkasi.make_hits(todvec, map)
+if minkasi.myrank == 0:
+    hits.write(outroot + "_hits.fits")
 
 # Make a mask for the map based on hits. All pixels with
 # hits < thresh will be excluded from mapmaking.
-thresh = 50
+thresh = args.thresh
 mask = hits.copy()
 mask.map = 1.0 * hits.map > thresh
 maskset = minkasi.Mapset()
@@ -154,7 +186,6 @@ else:
 # of mapmaking. That would remove signal from the final map. It is only removed from a copy of the TODs (technically a copy of the data in the TODs) used
 # in noise estimation.
 
-npass = 5
 for niter in range(npass):
     maxiter = 26 + 25 * (niter + 1)
     # first, re-do the noise with the current best-guess map
@@ -183,7 +214,6 @@ for niter in range(npass):
 
     for i, imap in enumerate(precon.maps):
         imap.map *= maskset.maps[i].map
-
 
     mapset_out = minkasi.run_pcg_wprior(
         rhs,

@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 from scipy.interpolate import interp1d
 from scipy.linalg import norm
-from scipy.sparse.linalg import ArpackNoConvergence, cg, eigsh, spsolve
+from scipy.sparse.linalg import ArpackNoConvergence, cg, eigsh, splu
 
 from ..mapmaking.map2tod import map2tod
 from ..mapmaking.tod2map import (
@@ -88,7 +88,15 @@ def min_eigenvalue(G, dense_below=2500):
         return np.linalg.eigvalsh(G.toarray())[0]
     try:
         return eigsh(
-            G, k=1, which="SA", tol=1e-2, maxiter=500, return_eigenvectors=False
+            G,
+            k=1,
+            which="SA",
+            tol=1e-2,
+            maxiter=500,
+            v0=np.random.default_rng(0).normal(
+                size=G.shape[0]
+            ),  # same shift on all MPI ranks
+            return_eigenvectors=False,
         )[0]
     except ArpackNoConvergence as e:
         return e.eigenvalues.min() if len(e.eigenvalues) else -abs(G.diagonal()).max()
@@ -1176,9 +1184,11 @@ class WavSkyMap(SkyMap):
         mapset = Mapset()
         mapset.add_map(self.real_map.copy())
 
+        mask = 1.0 if self.mask is None else self.mask  # as in map2tod and tod2map
+
         def apply(imap):
-            mapset.maps[0].map[:] = imap
-            return todvec.dot(mapset, cache_maps=False).maps[0].map
+            mapset.maps[0].map[:] = imap * mask
+            return todvec.dot(mapset, cache_maps=False).maps[0].map * mask
 
         to_ret = np.full(self.needlet.nfilt, None, dtype=object)
         for nfilt in self.select_filters(max_res, nfilts):
@@ -1248,6 +1258,70 @@ class WavSkyMap(SkyMap):
             )
         return to_ret
 
+    def block_solver(self, responses, ridge=1e-3, inner=None):
+        """
+        Factorize the diagonal (same filter) blocks of the wavelet space precision matrix once
+        and return a function that applies their approximate inverse, see solve_bands.
+
+        Parameters
+        ----------
+        responses : Sequence[NDArray[object]]
+            Response matrices to sum, see solve_bands.
+        ridge : float, default: 1e-3
+            Diagonal regularization relative to the mean diagonal of G, see solve_bands.
+        inner : int | None, default: None
+            Lattices of more than 20000 points are solved by Jacobi preconditioned CG. If None
+            it runs to convergence, else for exactly this many iterations, which makes the
+            result a fixed symmetric linear operator that can serve as a CG preconditioner.
+
+        Returns
+        -------
+        solve : Callable[[NDArray[np.floating]], NDArray[np.floating]]
+            Maps a wavelet space rhs of shape (nfilt, nx, ny) to the wavelet map F_i Z c_i.
+        """
+        solvers = {}
+        for i in range(self.needlet.nfilt):
+            mats = [r[i] for r in responses if r[i] is not None]
+            if not mats:
+                continue
+            G = reduce(lambda a, b: a + b, mats).tocsc()
+            lmin = min_eigenvalue(G)
+            shift = ridge * G.diagonal().mean() + max(
+                0, -1.1 * lmin
+            )  # truncation can make G indefinite
+            G = G + shift * sparse.identity(G.shape[0], format="csc")
+            if G.shape[0] <= 20000:
+                solvers[i] = splu(G).solve
+            else:  # direct solves fill in too much for large lattices
+                dinv = sparse.diags(1 / G.diagonal())
+                solvers[i] = lambda b, G=G, dinv=dinv, i=i: self._jacobi_cg(
+                    G, b, dinv, i, inner
+                )
+
+        def solve(rhs):
+            wmap = np.zeros((self.needlet.nfilt, self.nx, self.ny))
+            for i, solver in solvers.items():
+                filt = self.needlet.filters[i]
+                xs, ys = self.nx_space[i], self.ny_space[i]
+                b = map2band(rhs[i], filt)[np.ix_(xs, ys)].ravel()
+                coeffs = np.zeros((self.nx, self.ny))
+                coeffs[np.ix_(xs, ys)] = solver(b).reshape(len(xs), len(ys))
+                wmap[i] = band2map(coeffs, filt)
+            return wmap
+
+        return solve
+
+    @staticmethod
+    def _jacobi_cg(G, b, dinv, i, inner):
+        """Jacobi preconditioned CG solve of G c = b, to convergence or for `inner` iterations."""
+        if inner is None:
+            c, info = cg(G, b, rtol=1e-8, maxiter=2000, M=dinv)
+            if info:
+                print(f"filter {i}: cg did not converge ({info})")
+        else:
+            c = cg(G, b, rtol=0, atol=0, maxiter=inner, M=dinv)[0]
+        return c
+
     def solve_bands(self, rhs, responses, ridge=1e-3):
         """
         Approximate ML solution using only the diagonal (same filter) blocks of the
@@ -1256,6 +1330,11 @@ class WavSkyMap(SkyMap):
         matrices and r the real space rhs; for white noise this reduces to r. (Using F_i G_i^-1 F_i r instead
         counts the overlap between neighbouring filters twice and has sharp edges in k space.)
         Filters for which no response is available contribute nothing.
+
+        This is not the solution of the full system: the rhs of a band has components in modes G_i
+        cannot constrain, which the ridge and shift then amplify or damp, so the amplitude of the fine
+        bands is set by the regularization. Use block_solver as the preconditioner of CG on the
+        full operator instead.
 
         Parameters
         ----------
@@ -1277,37 +1356,7 @@ class WavSkyMap(SkyMap):
             Wavelet map of shape (nfilt, nx, ny), F_i Z c_i for lattice coefficients c_i.
             Use wav2map_real to get the real space map.
         """
-        wmap = np.zeros((self.needlet.nfilt, self.nx, self.ny))
-        for i in range(self.needlet.nfilt):
-            mats = [r[i] for r in responses if r[i] is not None]
-            if not mats:
-                continue
-            filt = self.needlet.filters[i]
-            G = reduce(lambda a, b: a + b, mats).tocsc()
-            lmin = min_eigenvalue(G)
-            shift = ridge * G.diagonal().mean() + max(
-                0, -1.1 * lmin
-            )  # truncation can make G indefinite
-            G = G + shift * sparse.identity(G.shape[0], format="csc")
-            xs, ys = self.nx_space[i], self.ny_space[i]
-            b = map2band(rhs[i], filt)[np.ix_(xs, ys)].ravel()
-            if G.shape[0] <= 20000:
-                c = spsolve(G, b)
-            else:  # direct solves fill in too much for large lattices
-                dinv = 1 / G.diagonal()
-                c, info = cg(
-                    G,
-                    b,
-                    rtol=1e-8,
-                    maxiter=2000,
-                    M=sparse.diags(dinv),
-                )
-                if info:
-                    print(f"filter {i}: cg did not converge ({info})")
-            coeffs = np.zeros((self.nx, self.ny))
-            coeffs[np.ix_(xs, ys)] = c.reshape(len(xs), len(ys))
-            wmap[i] = band2map(coeffs, filt)
-        return wmap
+        return self.block_solver(responses, ridge)(rhs)
 
     def get_wav_beam(self, fwhm_pix: float):
         """

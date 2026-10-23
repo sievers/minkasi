@@ -125,14 +125,24 @@ def main(args):
             last = approx
         res["filters"][i] = info
         e, a = exact.toarray(), last.toarray()
-        c = n // 2
         side = int(wmap.nys_red[i])
-        axs[row, 0].imshow(e[c].reshape(wmap.nxs_red[i], side), origin="lower")
-        axs[row, 0].set_title(f"filter {i}: exact row")
-        axs[row, 1].imshow(a[c].reshape(wmap.nxs_red[i], side), origin="lower")
-        axs[row, 1].set_title(f"radius={args.radii[-1]}")
-        axs[row, 2].imshow((a[c] - e[c]).reshape(wmap.nxs_red[i], side), origin="lower")
-        axs[row, 2].set_title("difference")
+        c = int(wmap.nxs_red[i]) // 2 * side + side // 2
+        scale = abs(e[c]).max()
+        diff = (a[c] - e[c]) / scale
+        for ax, dat, title, lim in (
+            (axs[row, 0], e[c], f"filter {i}: exact row", scale),
+            (axs[row, 1], a[c], f"radius={args.radii[-1]}", scale),
+            (axs[row, 2], diff, "diff / max|exact|", abs(diff).max()),
+        ):
+            im = ax.imshow(
+                dat.reshape(wmap.nxs_red[i], side),
+                origin="lower",
+                cmap="RdBu_r",
+                vmin=-lim,
+                vmax=lim,
+            )
+            ax.set_title(title)
+            plt.colorbar(im, ax=ax, shrink=0.8)
     fig.tight_layout()
     fig.savefig(f"{args.odir}/rows.png", dpi=120)
     if args.maps:

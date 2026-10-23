@@ -146,7 +146,7 @@ def setup_wmap(todvec, pixsize, nfilt, pad_frac=0.0):
     return WavSkyMap(need, lims, ps, nx=n, ny=n)
 
 
-def read_tods(idir, ntods):
+def read_tods(idir, ntods, name=None, total=None):
     """
     Read, downsample and common mode subtract MUSTANG-2 TODs, splitting files between MPI ranks.
 
@@ -156,13 +156,19 @@ def read_tods(idir, ntods):
         Directory holding Sig*.fits.
     ntods : int
         Maximum number of TODs to read on this rank.
+    name : str | None, default: None
+        Source name; if given, the TODs blacklisted for it in minkasi.get_bad_tods are skipped.
+    total : int | None, default: None
+        If given, only the first `total` TODs (after the blacklist) are used, in all ranks together.
 
     Returns
     -------
     todvec : TodVec
     """
     tod_names = sorted(glob.glob(os.path.join(idir, "Sig*.fits")))
-    tod_names = tod_names[minkasi.myrank :: minkasi.nproc][:ntods]
+    if name is not None:
+        tod_names = minkasi.cut_blacklist(tod_names, minkasi.get_bad_tods(name)[0])
+    tod_names = tod_names[:total][minkasi.myrank :: minkasi.nproc][:ntods]
     todvec = minkasi.TodVec()
     for fname in tod_names:
         t1 = time.time()
@@ -257,6 +263,97 @@ def read_act(paths, lims, wmap, hits, fac=ACT_OSAMP, conv=1.0):
     return ivar, wdata
 
 
+def symmetry_check(m2_dot, act_dot, like, solve=None):
+    """
+    Print the relative asymmetry |<y, A x> - <A y, x>| / (|y| |A x|) of the M2 operator, the ACT term
+    and their sum for random vectors, as a CG on a non symmetric operator stalls. With a
+    preconditioner, also the asymmetry of that and the sign of <x, P x> for several vectors.
+
+    Parameters
+    ----------
+    m2_dot : Callable[[Mapset], Mapset]
+        The M2 operator, e.g. TodVec.dot.
+    act_dot : Callable[[Mapset], np.ndarray] | None
+        The ACT term acting on a Mapset, returning a wavelet array, or None without ACT.
+    like : Mapset
+        Mapset to take the shape from.
+    solve : Callable[[np.ndarray], np.ndarray] | None, default: None
+        The preconditioner acting on wavelet arrays.
+    """
+    rng = np.random.default_rng(0)  # the same vectors on every rank
+    x, y = like.copy(), like.copy()
+    x.maps[0].map[:] = rng.normal(size=x.maps[0].map.shape)
+    y.maps[0].map[:] = rng.normal(size=y.maps[0].map.shape)
+    ops = {"M2": lambda v: m2_dot(v).maps[0].map}
+    if act_dot is not None:
+        ops["ACT"] = act_dot
+        ops["M2+ACT"] = lambda v: ops["M2"](v) + act_dot(v)
+    if solve is not None:
+        ops["precon"] = lambda v: solve(v.maps[0].map)
+    for name, op in ops.items():
+        ax, ay = op(x), op(y)
+        a, b = np.sum(y.maps[0].map * ax), np.sum(ay * x.maps[0].map)
+        err = abs(a - b) / (np.linalg.norm(y.maps[0].map) * np.linalg.norm(ax))
+        if minkasi.myrank == 0:
+            print(f"{name}: <y,Ax> = {a:.6e}, <Ay,x> = {b:.6e}, asymmetry {err:.2e}")
+    if solve is not None and minkasi.myrank == 0:
+        xs = [x.maps[0].map, y.maps[0].map] + [
+            rng.normal(size=x.maps[0].map.shape) for _ in range(3)
+        ]
+        print(
+            "<x,Px> / |x|^2:",
+            [f"{np.sum(v * solve(v)) / np.sum(v * v):.2e}" for v in xs],
+        )
+
+
+def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None):
+    """
+    Preconditioned CG on a Mapset with callable operator and preconditioner.
+
+    Parameters
+    ----------
+    apply : Callable[[Mapset], Mapset]
+        The operator, e.g. TodVec.dot.
+    rhs : Mapset
+        Right hand side.
+    x0 : Mapset
+        Starting guess.
+    precon : Callable[[Mapset], Mapset]
+        Preconditioner, a symmetric positive definite approximation of the inverse of apply.
+    niter : int
+        Maximum number of iterations.
+    tol : float, default: 0
+        Stop when |r| / |rhs| is below this.
+    callback : Callable | None, default: None
+        Called as callback(i, x, relres) after every iteration.
+
+    Returns
+    -------
+    x : Mapset
+    """
+    bnorm = np.sqrt(rhs.dot(rhs))
+    x, r = x0.copy(), rhs.copy()
+    r.axpy(apply(x), -1)
+    z = precon(r)
+    p, zr = z.copy(), r.dot(z)
+    for i in range(niter):
+        Ap = apply(p)
+        alpha = zr / p.dot(Ap)
+        x.axpy(p, alpha)
+        r.axpy(Ap, -alpha)
+        z = precon(r)
+        zr_new = r.dot(z)
+        p_new = z.copy()
+        p_new.axpy(p, zr_new / zr)
+        p, zr = p_new, zr_new
+        relres = np.sqrt(r.dot(r)) / bnorm
+        if callback:
+            callback(i, x, relres)
+        if relres < tol:
+            break
+    return x
+
+
 def main(args):
     """
     Run the whole pipeline.
@@ -266,7 +363,7 @@ def main(args):
     args : argparse.Namespace
         Parsed command line arguments.
     """
-    todvec = read_tods(args.idir, args.ntods)
+    todvec = read_tods(args.idir, args.ntods, args.name, args.ntods_total)
     wmap = setup_wmap(todvec, args.pixsize, args.nfilt, args.pad_frac)
     need = wmap.needlet
 
@@ -274,7 +371,9 @@ def main(args):
         tod.info["ipix"] = wmap.get_pix(tod)
         tod.set_noise(minkasi.NoiseSmoothedSVD)
     hits = minkasi.make_hits(todvec, wmap.real_map)
-    hits.write(args.outroot + "_hits.fits")
+    if minkasi.myrank == 0:
+        hits.write(args.outroot + "_hits.fits")
+    minkasi.barrier()
     if args.min_hits > 0:
         wmap.set_mask(hits.map, args.min_hits - 1)  # mask pixels with hits < min_hits
     mask = 1.0 if wmap.mask is None else wmap.mask
@@ -309,11 +408,16 @@ def main(args):
     for tod in todvec.tods:
         tmp = np.zeros(tod.info["dat_calib"].shape)
         mapset_out.maps[0].map2tod(tod, tmp)
-        tod.info["dat_calib"] -= tmp
-        tod.set_noise(minkasi.NoiseSmoothedSVD)
+        if (
+            args.direct
+        ):  # the PCG model only cleans the noise estimate, the data keep the signal
+            tod.set_noise(minkasi.NoiseSmoothedSVD, dat=tod.info["dat_calib"] - tmp)
+        else:
+            tod.info["dat_calib"] -= tmp
+            tod.set_noise(minkasi.NoiseSmoothedSVD)
 
     rhs = mapset.copy()
-    todvec.make_rhs(rhs)  # residual rhs in the wavelet basis
+    todvec.make_rhs(rhs)  # wavelet basis rhs, of the residual unless --direct
     wmap.get_downsamps()
     cache = os.path.join(args.cache, args.name)
     # window of the response matrices: a few filter extents, never more than --radius
@@ -325,11 +429,16 @@ def main(args):
         for i in range(need.nfilt)
     ]
     kw = {"max_res": args.max_res, "radius": None if args.radius is None else radii}
-    kw_bands = wmap.select_filters(args.max_res)
+    kw_bands = wmap.select_filters(None if args.direct else args.max_res)
     t0 = time.time()
     m2_resp = cached(
         cache + "_m2",
-        lambda b: wmap.get_response_matrix(todvec, nfilts=b, radius=kw["radius"]),
+        lambda b: wmap.get_response_matrix(
+            todvec,
+            nfilts=b,
+            radius=kw["radius"],
+            exact_below=args.exact_below,
+        ),
         args.redo,
         need.nfilt,
         kw_bands,
@@ -337,6 +446,7 @@ def main(args):
 
     print(f"M2 response took {time.time() - t0:.1f} s")
     responses = [m2_resp]
+    act_bands = []
     act_rhs = 0
     t0 = time.time()
     paths = sorted(glob.glob(args.act_glob))
@@ -373,7 +483,7 @@ def main(args):
         transfer = wmap.band_transfer(fwhm_pix)
         act_bands = [i for i in kw_bands if transfer[i] >= args.act_min_transfer]
         print("ACT used in bands", act_bands, "beam transfer", transfer.round(3))
-        resid = wdata - ivar * forward(pcg_map)
+        resid = wdata if args.direct else wdata - ivar * forward(pcg_map)
         act_rhs = map2wav_real(adjoint(resid), wmap.needlet.filters)[0]
         act_rhs[[i for i in range(need.nfilt) if i not in act_bands]] = 0
         print(f"reading ACT took {time.time() - t1:.1f} s")
@@ -386,6 +496,7 @@ def main(args):
                     adjoint=adjoint,
                     nfilts=b,
                     radius=kw["radius"],
+                    exact_below=args.exact_below,
                 ),
                 args.redo,
                 need.nfilt,
@@ -395,14 +506,64 @@ def main(args):
 
     print(f"ACT response took {time.time() - t0:.1f} s")
     t0 = time.time()
-    wsol = wmap.solve_bands(rhs.maps[0].map + act_rhs, responses)
+    if args.cg:
+        # CG on the full (band coupled) operator, the block solve is only the preconditioner
+        filt = wmap.needlet.filters
+        off = [i for i in range(need.nfilt) if i not in act_bands]
+
+        def act_dot(x):
+            """ACT term of the operator, on its bands only."""
+            xa = x.maps[0].map.copy()
+            xa[off] = 0
+            ya = map2wav_real(adjoint(ivar * forward(wav2map_real(xa, filt)[0])), filt)[
+                0
+            ]
+            ya[off] = 0
+            return ya
+
+        def apply(x):
+            y = todvec.dot(x)
+            if paths:
+                y.maps[0].map += act_dot(x)
+            return y
+
+        solve = wmap.block_solver(responses, inner=args.inner)
+        print(f"factorized the block preconditioner in {time.time() - t0:.1f} s")
+        if args.symcheck:
+            symmetry_check(todvec.dot, act_dot if paths else None, rhs, solve)
+            return
+
+        def precon(r):
+            z = r.copy()
+            z.maps[0].map[:] = solve(r.maps[0].map)
+            return z
+
+        def report(i, x, relres):
+            print(f"CG iter {i + 1}: |r|/|b| = {relres:.2e} ({time.time() - t0:.0f} s)")
+            if (i + 1) in args.cg_save and minkasi.myrank == 0:
+                np.save(
+                    f"{args.outroot}_cg{i + 1}.npy",
+                    wav2map_real(x.maps[0].map, filt)[0] * mask,
+                )
+
+        b = rhs.copy()
+        b.maps[0].map += act_rhs
+        x0 = b.copy()
+        x0.clear()
+        if (
+            args.consistent
+        ):  # a rhs in the range of the operator, to see if the real one is not
+            b = apply(pcg(apply, b, x0, precon, args.consistent))
+        wsol = pcg(apply, b, x0, precon, args.cg, args.cg_tol, report).maps[0].map
+    else:
+        wsol = wmap.solve_bands(rhs.maps[0].map + act_rhs, responses)
     mmap = wav2map_real(wsol, wmap.needlet.filters)[0] * mask
     print(f"solve took {time.time() - t0:.1f} s")
     wmap.real_map.map = mmap
     if minkasi.myrank == 0:
         wmap.real_map.write(args.outroot + "_combined.fits")
-        # The combined solution is for the residual after PCG: add the PCG map back.
-        wmap.real_map.map = mmap + pcg_map
+        # Unless --direct, the combined solution is for the residual after PCG: add the PCG map back.
+        wmap.real_map.map = mmap if args.direct else mmap + pcg_map
         wmap.real_map.write(args.outroot + "_final.fits")
 
 
@@ -473,12 +634,65 @@ if __name__ == "__main__":
         "--radius", type=float, default=30.0, help="Pixels; ANA window, <0 for exact"
     )
     parser.add_argument(
+        "--exact-below",
+        type=int,
+        default=5000,
+        help="Bands with at most this many lattice points are computed exactly (one TOD pass per point)",
+    )
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="Final map = ANA^-1 rhs of the full M2 (and ACT) data in all bands, ignoring "
+        "--max-res; PCG is only used to clean the noise estimate",
+    )
+    parser.add_argument(
+        "--cg",
+        type=int,
+        default=0,
+        help="Solve with this many CG iterations on the full (M2 + ACT) operator, preconditioned "
+        "by the block solve, instead of the block solve alone. Implies --direct",
+    )
+    parser.add_argument(
+        "--symcheck",
+        action="store_true",
+        help="With --cg: print the symmetry of the operator and exit",
+    )
+    parser.add_argument(
+        "--consistent",
+        type=int,
+        default=0,
+        metavar="N",
+        help="With --cg: replace the rhs by A x, x the result of N CG iterations on the real one",
+    )
+    parser.add_argument(
+        "--cg-save",
+        type=int,
+        nargs="*",
+        default=[],
+        help="With --cg: iterations at which to save the real space map to <outroot>_cg<N>.npy",
+    )
+    parser.add_argument(
+        "--cg-tol", type=float, default=1e-3, help="Relative residual to stop at"
+    )
+    parser.add_argument(
+        "--inner",
+        type=int,
+        default=20,
+        help="Jacobi CG iterations of the large bands in the --cg preconditioner",
+    )
+    parser.add_argument(
+        "--ntods-total",
+        type=int,
+        help="Use only this many TODs in total (after the blacklist), whatever the number of ranks",
+    )
+    parser.add_argument(
         "--redo", action="store_true", help="Recompute cached responses"
     )
     parser.add_argument(
         "--debug", action="store_true", help="Fewer TODs/iterations, coarser pixels"
     )
     args = parser.parse_args()
+    args.direct |= args.cg > 0
     if args.radius < 0:
         args.radius = None
     if args.debug:
