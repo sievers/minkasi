@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>twores_ex.py walkthrough</title>
+<style>body{font-family:sans-serif;max-width:900px;margin:2em auto;padding:0 1em;line-height:1.45}img{max-width:100%}table{border-collapse:collapse;margin:1em 0}td,th{border:1px solid #999;padding:4px 8px;vertical-align:top}code{background:#f2f2f2;padding:0 3px}pre{background:#f2f2f2;padding:8px;overflow-x:auto}.note{border-left:4px solid #c80;padding:0 1em;background:#fff8ee}</style></head><body>
+<h1>What <code>examples/twores_ex.py</code> does, step by step</h1>
+<p>Branch <code>needlet</code>, written 2026-10-23. Companion to <a href="needlet.html">needlet.html</a>, which holds the tests and numbers behind the choices below.</p>
+
+<h2>0. The idea in one paragraph</h2>
+<p>MUSTANG-2 (M2) TODs constrain the small scales of a field but lose the large scales to common-mode subtraction; ACT maps constrain the large scales. We want one map that uses both. The map is represented in a <i>needlet</i> (wavelet) basis, a stack of bands, each covering a range of angular scales. In that basis the normal matrix <i>A</i><sup>T</sup><i>N</i><sup>-1</sup><i>A</i> (&ldquo;ANA&rdquo;) of the TODs and the inverse covariance of the ACT map can be added, and the map solved from the sum. The script builds that sum and then solves it, either with a cheap approximate inverse (<code>--direct</code>) or with conjugate gradient on the real operator (<code>--cg N</code>, recommended).</p>
+
+<h2>1. Notation</h2>
+<table>
+<tr><td><i>x</i><sub>i</sub></td><td>Wavelet array, shape (nfilt, nx, ny). <code>WavSkyMap.map</code> holds it.</td></tr>
+<tr><td><i>F</i><sub>i</sub></td><td>Needlet filter of band <i>i</i>, a real symmetric window in Fourier space with &Sigma;<sub>i</sub> <i>F</i><sub>i</sub><sup>2</sup> = 1.</td></tr>
+<tr><td>real map</td><td><code>wav2map_real(x)</code> = &Sigma;<sub>i</sub> <i>F</i><sub>i</sub> <i>x</i><sub>i</sub>. The inverse direction, <code>map2wav_real(m)</code>, gives <i>x</i><sub>i</sub> = <i>F</i><sub>i</sub> <i>m</i>. The two are adjoints because <i>F</i><sub>i</sub> is real and symmetric.</td></tr>
+<tr><td><i>M</i></td><td>The hits mask (diagonal, 0/1) in real space.</td></tr>
+<tr><td><i>A</i>, <i>N</i></td><td>TOD pointing and the per-TOD noise model.</td></tr>
+<tr><td>operator</td><td><code>todvec.dot(x)</code> = <i>F</i> <i>M</i> <i>A</i><sup>T</sup><i>N</i><sup>-1</sup><i>A</i> <i>M</i> &Sigma;<sub>j</sub> <i>F</i><sub>j</sub> <i>x</i><sub>j</sub>, band by band.</td></tr>
+<tr><td><i>G</i><sub>i</sub></td><td>The diagonal (same-band) block of the operator, probed on the downsampled lattice of band <i>i</i>: <i>G</i><sub>i</sub> = <i>K</i><sup>T</sup><i>O</i><i>K</i>, with <i>K</i> the map from lattice coefficients to the band-limited real map (<code>band2map</code> of an impulse on the lattice).</td></tr>
+</table>
+<p><img src="figs/bands.png" alt="needlet bands"><br>The needlet bands in Fourier space (10 bands, from the largest to the smallest scale).</p>
+
+<h2>2. Which path the flags select</h2>
+<table>
+<tr><th>Flags</th><th>Final map</th></tr>
+<tr><td>(none)</td><td>PCG map for the small scales, plus a block-solve correction for the overlap bands (residual mode). Original design.</td></tr>
+<tr><td><code>--direct</code></td><td>Block solve of the full M2 + ACT data in all bands. PCG only cleans the noise model. Quick, approximate.</td></tr>
+<tr><td><code>--cg N</code> (implies <code>--direct</code>)</td><td>N CG iterations on the full M2 + ACT operator, with the block solve as preconditioner. <b>Recommended.</b></td></tr>
+<tr><td><code>--min-hits 0</code></td><td>Switch the hits mask off (default 20).</td></tr>
+<tr><td><code>--symcheck</code>, <code>--consistent N</code>, <code>--cg-save ...</code></td><td>Diagnostics for the CG: operator symmetry, residual on a consistent rhs, saving iterates.</td></tr>
+</table>
+
+<h2>3. Step by step</h2>
+
+<h3>Step 1: read the TODs (<code>read_tods</code>)</h3>
+<ul>
+<li>List <code>Sig*.fits</code>, drop the blacklisted TODs for the source (<code>minkasi.get_bad_tods</code>, <code>cut_blacklist</code>; 32 of 138 for MOOJ1142), keep the first <code>--ntods-total</code>, then give every <code>nproc</code>-th file to each MPI rank (at most <code>--ntods</code> per rank).</li>
+<li>Per TOD: truncate to a good length, downsample if sampled faster than needed, then subtract a common mode plus polynomial per detector (<code>fit_cm_plus_poly</code>). The large scales of the sky are partly removed here, which is why M2 alone cannot constrain them.</li>
+</ul>
+
+<h3>Step 2: build the map and the needlet (<code>setup_wmap</code>)</h3>
+<ul>
+<li>Take the TOD limits, pad by <code>--pad-frac</code> (0.25) on every side (the filters are periodic, so this moves wrap-around artefacts away from the data), and make a square map whose size is a <i>highly composite</i> number so that bands can be downsampled by many factors.</li>
+<li>Build <code>--nfilt</code> (10) needlet filters on that grid and wrap everything in a <code>WavSkyMap</code>: the wavelet array plus a real-space <code>SkyMap</code> counterpart.</li>
+<li><code>get_downsamps</code> (called later) gives each band the coarsest lattice that does not undersample it: <code>downsamps[i]</code>, with retained pixel indices <code>nx_space[i]</code>, <code>ny_space[i]</code>. Large-scale bands live on very few points, the finest band on (nearly) the whole grid.</li>
+</ul>
+
+<h3>Step 3: pointing, first noise model, hits, mask</h3>
+<ul>
+<li>Pixel indices per TOD (<code>wmap.get_pix</code>), and a first noise model per TOD (<code>NoiseSmoothedSVD</code>: a detector SVD with smoothed power spectra).</li>
+<li><code>make_hits</code> counts hits per pixel; rank 0 writes <code>_hits.fits</code>.</li>
+<li><code>set_mask(hits, min_hits-1)</code> makes a boolean mask <code>hits &ge; min_hits</code>. It is applied inside <code>WavSkyMap.map2tod</code> and <code>tod2map</code>, so every operator seen later, including the probed ones, is <i>M</i> <i>A</i><sup>T</sup><i>N</i><sup>-1</sup><i>A</i> <i>M</i>.</li>
+</ul>
+
+<h3>Step 4: PCG in the wavelet basis</h3>
+<ul>
+<li>The rhs is <i>b</i> = <code>make_rhs</code> = <i>F</i><sub>i</sub> <i>M</i> <i>A</i><sup>T</sup><i>N</i><sup>-1</sup><i>d</i> (<code>tod2map</code> ends in <code>map2wav_real</code>). Ordinary minkasi PCG (<code>run_pcg_wprior</code>) with a hits preconditioner (1/hits in every band) runs <code>--maxiter</code> (50) iterations.</li>
+<li>This map is cheap but unconverged. Its use depends on the mode: in residual mode it is the small-scale map and is later subtracted from the data; in <code>--direct</code> mode it only cleans the noise model (step 5). It is written to <code>_need.fits</code>.</li>
+</ul>
+
+<h3>Step 5: re-estimate the noise with the model</h3>
+<p>The PCG map is projected back to TOD space (<code>map2tod</code>). With <code>--direct</code> the noise model is re-fit on <code>dat_calib &minus; model</code>, so the noise estimate is no longer contaminated by signal, but the data keep the signal. Without it, the model is subtracted from the data and the noise is fit on the residual. The rhs is rebuilt with the new noise model.</p>
+
+<h3>Step 6: M2 response matrices <i>G</i><sub>i</sub> (<code>get_response_matrix</code> &rarr; <code>probe_band</code>)</h3>
+<p>This is the expensive step. We cannot form ANA directly, but we can apply it (<code>todvec.dot</code>), so we <i>probe</i> it. For band <i>i</i>:</p>
+<ol>
+<li>Put an impulse on a lattice point, map it to a band-limited real map (<code>band2map</code>, i.e. <i>K</i>), apply the masked operator, filter back (<code>map2band</code>) and read off the lattice values: one column of <i>G</i><sub>i</sub>.</li>
+<li>One TOD pass per lattice point would be exact but slow. Instead, impulses further apart than the window are summed into one map (<code>color_groups</code> assigns lattice points to colours that are at least a window apart) and probed together. Only entries within <code>radius</code> of the impulse are kept (<code>--radius</code>, 30 pixels, scaled per band to a few filter extents). The result is sparse and symmetrised.</li>
+<li>Bands with at most <code>--exact-below</code> (5000) lattice points are done exactly, one pass per point, because truncating their long-tailed kernels is what makes <i>G</i> indefinite.</li>
+<li>Results are cached per band in <code>--cache</code>. <b>The cache does not record how the matrices were made</b> (TODs, mask, radius, units): use a new directory or <code>--redo</code> when these change.</li>
+</ol>
+<p>Every pass is an MPI-reduced <code>todvec.dot</code>, so the matrices describe all TODs on all ranks; every rank holds a copy. Typical cost: 15 min for 40 TODs on 16 ranks.</p>
+
+<h3>Step 7: ACT (<code>read_act</code>, <code>get_response_matrix_map</code>)</h3>
+<ul>
+<li>Read the ACT splits (<code>--act-glob</code>), cut a box around the field, convert &mu;K<sub>CMB</sub> to M2 units (<code>act_conversion</code>, from frequency and beam), and regrid map and inverse variance to the M2 pixelization with <code>SkyMapTwoRes.coarse2fine</code>. The ACT-only coadd is written to <code>_act.fits</code>.</li>
+<li>The ACT inverse covariance is the <b>diagonal</b> map-space ivar, a placeholder (see the TODO in the code). Optionally an edge taper (<code>--taper</code>, default 0 = off).</li>
+<li>ACT sees the sky through its beam and pixel average: <code>forward</code> = beam (Fourier multiply), then block-average over ACT pixels; <code>adjoint</code> is the transpose. The ACT term of the operator is <i>F</i> adjoint(ivar &middot; forward(&Sigma;<sub>j</sub> <i>F</i><sub>j</sub> <i>x</i><sub>j</sub>)).</li>
+<li>ACT is only used in bands the beam transmits: <code>band_transfer</code> gives the beam&rsquo;s transfer per band and ACT is used where it is &ge; <code>--act-min-transfer</code> (0.05). With the 2.1&prime; beam that is bands 0&ndash;3 (transfer 0.96, 0.83, 0.53, 0.13). Deconvolving the other bands would only amplify noise.</li>
+<li>ACT's rhs is <code>map2wav_real(adjoint(ivar &middot; act_map))</code>, zeroed outside those bands; its <i>G</i><sub>i</sub> is probed the same way as M2's (cheap: 1 s here, no TODs).</li>
+</ul>
+
+<h3>Step 8: solve</h3>
+<p>Total precision per band: <i>G</i><sub>i</sub> = <i>G</i><sub>M2,i</sub> + <i>G</i><sub>ACT,i</sub>; total rhs <i>b</i> = M2 rhs + ACT rhs.</p>
+
+<h4>8a. The block solve (<code>solve_bands</code>, via <code>block_solver</code>)</h4>
+<p>This is a <i>band-diagonal approximation</i> to <i>G</i><sup>-1</sup><i>b</i>: it keeps each band&rsquo;s own response and drops the cross-band blocks <i>G</i><sub>ij</sub>, <i>i</i> &ne; <i>j</i>. <code>block_solver</code> factorizes once and returns <code>solve(rhs)</code>. For each band with a response:</p>
+<ol>
+<li>Sum the response matrices (M2 + ACT).</li>
+<li>Estimate the smallest eigenvalue <code>lmin</code> (<code>min_eigenvalue</code>: dense below 2500 points, otherwise ARPACK with a fixed start vector, so every rank gets the same number).</li>
+<li>Add a diagonal shift: <code>ridge &times; mean(diag G) + max(0, &minus;1.1 &times; lmin)</code>, with <code>ridge</code> = 1e-3. The first term is a zero-mean prior that keeps unconstrained modes from amplifying noise. The second makes <i>G</i> positive definite when truncation has made it indefinite (it is, for bands 5&ndash;9 in production).</li>
+<li>Factorize: sparse LU (<code>splu</code>) up to 20000 lattice points. Above that a Jacobi-preconditioned CG, run to convergence (<code>inner=None</code>) or for exactly <code>--inner</code> iterations (a fixed linear operator, needed when used as a preconditioner).</li>
+</ol>
+<p>Applying <code>solve(rhs)</code> then does, per band: <i>b</i><sub>i</sub> = <i>F</i><sub>i</sub> rhs<sub>i</sub> sampled on the lattice; <i>c</i><sub>i</sub> = (<i>G</i><sub>i</sub> + shift)<sup>-1</sup> <i>b</i><sub>i</sub>; write <i>c</i><sub>i</sub> onto the lattice (zeros elsewhere) and return <i>F</i><sub>i</sub> <i>Z</i> <i>c</i><sub>i</sub> as the band&rsquo;s wavelet array. Because rhs<sub>i</sub> already contains one <i>F</i><sub>i</sub>, the real map from <code>wav2map_real</code> is &Sigma;<sub>i</sub> <i>F</i><sub>i</sub><sup>2</sup> <i>Z</i> <i>G</i><sub>i</sub><sup>-1</sup> <i>F</i><sub>i</sub><sup>2</sup> <i>r</i> in terms of the real-space rhs <i>r</i>; for white noise that reduces to <i>r</i> because &Sigma; <i>F</i><sub>i</sub><sup>2</sup> = 1.</p>
+<div class="note"><b>Limits of the block solve alone</b> (<code>--direct</code> without <code>--cg</code>): it is not a solution of the full system. A band&rsquo;s rhs has components in modes its own block cannot constrain; the ridge then amplifies or damps them. On 40 TODs it gets 93% of the CG source peak but the extended structure correlates only 0.3&ndash;0.6 with CG. Use it as a quick look at compact sources or as a preconditioner.</div>
+
+<h4>8b. CG on the full operator (<code>--cg N</code>)</h4>
+<ol>
+<li><code>apply(x)</code> = <code>todvec.dot(x)</code> (M2 operator, all bands, MPI-reduced) + ACT term (bands 0&ndash;3 only). This is the true, band-coupled operator, so cross-band coupling is included.</li>
+<li>Preconditioner = the block solve with <code>--inner</code> (20) inner iterations: a fixed, symmetric positive definite operator (checked: asymmetry 4e-11).</li>
+<li><code>pcg</code> iterates <i>x</i> &larr; <i>x</i> + &alpha; <i>p</i> with the usual preconditioned-CG recurrences until <code>--cg-tol</code> or N iterations. The preconditioner only changes how fast CG converges, not where it converges to.</li>
+<li>Output map: <code>wav2map_real(x) &times; mask</code>.</li>
+</ol>
+
+<h3>Step 9: outputs (<code>--outroot</code>)</h3>
+<table>
+<tr><td><code>_hits.fits</code></td><td>Hits map.</td></tr>
+<tr><td><code>_need.fits</code></td><td>The 50-step PCG map from step 4.</td></tr>
+<tr><td><code>_act.fits</code></td><td>ACT coadd on the M2 grid (M2 units).</td></tr>
+<tr><td><code>_combined.fits</code></td><td>Output of the solve in step 8.</td></tr>
+<tr><td><code>_final.fits</code></td><td>With <code>--direct</code>/<code>--cg</code> identical to <code>_combined</code>; in residual mode, <code>_combined</code> + the PCG map.</td></tr>
+</table>
+
+<h2>4. Known caveats</h2>
+<ul>
+<li><b>Probed matrices are approximate.</b> Truncating <i>G</i><sub>i</sub> to <code>radius</code> makes it indefinite in the fine bands; the shift fixes the solve but damps modes. In CG this only costs preconditioner quality.</li>
+<li><b>Block solve drops the cross-band blocks</b> (section 8a). The CG fixes this.</li>
+<li><b>ACT noise is a diagonal ivar</b> and ACT only constrains bands 0&ndash;3.</li>
+<li><b>Large scales converge slowly.</b> After 40 CG iterations scales below ~12&Prime; are converged to under 8%, but scales of 1&prime; and above still change by 33&ndash;49% between iterations 40 and 80. The residual norm (flat at 3&ndash;4e-4) does not show this: part of the rhs lies outside the operator&rsquo;s range, so the residual cannot go below it. Why ACT does not speed the large scales more is not understood.</li>
+<li><b>MPI reduction bug, fixed.</b> <code>SkyMap.mpi_reduce</code> used to chunk wavelet maps by <code>nx*ny</code> and so only reduced band 0 on large maps. Any multi-rank wavelet result from before the fix with <code>nx*ny &gt; 1e5</code> (e.g. the 138-TOD map) is wrong.</li>
+<li><b>Response cache does not record settings</b> (step 6).</li>
+</ul>
+
+<h2>5. What it produces (40 MOOJ1142 TODs, mask 20, 16 ranks)</h2>
+<p><img src="figs/compare40.png" alt="comparison"><br>Left to right: needlet CG, plain PCG (<code>minkasi_mpi_example</code>), mask=20 PCG (<code>minkasi_mask_example</code>), on the pixels common to all three.</p>
+<p><img src="figs/final_cg40.png" alt="needlet CG map"><br>The needlet CG map (M2, at ACT resolution, and ACT).</p>
+<p><img src="figs/cg_convergence.png" alt="CG convergence per scale" style="max-width:60%"><br>Change of the CG map between saved iterations, per scale, relative to the iteration-80 map.</p>
+
+<h2>6. Typical commands</h2>
+<pre>cd examples
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 \
+mpirun -n 16 --bind-to core python twores_ex.py --name MOOJ1142 \
+    --ntods 3 --ntods-total 40 --direct --cg 40 --cg-tol 1e-4 --min-hits 20 \
+    --outroot OUT/MOOJ1142 --cache OUT/cache</pre>
+<p><code>--ntods</code> is per rank, <code>--ntods-total</code> caps the total; <code>--debug</code> uses one TOD, 6&Prime; pixels and fewer bands and iterations. Plots: <code>plot_final_aplpy.py</code> (final figure), <code>compare_gif.py</code> (comparison with the PCG examples), <code>cg_convergence.py</code> (convergence per scale).</p>
+</body></html>

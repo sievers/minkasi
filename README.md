@@ -177,3 +177,25 @@ from minkasi import minkasi_all as minkasi
  ```
  git checkout v1.1.1
  ```
+## Needlet mapmaking solvers
+
+`examples/twores_ex.py` makes joint M2 + ACT maps in a needlet (wavelet) basis. "CG" below is the map
+from conjugate gradient on `A^T N^-1 A m = A^T N^-1 d` in that basis, with the ACT term added to the operator.
+See `reports/needlet.html` for the tests behind these recommendations.
+
+| Option | What it does | Cost (40 TODs, 16 ranks) | Verdict |
+|---|---|---|---|
+| `--direct --cg N` | CG on the full M2 + ACT operator, block solve as preconditioner | Response 15 min (cached after the first run), factorization 8 min, 40 iterations 8 min | **Recommended.** Solves the real equation; matches PCG on the 4-rank control and recovers the full source amplitude. |
+| `--direct` (no `--cg`) | Block solve only: `ANA^-1 @ rhs` per band, ignoring cross-band coupling | About 9 min on a cached response | Quick look at compact sources (93% of the CG peak). Wrong extended structure (correlation 0.3-0.6 with CG). |
+| `--min-hits 0` | No hits mask | Same as the run it is added to | Same rms as the masked run on the common pixels. Keep `--min-hits 20` to compare with `minkasi_mask_example`. |
+| PCG examples | `minkasi_mpi_example`, `minkasi_mask_example` | Minutes | Reference maps. Plain PCG has a large-scale gradient; mask=20 is the better reference. |
+
+Notes:
+- The block solve is the approximate inverse that keeps each band's own response `G_i` and drops the
+  cross-band blocks. In `--cg` it is only the preconditioner (`--inner` fixed iterations), so it changes the
+  convergence speed, not the answer.
+- Run with `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 mpirun -n N python twores_ex.py ...`;
+  `--ntods` is per rank and `--ntods-total` caps the total.
+- `--cg` residuals stagnate at about 3-4e-4 after 40 iterations; the reason is not yet understood.
+- Wavelet-map results from before the `SkyMap.mpi_reduce` fix (large maps, more than one rank) are wrong
+  and should be regenerated.

@@ -3,6 +3,7 @@
 <style>body{font-family:sans-serif;max-width:900px;margin:2em auto;padding:0 1em}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body>
 <h1>Multi-resolution needlet mapmaking: status</h1>
 <p>Last updated 2026-10-20. Branch <code>needlet</code>, master merged.</p>
+<p>New here? <a href="twores_walkthrough.html">Step by step walkthrough of <code>twores_ex.py</code></a>, including what <code>solve_bands</code> does.</p>
 
 <h2>Method as implemented</h2>
 <p>For each needlet band <i>i</i> the noise precision is computed on a downsampled lattice of pixels, G<sub>i</sub> = K<sub>i</sub><sup>T</sup> O K<sub>i</sub>, with K<sub>i</sub> the band-limited real-space response of a unit coefficient. O is <i>P<sup>T</sup>N<sup>-1</sup>P</i> for the M2 TODs and a map-space inverse covariance for ACT. The combined coefficients solve (G<sub>M2</sub>+G<sub>ACT</sub>)c = K<sup>T</sup>(rhs<sub>M2</sub>+rhs<sub>ACT</sub>) per band; the map is <code>wav2map_real</code> of the zero-filled coefficients. Cross-band blocks are neglected (design of the project).</p>
@@ -20,6 +21,7 @@
 <tr><td>3</td><td>3025</td><td>30.9</td><td>40</td><td>94.8</td><td>0.3x</td><td>0.10%</td><td>56%</td></tr></table>
 <p>Radius 40 is slower than exact because the window covers most of the lattice and the Python extraction loop dominates; use <code>radius=None</code> there. Even the "exact" path is much faster than before (single-band FFTs, no per-pixel allocation). Errors are relative to the largest entry of the exact matrix.</p>
 <img src="figs/rows.png" alt="exact vs probed rows">
+<p>Each row of panels is one filter: the response-matrix row of the central lattice pixel (its response over the band's map) from the exact matrix, from the probed matrix at the largest radius, and their difference. The first two share one symmetric colour scale; the difference is divided by the peak of the exact row and has its own colour scale (note the much smaller range). The error is zero inside the probe window and sits in a ring just outside it, where the truncated tail of the response is dropped.</p>
 <p>Full-size example (<code>twores_ex.py</code>, 3&Prime; pixels, 218&times;218, 2 TODs, 10 filters, ANA for scales &gt; 60&Prime;, radius 30): M2 ANA 15 s, ACT 2 s, whole script ~1 min, versus an 87 GB dense cache before.</p>
 
 <h2>Combined map (MOOJ1142, 20 TODs)</h2>
@@ -41,6 +43,93 @@
 </ul>
 <p>Remaining ringing in the periphery of the final map comes from band 3 (low ACT transfer, no M2 data outside the footprint) and from the periodic wrap of the filters.</p>
 
+<h2>Direct solve and running on all TODs</h2>
+<p><code>twores_ex.py --direct</code> solves the mapmaking equation directly: the final map is <code>wav2map_real(solve_bands(rhs<sub>M2</sub> + rhs<sub>ACT</sub>, responses))</code> with the right hand side of the full (unsubtracted) M2 data, the ACT term built from the ACT map itself rather than a residual, and ANA in all bands (<code>--max-res</code> is ignored). PCG is only run to clean the noise estimate (its model enters <code>set_noise(dat=...)</code> but is never subtracted from the data or added to the map). Without the flag the old behaviour (PCG + correction) is unchanged. The M2 hits mask (<code>--min-hits 20</code>) is applied in the mapmaking in both modes.</p>
+<p>With 20 TODs the direct map has a pixel rms of 2.6&times;10<sup>-4</sup> against 3.3&times;10<sup>-4</sup> for PCG + correction, correlates with ACT (ACT beam, inside the footprint) at 0.85 against 0.90, and the two maps correlate at 0.92 after smoothing by 6 px; the difference is mostly confined to the low-hit rim.</p>
+
+<h3>Cost</h3>
+<p>Each probe is one full pass over the TODs (<code>TodVec.dot</code>); the number of passes per band is (2&middot;ceil(radius/downsamp)+1)<sup>2</sup>, or one per lattice point for bands below <code>--exact-below</code> (default 5000). At 3&Prime; pixels, 10 filters and radius 30, band 5 (3600 lattice points) is computed exactly and takes 3600 of the 6245 passes. About 76% of a pass is the noise model (<code>apply_noise</code>: two dense detector rotations and two FFTs per TOD); <code>map2tod</code> and <code>tod2map</code> (numba) are 2% and 9%. Threads scale poorly (4 TODs: 38 ms per pass on 1 thread, 22 ms on 8), but MPI over TODs scales almost perfectly (1 rank &times; 4 TODs: 38 ms; 8 ranks &times; 4 TODs: 49 ms) and gives the same maps as one process (differences ~10<sup>-9</sup>). Run with <code>OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 mpirun -n N python twores_ex.py ...</code>; <code>--ntods</code> is per rank. Each rank holds the response matrices, about 6 GB peak while probing band 7, so memory limits N.</p>
+<p><code>--exact-below 1000</code> probes band 5 instead (20 s instead of about 400 s at 20 TODs). Relative to the exact band 5 the final map has the same ACT correlation (0.845), a 6 px smoothed correlation of 0.9993 and a pixel level difference of 9% of the map rms, from a matrix error of about 1% of its largest entry (1 TOD benchmark).</p>
+
+<h3>All TODs</h3>
+<p>All 138 <code>Signal_*</code> files of MOOJ1142 (no blacklist preset exists for it), direct solve, <code>--min-hits 20</code>, 16 MPI ranks on one node (the data are on that node's disk; 16 ranks keep the replicated response matrices within memory), default accuracy (band 5 exact). The map is 480&times;480 at 3&Prime;. The M2 response took 1226 s, ACT 13 s, the solve 220&ndash;320 s (replicated on every rank), about 31 min wall in total, with no CG convergence warnings. Inside the footprint (hits &ge; 20) the pixel rms is 5.1&times;10<sup>-5</sup> Jy/beam (3.0&times;10<sup>-5</sup> smoothed by 6 px) and, smoothed to the ACT beam, the map correlates with ACT at 0.98. The cold spot is clear at the centre in both the M2 map and the ACT beam panel. Plotted with <code>examples/plot_final_aplpy.py</code> (aplpy; the left panel shows only pixels with at least 20 hits, the middle panel fills the rest with ACT).</p>
+<img src="figs/final_direct_all.png" alt="direct solve, all TODs">
+
+<h2>Comparison with the standard PCG examples</h2>
+<p>The all-TOD direct needlet map (50 PCG steps for the noise model, then the direct solve) against
+<code>minkasi_mpi_example.py</code> (plain PCG) and <code>minkasi_mask_example.py</code> (<code>--thresh 20</code>),
+both run with the MOOJ1142 blacklist, 106 TODs, 3&Prime; pixels and <code>--npass 0</code>, i.e. the same 50 PCG steps.
+The maps are reprojected to the needlet grid and only the pixels good in all three are shown. Note the needlet map
+was made from all 138 TODs, before the blacklist was added to <code>twores_ex.py</code> (<code>read_tods(..., name)</code>).
+The cache of the M2 response is keyed only by source name, so use a new <code>--cache</code> directory when the TOD set changes.</p>
+<img src="figs/compare_methods.gif" alt="needlet vs PCG examples, shared colour scale" style="max-width:100%">
+<p>Shared colour scale (dominated by the large-scale gradient left in the plain PCG map). Same frames with the scale of the needlet map:</p>
+<img src="figs/compare_methods_needscale.gif" alt="needlet vs PCG examples, needlet colour scale" style="max-width:100%">
+<h2>Correction: MPI reduction bug, and the CG solve on 40 TODs</h2>
+<p><b>The amplitude difference below was mostly a bug.</b> <code>SkyMap.mpi_reduce</code> chunked by <code>nx*ny</code>, so for maps above 1e5 pixels only band 0 of a
+wavelet map (shape <code>(nfilt, nx, ny)</code>) was summed over MPI ranks; the other bands of the rhs and of A x stayed rank-local. All 16-rank wavelet runs
+(including the 138 TOD direct map) are affected: rank 0 wrote maps whose fine bands had the rhs of its own ~1/15 of the TODs but the response of all of them. Fixed (chunks by <code>map.size</code>, regression test
+<code>test_mpi_reduce_chunks_whole_wavelet_map</code>). Single rank runs, the 4 rank 12&Prime; controls and the PCG example maps were not affected.
+The block-diagonal findings below (shift and ridge) remain true for the block solve, but are secondary.</p>
+<p>Other fixes: <code>get_response_matrix</code> now probes the masked operator (as the rhs and PCG), <code>min_eigenvalue</code> has a fixed start (same shift on every rank),
+<code>block_solver</code> factorizes once, and <code>twores_ex.py --cg N</code> solves with CG on the full M2 + ACT operator, preconditioned by the block solve.</p>
+<p>Result for 40 TODs (blacklist applied, 16 ranks, 3&Prime; pixels, <code>--cg 40</code>; response 15 min, preconditioner factorization 8 min per rank, 40 iterations 8 min).
+The relative residual falls from 8.9e-3 to 4e-4 in 40 iterations and then stagnates (target 1e-4 not reached). Same 40 TODs through the two examples (<code>--npass 0</code>, 50 PCG steps):</p>
+<table>
+<tr><th></th><th>needlet CG</th><th>mask=20 PCG</th><th>plain PCG</th></tr>
+<tr><td>brightest compact source, 3 px mean (Jy/beam)</td><td>1.5e-3</td><td>1.4e-3</td><td>1.2e-3</td></tr>
+<tr><td>power ratio PCG/needlet, 0.3&ndash;1.8&prime;</td><td>1</td><td>0.78</td><td>0.78</td></tr>
+<tr><td>correlation with ACT after the ACT beam</td><td>0.76</td><td>0.30</td><td>&minus;0.46</td></tr>
+</table>
+<p>The amplitudes now agree (previously a 15&times; lower source peak). The needlet map has about 13% more amplitude at 0.3&ndash;1.8&prime; than the unconverged 50 step PCG, as expected from a converged solve
+(the 4 rank test gave +11%). Figure: <img src="figs/final_cg40.png" style="max-width:100%" alt="needlet CG, 40 TODs"><br>
+<figure><img src="figs/compare40.png" style="max-width:100%" alt="side by side"><figcaption>The 40-TOD maps side by side on the common pixels, shared colour scale; the right panel is the needlet CG run without the hits mask (CG residual 3.35e-4 after 40 iterations, as the masked run).</figcaption></figure>
+Blink comparison (common pixels): <img src="figs/compare40.gif" style="max-width:100%" alt="blink comparison"> and with the needlet colour scale
+<img src="figs/compare40_needscale.gif" style="max-width:100%" alt="blink comparison, needlet scale"></p>
+<h3>Earlier analysis (superseded where it attributes the amplitude to the regularization)</h3>
+<h2>Block solve: shift, ridge and the exact-matrix control</h2>
+<p>In the common pixels (hits &ge; 20) the pixel rms is 5.0e-5 (needlet), 2.0e-4 (mask=20 PCG) and 7.3e-4 (plain PCG) Jy/beam.
+The needlet map has 15&times; lower peak on the brightest compact source, 4&times; lower pixel-to-pixel noise and 5&ndash;7&times; lower amplitude
+at 0.5&ndash;2&prime; scales, i.e. it is not an overall scale factor. At the ACT scale (bands 0&ndash;3, where ACT constrains the map) its amplitude agrees with ACT (slope 1.09 after a 2&prime;&ndash;8&prime; band-pass, correlation 0.97).</p>
+<ul>
+<li>The probed response matrices of the fine bands (5&ndash;9) are not positive definite (smallest eigenvalue between &minus;0.2 and &minus;1.1 times the mean in-footprint diagonal;
+the eigenvectors lie entirely inside the footprint), so <code>solve_bands</code> adds a diagonal shift of that size on top of the 1e-3 ridge.
+Relative to the in-footprint diagonal the solution is multiplied by d/(d+shift): median 0.63&ndash;0.89 in bands 5&ndash;8 and 0.28 in band 9, with 10th percentile 0.03&ndash;0.4 in the shallow regions. Compact sources live in the finest bands and the shallow regions are damped most.</li>
+<li>The exact response matrices do not fix this: a control run (4 TODs, 12&Prime; pixels, exact ANA, with ACT) has a pixel rms 17&times; <em>higher</em> than the PCG map and is uncorrelated with it. The block diagonal solve
+F<sub>i</sub><sup>2</sup>G<sub>i</sub><sup>-1</sup>F<sub>i</sub><sup>2</sup>r treats each band on its own, so the rhs of a band has components in modes that G<sub>i</sub> cannot constrain (e.g. removed by the common mode subtraction),
+and these are amplified by 1/ridge. PCG never excites such modes.</li>
+</ul>
+<p>So the absolute scale of the fine bands in the direct map is set by the regularization, not the data. Candidates: couple neighbouring bands in the solve (the off diagonal blocks of the ANA),
+use a local rather than global shift, enforce positive definiteness of the probed matrices, or use the probed ANA as a preconditioner for CG on the full system.</p>
+<h3>Follow-up tests (<code>examples/ridge_test.py</code>: 4 TODs, 12&Prime; pixels, M2 only, exact response matrices)</h3>
+<ul>
+<li><b>CG on the full operator</b> with the block solve (ridge 1e-3) as preconditioner converges (residual 3e-3 after 20 and 7e-6 after 40 iterations with the masked G) to the PCG map:
+pixel rms 3.34e-4 vs 3.33e-4 after 100 PCG steps, band-pass correlation 1.000, slope 0.998. So the exact ANA does give the PCG map once the bands are coupled.</li>
+<li><b>Block solve alone, ridge sweep</b> (against that converged map): the noise grows as 1/ridge (pixel noise 2.5e-4 at ridge 0.1, 7.7e-4 at 1e-3, 0.2 at 1e-6; band-pass slope 1.05, 6.1, 493).
+No ridge reproduces the map: the best band-pass correlation is 0.88, at a ridge of 0.1.</li>
+<li><b>Mask mismatch:</b> <code>get_response_matrix</code> probes the unmasked real space map, while the rhs and PCG are masked, so G differs from the operator in use (|Ax&minus;Gx|/|Gx| = 1.6e-3 here, 2.9e-15 for a masked probe).
+As a preconditioner this only slows convergence (residual 2.5e-5 vs 7e-6 after 40 iterations); as a direct solve it is a smaller effect than the block approximation. It should still be fixed.</li>
+<li>The 50 step PCG map is not converged (band-pass slope 0.85); a plain 300 step PCG of the same problem diverged (rms 100&times; larger), not investigated.</li>
+</ul>
 <h2>Tests</h2>
 <p><code>tests/test_needlet.py</code>: band transforms vs full transforms, exact ANA vs brute force, probing accuracy, map response, solve round trip, colouring.</p>
+<h3>Ablation: block solve only, with the MPI fix</h3>
+<p>Same 40 TODs, 16 ranks, mask 20, cached masked response, <code>--direct</code> without <code>--cg</code> (output <code>needlets/blk40</code>). Brightest source, 3 px mean: block solve 1.76e-3, CG 1.89e-3 (93%). Pixel rms in the hits&ge;20 pixels: 2.4e-4 (block) and 3.9e-4 (CG). Band-pass rms (Gaussian 2 px minus 10 px): 7.4e-5 and 5.7e-5; (20 minus 60 px): 1.85e-5 and 1.61e-5. Correlation of the two maps: 0.60 in the first band-pass, 0.32 in the second. So the reduce bug explains the ~15x source suppression; the shift damping is not the dominant effect on the source amplitude. The block solve still differs from CG in the extended structure.</p>
+<h3>Which solver to use</h3>
+<table border="1" cellpadding="4"><tr><th>Option</th><th>What it does</th><th>Cost (40 TODs, 16 ranks)</th><th>Verdict</th></tr>
+<tr><td><code>--direct --cg N</code></td><td>CG on the full M2+ACT operator, block solve as preconditioner</td><td>response 15 min (cached), factorization 8 min, 40 its 8 min</td><td><b>Recommended.</b> Solves the real equation; reproduces PCG on the 4-rank control.</td></tr>
+<tr><td><code>--direct</code> (block solve only)</td><td>ANA<sup>-1</sup>&middot;rhs per band, no band coupling</td><td>about 9 min on cached response</td><td>Quick look at compact sources (93% of CG peak); wrong extended structure (corr 0.3&ndash;0.6).</td></tr>
+<tr><td><code>--min-hits 0</code></td><td>No hits mask</td><td>as above</td><td>Same rms as masked on the common pixels; use 20 as in the PCG examples for a fair comparison.</td></tr>
+<tr><td>PCG examples</td><td>minkasi_mpi_example, minkasi_mask_example</td><td>minutes</td><td>Reference. Plain PCG has the large-scale gradient; mask=20 is the better reference.</td></tr></table>
+<h3>Is the CG stagnation a problem? Convergence per scale</h3>
+<p>The relative residual of the 40 TOD CG solve flattens at 3&ndash;4e-4 (2.8e-4 after 80 iterations). Checks, all on the 40 TOD, mask 20 problem:</p>
+<ul>
+<li>Symmetry (<code>twores_ex.py --cg --symcheck</code>, random wavelet vectors): M2, ACT and M2+ACT are symmetric to ~1e-18; the block preconditioner to 4e-11 and positive definite. So neither is the cause.</li>
+<li>Consistent right hand side (<code>--consistent 20</code>: rhs replaced by A&middot;x): the residual keeps falling, to ~5e-5 after 40 iterations against 4e-4 for the real rhs. The real rhs has a component outside the range of the operator that no iterate removes; it does not change the solution. The consistent rhs is smoother than the real one, so the gap is somewhat overstated.</li>
+<li>Per scale convergence (<code>--cg 80 --cg-save ...</code>, <code>cg_convergence.py</code>): the map still changes, but mostly at large scales.</li></ul>
+<table border="1" cellpadding="4"><tr><th>band sigma (px, 3&Prime;)</th><th>0.01&ndash;1</th><th>1&ndash;2</th><th>2&ndash;4</th><th>4&ndash;8</th><th>8&ndash;16</th><th>16&ndash;32</th><th>32&ndash;64</th></tr>
+<tr><td>rms change 20&rarr;40 / rms(iter 80)</td><td>0.04</td><td>0.06</td><td>0.12</td><td>0.27</td><td>0.44</td><td>0.62</td><td>0.81</td></tr>
+<tr><td>rms change 40&rarr;80 / rms(iter 80)</td><td>0.02</td><td>0.03</td><td>0.07</td><td>0.15</td><td>0.23</td><td>0.33</td><td>0.49</td></tr></table>
+<p><img src="figs/cg_convergence.png" style="max-width:60%" alt="CG convergence per scale"></p>
+<p>Below ~12&Prime; the map is converged to under 8%; at 1&prime; and above it still changes by 33&ndash;49% between iterations 40 and 80 (an underestimate of the distance to the converged map, as iteration 80 is not converged either). The residual norm barely sees this. Large scales converging slowly is expected for CG; that ACT does not speed them up more is not understood.</p>
 </body></html>
