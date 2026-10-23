@@ -1,4 +1,6 @@
 import itertools
+import json
+import os
 import sys
 import time
 from functools import reduce
@@ -17,7 +19,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 from scipy.interpolate import interp1d
 from scipy.linalg import norm
-from scipy.sparse.linalg import ArpackNoConvergence, cg, eigsh, splu
+from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, cg, eigsh, splu
 
 from ..mapmaking.map2tod import map2tod
 from ..mapmaking.tod2map import (
@@ -26,6 +28,7 @@ from ..mapmaking.tod2map import (
 )
 from ..maps.mapset import Mapset
 from ..maps.skymap import SkyMap
+from ..parallel import MPI, comm, have_mpi, myrank, nproc
 from ..tods import Tod, TodVec
 from ..tools.py_fft import irfftn, rfftn
 
@@ -36,6 +39,9 @@ else:
 
 
 # TODO: This function should probably go elsewhere
+MAX_DIRECT = 20000  # largest lattice factorized directly by block_solver
+
+
 def factors(n):
     return np.array(
         sorted(
@@ -65,6 +71,30 @@ def highly_composite_size(n, slack=0.15):
     """
     cands = [m for m in range(int(n), int(np.ceil(n * (1 + slack))) + 1) if m % 2 == 0]
     return max(cands, key=lambda m: (len(factors(m)), -m))
+
+
+def cached_min_eigenvalue(G, key: str, store: dict) -> float:
+    """
+    min_eigenvalue of G, looked up in `store` under `key` unless G changed since it was stored.
+
+    Parameters
+    ----------
+    G : scipy.sparse matrix
+        Symmetric matrix.
+    key : str
+        Name of the matrix in the store, e.g. its band.
+    store : dict
+        Maps key to (fingerprint of G, smallest eigenvalue). Updated in place when computed.
+
+    Returns
+    -------
+    float
+        (Estimate of) the smallest eigenvalue.
+    """
+    fingerprint = f"{G.shape[0]}:{G.nnz}:{G.data.sum():.12e}"
+    if key not in store or store[key][0] != fingerprint:
+        store[key] = (fingerprint, float(min_eigenvalue(G)))
+    return store[key][1]
 
 
 def min_eigenvalue(G, dense_below=2500):
@@ -1258,10 +1288,18 @@ class WavSkyMap(SkyMap):
             )
         return to_ret
 
-    def block_solver(self, responses, ridge=1e-3, inner=None):
+    def block_solver(
+        self, responses, ridge=1e-3, inner=None, lmin_cache=None, distribute=True
+    ):
         """
         Factorize the diagonal (same filter) blocks of the wavelet space precision matrix once
         and return a function that applies their approximate inverse, see solve_bands.
+
+        With MPI the work is shared between the ranks, which must all call this and the returned
+        function together: every band of at most MAX_DIRECT (20000) lattice points is factorized and solved by
+        one rank (the largest first, on the least loaded rank), and the rows of the larger bands
+        are split over all ranks, which run the same Jacobi CG in lockstep. The result is the same
+        on every rank and equal to the serial one up to rounding.
 
         Parameters
         ----------
@@ -1270,33 +1308,73 @@ class WavSkyMap(SkyMap):
         ridge : float, default: 1e-3
             Diagonal regularization relative to the mean diagonal of G, see solve_bands.
         inner : int | None, default: None
-            Lattices of more than 20000 points are solved by Jacobi preconditioned CG. If None
+            Lattices of more than MAX_DIRECT (20000) points are solved by Jacobi preconditioned CG. If None
             it runs to convergence, else for exactly this many iterations, which makes the
             result a fixed symmetric linear operator that can serve as a CG preconditioner.
+        lmin_cache : str | None, default: None
+            JSON file holding the smallest eigenvalue of each summed G_i, which takes minutes for
+            the large bands. Entries are used only if G_i is unchanged (size, nonzeros and sum of
+            entries), and new ones are written by MPI rank 0.
+        distribute : bool, default: True
+            Share the work between the MPI ranks. False makes every rank do everything.
 
         Returns
         -------
         solve : Callable[[NDArray[np.floating]], NDArray[np.floating]]
             Maps a wavelet space rhs of shape (nfilt, nx, ny) to the wavelet map F_i Z c_i.
         """
+        size, rank = (nproc, myrank) if distribute and have_mpi else (1, 0)
+        gather = comm.allgather if size > 1 else (lambda x: [x])
+        mats = {
+            i: [r[i] for r in responses if r[i] is not None]
+            for i in range(self.needlet.nfilt)
+        }
+        mats = {i: m for i, m in mats.items() if m}
+        small = sorted(
+            (i for i, m in mats.items() if m[0].shape[0] <= MAX_DIRECT),
+            key=lambda i: -mats[i][0].shape[0],
+        )
+        owner, load = {}, np.zeros(size)
+        for i in small:  # factorization cost grows with the lattice size
+            owner[i] = int(np.argmin(load))
+            load[owner[i]] += mats[i][0].shape[0]
+        store = {}
+        if lmin_cache and os.path.exists(lmin_cache):
+            with open(lmin_cache) as f:
+                store = json.load(f)
         solvers = {}
-        for i in range(self.needlet.nfilt):
-            mats = [r[i] for r in responses if r[i] is not None]
-            if not mats:
+        for i, m in mats.items():
+            if i in owner and owner[i] != rank:
                 continue
-            G = reduce(lambda a, b: a + b, mats).tocsc()
-            lmin = min_eigenvalue(G)
+            G = reduce(lambda a, b: a + b, m).tocsr()
+            lmin = cached_min_eigenvalue(G, str(i), store)
             shift = ridge * G.diagonal().mean() + max(
                 0, -1.1 * lmin
             )  # truncation can make G indefinite
-            G = G + shift * sparse.identity(G.shape[0], format="csc")
-            if G.shape[0] <= 20000:
-                solvers[i] = splu(G).solve
-            else:  # direct solves fill in too much for large lattices
-                dinv = sparse.diags(1 / G.diagonal())
-                solvers[i] = lambda b, G=G, dinv=dinv, i=i: self._jacobi_cg(
-                    G, b, dinv, i, inner
+            G = G + shift * sparse.identity(G.shape[0], format="csr")
+            if i in owner:
+                solvers[i] = splu(G.tocsc()).solve
+                continue
+            # direct solves fill in too much for large lattices: Jacobi CG, rows split over ranks
+            dinv = sparse.diags(1 / G.diagonal())
+            if size > 1:
+                edges = np.linspace(0, G.shape[0], size + 1).astype(int)
+                local = G[edges[rank] : edges[rank + 1]]
+                G = LinearOperator(
+                    G.shape,
+                    lambda x, local=local: np.concatenate(gather(local @ x.ravel())),
+                    dtype=local.dtype,
                 )
+            solvers[i] = lambda b, G=G, dinv=dinv, i=i: self._jacobi_cg(
+                G, b, dinv, i, inner
+            )
+
+        if size > 1:
+            for part in gather(store):
+                store.update(part)
+        if lmin_cache and myrank == 0:
+            with open(lmin_cache, "w") as f:
+                json.dump(store, f)
 
         def solve(rhs):
             wmap = np.zeros((self.needlet.nfilt, self.nx, self.ny))
@@ -1307,6 +1385,10 @@ class WavSkyMap(SkyMap):
                 coeffs = np.zeros((self.nx, self.ny))
                 coeffs[np.ix_(xs, ys)] = solver(b).reshape(len(xs), len(ys))
                 wmap[i] = band2map(coeffs, filt)
+            if size > 1 and small:  # each of these bands was solved by its owner only
+                part = np.ascontiguousarray(wmap[small])
+                comm.Allreduce(MPI.IN_PLACE, part)
+                wmap[small] = part
             return wmap
 
         return solve

@@ -1,8 +1,17 @@
-import minkasi.minkasi_all as minkasi
+import json
+import os
+import shutil
+import subprocess
+import sys
+
 import numpy as np
 import pytest
+from scipy import sparse
+
+import minkasi.minkasi_all as minkasi
 from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
+from minkasi.needlet import needlet
 from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
@@ -14,7 +23,6 @@ from minkasi.needlet.needlet import (
     map2wav_real,
     wav2map_real,
 )
-from scipy import sparse
 
 PIXSIZE = 30.0 / 3600 * np.pi / 180  # radians
 
@@ -210,3 +218,31 @@ def test_mpi_reduce_chunks_whole_wavelet_map(monkeypatch):
     smap.map = np.ones((3, *smap.map.shape[-2:]))
     smap.mpi_reduce(chunksize=smap.map.shape[-1] * smap.map.shape[-2] / 2)
     assert np.all(smap.map == 2)
+
+
+def test_cached_min_eigenvalue(monkeypatch):
+    """The smallest eigenvalue is computed once per matrix and again only if the matrix changes."""
+    calls = []
+    real = needlet.min_eigenvalue
+    monkeypatch.setattr(needlet, "min_eigenvalue", lambda G: calls.append(1) or real(G))
+    G = sparse.diags([1.0, 2.0, 3.0]).tocsr()
+    store = {}
+    first = needlet.cached_min_eigenvalue(G, "0", store)
+    assert needlet.cached_min_eigenvalue(G, "0", json.loads(json.dumps(store))) == first
+    assert len(calls) == 1
+    assert needlet.cached_min_eigenvalue(2 * G, "0", store) == pytest.approx(2 * first)
+    assert len(calls) == 2
+
+
+@pytest.mark.skipif(shutil.which("mpirun") is None, reason="needs mpirun")
+def test_block_solver_shared_over_mpi_ranks_matches_serial():
+    """block_solver with its work split over 3 MPI ranks must equal the serial solve."""
+    script = os.path.join(os.path.dirname(__file__), "check_block_solver_mpi.py")
+    run = subprocess.run(
+        ["mpirun", "-n", "3", "--bind-to", "none", sys.executable, script, "--debug"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "OMP_NUM_THREADS": "1"},
+    )
+    assert run.returncode == 0, run.stdout + run.stderr

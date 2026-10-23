@@ -296,14 +296,14 @@ def symmetry_check(m2_dot, act_dot, like, solve=None):
         err = abs(a - b) / (np.linalg.norm(y.maps[0].map) * np.linalg.norm(ax))
         if minkasi.myrank == 0:
             print(f"{name}: <y,Ax> = {a:.6e}, <Ay,x> = {b:.6e}, asymmetry {err:.2e}")
-    if solve is not None and minkasi.myrank == 0:
+    if solve is not None:
         xs = [x.maps[0].map, y.maps[0].map] + [
             rng.normal(size=x.maps[0].map.shape) for _ in range(3)
         ]
-        print(
-            "<x,Px> / |x|^2:",
-            [f"{np.sum(v * solve(v)) / np.sum(v * v):.2e}" for v in xs],
-        )
+        # solve is collective over the MPI ranks, so every rank calls it
+        vals = [f"{np.sum(v * solve(v)) / np.sum(v * v):.2e}" for v in xs]
+        if minkasi.myrank == 0:
+            print("<x,Px> / |x|^2:", vals)
 
 
 def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None):
@@ -527,8 +527,12 @@ def main(args):
                 y.maps[0].map += act_dot(x)
             return y
 
-        solve = wmap.block_solver(responses, inner=args.inner)
+        solve = wmap.block_solver(
+            responses, inner=args.inner, lmin_cache=cache + "_lmin.json"
+        )
         print(f"factorized the block preconditioner in {time.time() - t0:.1f} s")
+        for resp in responses:  # the solver holds what it needs, free the rest
+            resp[:] = None
         if args.symcheck:
             symmetry_check(todvec.dot, act_dot if paths else None, rhs, solve)
             return
