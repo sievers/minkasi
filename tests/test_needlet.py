@@ -193,3 +193,20 @@ def test_color_groups_tile_and_separate(n, width):
     for g in groups:
         gaps = np.diff(np.concatenate([g, [g[0] + n]]))
         assert len(g) == 1 or gaps.min() >= width
+
+
+def test_mpi_reduce_chunks_whole_wavelet_map(monkeypatch):
+    """The chunked MPI reduction must cover all bands of a (nfilt, nx, ny) map, not only nx * ny."""
+    import minkasi.maps.skymap as skymap
+
+    class FakeComm:
+        def allreduce(self, x):
+            return 2 * x
+
+    monkeypatch.setattr(skymap, "have_mpi", True)
+    monkeypatch.setattr(skymap, "comm", FakeComm(), raising=False)
+    lims = [0.0, 0.01, 0.0, 0.01]
+    smap = SkyMap(lims, 30.0 / 3600 * np.pi / 180, square=True, multiple=2)
+    smap.map = np.ones((3, *smap.map.shape[-2:]))
+    smap.mpi_reduce(chunksize=smap.map.shape[-1] * smap.map.shape[-2] / 2)
+    assert np.all(smap.map == 2)

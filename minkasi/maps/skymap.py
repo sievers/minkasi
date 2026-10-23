@@ -147,7 +147,7 @@ class SkyMap:
 
         self.lims = lims
         self.nx, self.ny = self.get_npix(pad, nx=nx, ny=ny)
-        
+
         self.primes: Optional[List[int]]
 
         if primes is None:
@@ -176,25 +176,35 @@ class SkyMap:
         if multiple:
             assert type(multiple) == int
 
-            xmax = 2*np.ceil(self.nx / multiple)
+            xmax = 2 * np.ceil(self.nx / multiple)
             xdiff = self.lims[1] - self.lims[0]
-            self.lims[0] = self.lims[1] - xdiff * xmax/self.nx #Make nx a factor of 2
+            self.lims[0] = (
+                self.lims[1] - xdiff * xmax / self.nx
+            )  # Make nx a factor of 2
 
-            ymax = 2*np.ceil(self.ny / multiple)
+            ymax = 2 * np.ceil(self.ny / multiple)
             ydiff = self.lims[3] - self.lims[2]
-            self.lims[3] = self.lims[2] + ydiff * ymax/self.ny
-            
-            self.nx, self.ny = self.get_npix(pad) #This may be applying pad a bunch of times
-            
-        if square:
-            while self.nx != self.ny: #TODO: Fix this bug where it doesn't square right sometimes. This is a one time inefficency and it doesn't take much time anyway but could conceivably run forever.
-                nmax = max(self.nx, self.ny)
-                
-                ratio_x = nmax/self.nx
-                ratio_y = nmax/self.ny
+            self.lims[3] = self.lims[2] + ydiff * ymax / self.ny
 
-                self.lims[0] = self.lims[1] - ratio_x*(self.lims[1] - self.lims[0]) #note we are adjusting lims in place here
-                self.lims[3] = self.lims[2] + ratio_y*(self.lims[3] - self.lims[2]) #Resize x and y lims by ratio of nx/ny to nmax
+            self.nx, self.ny = self.get_npix(
+                pad
+            )  # This may be applying pad a bunch of times
+
+        if square:
+            while (
+                self.nx != self.ny
+            ):  # TODO: Fix this bug where it doesn't square right sometimes. This is a one time inefficency and it doesn't take much time anyway but could conceivably run forever.
+                nmax = max(self.nx, self.ny)
+
+                ratio_x = nmax / self.nx
+                ratio_y = nmax / self.ny
+
+                self.lims[0] = self.lims[1] - ratio_x * (
+                    self.lims[1] - self.lims[0]
+                )  # note we are adjusting lims in place here
+                self.lims[3] = self.lims[2] + ratio_y * (
+                    self.lims[3] - self.lims[2]
+                )  # Resize x and y lims by ratio of nx/ny to nmax
 
                 self.nx, self.ny = self.get_npix(pad)
 
@@ -760,16 +770,16 @@ class SkyMap:
         # chunksize is added since at least on my laptop mpi4py barfs if it
         # tries to reduce an nside=512 healpix map, so need to break it into pieces.
         if have_mpi:
+            # use the size of the array, not nx * ny: maps such as the wavelet map have more entries
             if chunksize > 0:
-                nchunk = (1.0 * self.nx * self.ny) / chunksize
-                nchunk = int(np.ceil(nchunk))
+                nchunk = int(np.ceil(self.map.size / chunksize))
             else:
                 nchunk = 1
-            if nchunk == 1:
+            if nchunk <= 1:
                 self.map = comm.allreduce(self.map)
             else:
                 inds = np.asarray(
-                    np.linspace(0, self.nx * self.ny, nchunk + 1), dtype="int"
+                    np.linspace(0, self.map.size, nchunk + 1), dtype="int"
                 )
                 if len(self.map.shape) > 1:
                     tmp = np.zeros(self.map.size)
