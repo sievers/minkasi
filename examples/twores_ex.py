@@ -15,6 +15,7 @@ import minkasi.minkasi_all as minkasi
 import numpy as np
 from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
+from minkasi.needlet.cmb import cmb_fourier_weight, lensed_cmb_cl
 from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
@@ -467,10 +468,14 @@ def main(args):
             wmap.real_map.write(args.outroot + "_act.fits")
         # The filters are periodic but the ACT map is not: taper the weights at the edges
         taper = edge_taper(ivar.shape, args.taper)
-        ivar, wdata = (
-            ivar * taper * args.act_ivar_scale,
-            wdata * taper * args.act_ivar_scale,
-        )
+        ivar_pix = np.median(
+            ivar[ivar > 0]
+        )  # of one ACT pixel, before the weights below
+        # ivar is that of an ACT pixel but is repeated on its ACT_OSAMP**2 fine pixels, which the
+        # sum over fine pixels would count that many times: weight every fine pixel by 1/ACT_OSAMP**2
+        norm = taper * args.act_ivar_scale / ACT_OSAMP**2
+        ivar, wdata = ivar * norm, wdata * norm
+        act_map = np.divide(wdata, ivar, out=np.zeros_like(wdata), where=ivar > 0)
         # ACT sees the sky through its beam and the PCG model is already removed from the M2
         # TODs, so ACT enters through its residual with respect to the beam smoothed PCG map.
         beam_ft = gaussian_beam_ft(ivar.shape, args.act_beam * 60 / args.pixsize)
@@ -486,18 +491,47 @@ def main(args):
         transfer = wmap.band_transfer(fwhm_pix)
         act_bands = [i for i in kw_bands if transfer[i] >= args.act_min_transfer]
         print("ACT used in bands", act_bands, "beam transfer", transfer.round(3))
-        resid = wdata if args.direct else wdata - ivar * forward(pcg_map)
-        act_rhs = map2wav_real(adjoint(resid), wmap.needlet.filters)[0]
+        # The CMB is noise for M2 but not white: weight the Fourier modes by N_l / (N_l + C_l B_l^2)
+        # (--act-cmb), on top of the white pixel noise: precision = diag(s) W diag(s), s = sqrt(ivar)
+        sqrt_ivar = np.sqrt(ivar)
+        smooth = lambda y: y
+        if args.act_cmb > 0:
+            pix = args.pixsize / 3600 * np.pi / 180
+            cl = lensed_cmb_cl(cache=os.path.join(args.cache, "cmb_cl.npy")) * conv**2
+            weight = cmb_fourier_weight(
+                ivar.shape,
+                pix,
+                cl,
+                args.act_beam / 60 * np.pi / 180,
+                ivar_pix,
+                (ACT_OSAMP * pix) ** 2,
+                args.act_cmb,
+            )
+            beam_w = np.sqrt(weight)
+            smooth = lambda y: apply_beam(y, beam_w)
+
+        def forward_w(m):  # the whitened forward operator
+            return smooth(sqrt_ivar * forward(m))
+
+        def adjoint_w(y):
+            return adjoint(sqrt_ivar * smooth(y))
+
+        resid = act_map if args.direct else act_map - forward(pcg_map)
+        act_rhs = map2wav_real(
+            adjoint_w(smooth(sqrt_ivar * resid)), wmap.needlet.filters
+        )[0]
         act_rhs[[i for i in range(need.nfilt) if i not in act_bands]] = 0
         print(f"reading ACT took {time.time() - t1:.1f} s")
         responses.append(
             cached(
                 f"{cache}_act_t{args.taper}_c{conv:.3g}_b{args.act_beam}_pw_tr{args.act_min_transfer}"
-                + (f"_s{args.act_ivar_scale:g}" if args.act_ivar_scale != 1 else ""),
+                + f"_n{ACT_OSAMP}"
+                + (f"_s{args.act_ivar_scale:g}" if args.act_ivar_scale != 1 else "")
+                + (f"_cmb{args.act_cmb:g}" if args.act_cmb > 0 else ""),
                 lambda b: wmap.get_response_matrix_map(
-                    ivar,
-                    forward=forward,
-                    adjoint=adjoint,
+                    np.ones(ivar.shape),
+                    forward=forward_w,
+                    adjoint=adjoint_w,
                     nfilts=b,
                     radius=kw["radius"],
                     exact_below=args.exact_below,
@@ -519,9 +553,7 @@ def main(args):
             """ACT term of the operator, on its bands only."""
             xa = x.maps[0].map.copy()
             xa[off] = 0
-            ya = map2wav_real(adjoint(ivar * forward(wav2map_real(xa, filt)[0])), filt)[
-                0
-            ]
+            ya = map2wav_real(adjoint_w(forward_w(wav2map_real(xa, filt)[0])), filt)[0]
             ya[off] = 0
             return ya
 
@@ -621,6 +653,13 @@ if __name__ == "__main__":
         type=float,
         default=1.0,
         help="Factor on the ACT inverse variance (and its rhs), to test the weight of ACT against M2",
+    )
+    parser.add_argument(
+        "--act-cmb",
+        type=float,
+        default=0.0,
+        help="Count this multiple of the lensed CMB power (CAMB) as noise in the ACT map on top of "
+        "its white noise; 0 keeps the white noise model",
     )
     parser.add_argument(
         "--act-beam", type=float, default=2.1, help="ACT beam FWHM in arcmin"
