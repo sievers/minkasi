@@ -53,7 +53,7 @@
 
 <h3>All TODs</h3>
 <p>All 138 <code>Signal_*</code> files of MOOJ1142 (no blacklist preset exists for it), direct solve, <code>--min-hits 20</code>, 16 MPI ranks on one node (the data are on that node's disk; 16 ranks keep the replicated response matrices within memory), default accuracy (band 5 exact). The map is 480&times;480 at 3&Prime;. The M2 response took 1226 s, ACT 13 s, the solve 220&ndash;320 s (replicated on every rank), about 31 min wall in total, with no CG convergence warnings. Inside the footprint (hits &ge; 20) the pixel rms is 5.1&times;10<sup>-5</sup> Jy/beam (3.0&times;10<sup>-5</sup> smoothed by 6 px) and, smoothed to the ACT beam, the map correlates with ACT at 0.98. The cold spot is clear at the centre in both the M2 map and the ACT beam panel. Plotted with <code>examples/plot_final_aplpy.py</code> (aplpy; the left panel shows only pixels with at least 20 hits, the middle panel fills the rest with ACT).</p>
-<img src="figs/final_direct_all.png" alt="direct solve, all TODs">
+<p><b>Superseded:</b> this figure was removed because it was made before the MPI reduction fix and is wrong. See "Full sample (106 TODs) after the fixes" at the end.</p>
 
 <h2>Comparison with the standard PCG examples</h2>
 <p>The all-TOD direct needlet map (50 PCG steps for the noise model, then the direct solve) against
@@ -62,9 +62,9 @@ both run with the MOOJ1142 blacklist, 106 TODs, 3&Prime; pixels and <code>--npas
 The maps are reprojected to the needlet grid and only the pixels good in all three are shown. Note the needlet map
 was made from all 138 TODs, before the blacklist was added to <code>twores_ex.py</code> (<code>read_tods(..., name)</code>).
 The cache of the M2 response is keyed only by source name, so use a new <code>--cache</code> directory when the TOD set changes.</p>
-<img src="figs/compare_methods.gif" alt="needlet vs PCG examples, shared colour scale" style="max-width:100%">
+<p><b>Superseded:</b> this figure was removed because it was made before the MPI reduction fix and is wrong. See "Full sample (106 TODs) after the fixes" at the end.</p>
 <p>Shared colour scale (dominated by the large-scale gradient left in the plain PCG map). Same frames with the scale of the needlet map:</p>
-<img src="figs/compare_methods_needscale.gif" alt="needlet vs PCG examples, needlet colour scale" style="max-width:100%">
+
 <h2>Correction: MPI reduction bug, and the CG solve on 40 TODs</h2>
 <p><b>The amplitude difference below was mostly a bug.</b> <code>SkyMap.mpi_reduce</code> chunked by <code>nx*ny</code>, so for maps above 1e5 pixels only band 0 of a
 wavelet map (shape <code>(nfilt, nx, ny)</code>) was summed over MPI ranks; the other bands of the rhs and of A x stayed rank-local. All 16-rank wavelet runs
@@ -132,4 +132,15 @@ As a preconditioner this only slows convergence (residual 2.5e-5 vs 7e-6 after 4
 <tr><td>rms change 40&rarr;80 / rms(iter 80)</td><td>0.02</td><td>0.03</td><td>0.07</td><td>0.15</td><td>0.23</td><td>0.33</td><td>0.49</td></tr></table>
 <p><img src="figs/cg_convergence.png" style="max-width:60%" alt="CG convergence per scale"></p>
 <p>Below ~12&Prime; the map is converged to under 8%; at 1&prime; and above it still changes by 33&ndash;49% between iterations 40 and 80 (an underestimate of the distance to the converged map, as iteration 80 is not converged either). The residual norm barely sees this. Large scales converging slowly is expected for CG; that ACT does not speed them up more is not understood.</p>
+<h2>Full sample (106 TODs) after the fixes</h2>
+<p>All 106 non-blacklisted MOOJ1142 TODs, 16 ranks (7 per rank), <code>--direct --cg 80</code>, mask 20, 3&Prime; pixels, output <code>needlets/all106</code>; PCG references with 50 steps, no noise passes (<code>ref106</code>). The M2 response took about 23 min (the ACT response cache of a first attempt was copied from the 40 TOD run, whose grid differs, and crashed the solver when added: caches are only valid for the TOD set they were made with). With the shared preconditioner the factorization took 137 s and the 80 iterations 501 s in total. Relative residual: 1.7e-2 (1 iteration), 1.3e-3 (10), 9.5e-4 (40), 9.3e-4 (80).</p>
+<p><img src="figs/compare106.png" alt="106 TOD comparison"><br>Needlet CG, plain PCG and mask=20 PCG on the 49221 common pixels. Pixel rms 3.4e-4, 7.3e-4 and 2.0e-4 Jy/beam. Blink versions: <a href="figs/compare106.gif">shared scale</a>, <a href="figs/compare106_needscale.gif">needlet scale</a>.</p>
+<p><img src="figs/final_cg106.png" alt="final map, 106 TODs"></p>
+<p><img src="figs/cg_convergence106.png" alt="convergence per scale" style="max-width:60%"><br>Change of the map between iterations 40 and 80, relative to the iteration 80 map: 0.01 at the smallest scales, 0.06 at 4&ndash;8 px, 0.13 at 8&ndash;16, 0.24 at 16&ndash;32 and 0.28 at 32&ndash;64 px. The large scales are still converging, as in the 40 TOD run.</p>
+<h2>Sensitivity to the ACT weight</h2>
+<p>ACT enters the solve through the diagonal, white inverse variance <code>ivar</code> in bands 0&ndash;3 (beam transfer &ge; 0.05), everywhere on the map. That noise model ignores the CMB, which is correlated noise for the cluster signal, so the weight of ACT against M2 may be too high. Test (<code>--act-ivar-scale</code>, which multiplies the ACT inverse variance and its rhs): the 40 TOD CG run with the ACT weight reduced by 10 and 100 (<code>needlets/actscale</code>), against the unscaled run (<code>cg40</code>). Relative residual after 40 iterations: 4.0e-4 (1), 4.3e-4 (0.1), 1.8e-3 (0.01).</p>
+<table border="1" cellpadding="4"><tr><th>band sigma (px, 3&Prime;)</th><th>0.01&ndash;1</th><th>1&ndash;2</th><th>2&ndash;4</th><th>4&ndash;8</th><th>8&ndash;16</th><th>16&ndash;32</th><th>32&ndash;64</th></tr>
+<tr><td>rms(map<sub>0.1</sub> &minus; map<sub>1</sub>) / rms(map<sub>1</sub>)</td><td>0.02</td><td>0.02</td><td>0.06</td><td>0.10</td><td>0.18</td><td>0.28</td><td>0.41</td></tr>
+<tr><td>rms(map<sub>0.01</sub> &minus; map<sub>1</sub>) / rms(map<sub>1</sub>)</td><td>0.02</td><td>0.03</td><td>0.07</td><td>0.14</td><td>0.20</td><td>0.30</td><td>0.44</td></tr></table>
+<p>The central decrement (minimum of the map smoothed by 4 px within 3&prime; of the centre) is &minus;3.23e-4, &minus;3.22e-4 and &minus;3.31e-4 Jy/beam, i.e. it changes by 2% for a factor 100 in the ACT weight; the brightest compact source changes by 2% as well. Scales below ~12&Prime; change by under 7%. At 1&prime; and above the map changes by 28&ndash;44%, but this is confounded: these are the scales still converging (the iteration 40 to 80 change was 15&ndash;49% in the same bands), and with less ACT weight the large scales are barely constrained at all. The change is almost the same for 0.1 and 0.01, so the weight matters little once ACT is down by a factor 10. Not tested: replacing the white ivar by a Fourier space weight 1/(&sigma;<sup>2</sup> + C<sub>CMB</sub>(k)) (C<sub>CMB</sub> from CAMB, see <code>minkasi_jax/witch/noise.py</code>).</p>
 </body></html>
