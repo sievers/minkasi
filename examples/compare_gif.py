@@ -57,11 +57,11 @@ def main(args: argparse.Namespace):
     for key, thresh in (("mpi", 0), ("mask", args.min_hits - 1)):
         maps[key] = regrid(getattr(args, key), need, "bilinear")
         good &= regrid(getattr(args, f"{key}_hits"), need, "nearest-neighbor") > thresh
-    if args.nomask:  # same grid as the needlet map
-        maps["nomask"] = load(args.nomask)[0]
+    if args.extra:  # same grid as the needlet map
+        maps["extra"] = load(args.extra)[0]
     good &= np.all([np.isfinite(m) for m in maps.values()], axis=0)
     titles = {
-        "nomask": "needlet, CG, no mask",
+        "extra": args.extra_label,
         "need": "needlet, CG on full operator",
         "mpi": "minkasi_mpi_example (no mask)",
         "mask": f"minkasi_mask_example (mask={args.min_hits:g})",
@@ -119,8 +119,11 @@ if __name__ == "__main__":
     parser.add_argument("--mask-hits", required=True, help="Hits map of --mask")
     parser.add_argument("--out", required=True, help="Output GIF")
     parser.add_argument(
-        "--nomask",
-        help="Final needlet map FITS made without a mask, same grid as --need",
+        "--extra-label", default="needlet, other", help="Title of --extra"
+    )
+    parser.add_argument(
+        "--extra",
+        help="Another final needlet map FITS to show, same grid as --need",
     )
     parser.add_argument("--png", help="Also save the three maps side by side here")
     parser.add_argument("--min-hits", type=float, default=20)
