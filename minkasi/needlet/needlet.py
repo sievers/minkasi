@@ -1346,6 +1346,11 @@ class WavSkyMap(SkyMap):
         for i, m in mats.items():
             if i in owner and owner[i] != rank:
                 continue
+            if len({g.shape for g in m}) > 1:
+                raise ValueError(
+                    f"band {i}: response matrices of different sizes {[g.shape for g in m]}, "
+                    "e.g. a stale cache from another map size"
+                )
             G = reduce(lambda a, b: a + b, m).tocsr()
             lmin = cached_min_eigenvalue(G, str(i), store)
             shift = ridge * G.diagonal().mean() + max(

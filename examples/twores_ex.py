@@ -467,7 +467,10 @@ def main(args):
             wmap.real_map.write(args.outroot + "_act.fits")
         # The filters are periodic but the ACT map is not: taper the weights at the edges
         taper = edge_taper(ivar.shape, args.taper)
-        ivar, wdata = ivar * taper, wdata * taper
+        ivar, wdata = (
+            ivar * taper * args.act_ivar_scale,
+            wdata * taper * args.act_ivar_scale,
+        )
         # ACT sees the sky through its beam and the PCG model is already removed from the M2
         # TODs, so ACT enters through its residual with respect to the beam smoothed PCG map.
         beam_ft = gaussian_beam_ft(ivar.shape, args.act_beam * 60 / args.pixsize)
@@ -489,7 +492,8 @@ def main(args):
         print(f"reading ACT took {time.time() - t1:.1f} s")
         responses.append(
             cached(
-                f"{cache}_act_t{args.taper}_c{conv:.3g}_b{args.act_beam}_pw_tr{args.act_min_transfer}",
+                f"{cache}_act_t{args.taper}_c{conv:.3g}_b{args.act_beam}_pw_tr{args.act_min_transfer}"
+                + (f"_s{args.act_ivar_scale:g}" if args.act_ivar_scale != 1 else ""),
                 lambda b: wmap.get_response_matrix_map(
                     ivar,
                     forward=forward,
@@ -611,6 +615,12 @@ if __name__ == "__main__":
         type=float,
         default=0.25,
         help="Map padding, fraction of data extent",
+    )
+    parser.add_argument(
+        "--act-ivar-scale",
+        type=float,
+        default=1.0,
+        help="Factor on the ACT inverse variance (and its rhs), to test the weight of ACT against M2",
     )
     parser.add_argument(
         "--act-beam", type=float, default=2.1, help="ACT beam FWHM in arcmin"
