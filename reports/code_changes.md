@@ -27,7 +27,7 @@ Files changed since the baseline: `minkasi/needlet/needlet.py` (about 1000 lines
 Added without a bug behind them: the CMB-aware ACT weight (`--act-cmb`, `minkasi/needlet/cmb.py`, `1abee2d`), the block
 preconditioner shared over MPI ranks and the cache of its smallest eigenvalues (`b9a17fa`), CG on the full operator with
 the block solve as preconditioner (`4f49262`), the hits mask in `WavSkyMap` (`79551db`), and the diagnostics
-`--resdiag`, `--act-only`, `--ridge` (`5009a1d`).
+`--resdiag`, `--act-only`, `--ridge` (`5009a1d`) and `--flexible` (Polak-Ribiere CG, added after it).
 
 ## Problem 3 in detail: the lattice of each band
 

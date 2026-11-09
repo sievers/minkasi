@@ -307,7 +307,7 @@ def symmetry_check(m2_dot, act_dot, like, solve=None):
             print("<x,Px> / |x|^2:", vals)
 
 
-def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None):
+def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None, flexible=False):
     """
     Preconditioned CG on a Mapset with callable operator and preconditioner.
 
@@ -327,6 +327,9 @@ def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None):
         Stop when |r| / |rhs| is below this.
     callback : Callable | None, default: None
         Called as callback(i, x, relres) after every iteration.
+    flexible : bool, default: False
+        Use the Polak-Ribiere form of beta, which tolerates a preconditioner that is not exactly a
+        fixed linear operator (e.g. one with inner CG iterations).
 
     Returns
     -------
@@ -341,11 +344,15 @@ def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None):
         Ap = apply(p)
         alpha = zr / p.dot(Ap)
         x.axpy(p, alpha)
+        r_old = r.copy() if flexible else None
         r.axpy(Ap, -alpha)
         z = precon(r)
         zr_new = r.dot(z)
+        beta = zr_new / zr
+        if flexible:  # beta = z_new . (r_new - r_old) / (z_old . r_old)
+            beta = (zr_new - z.dot(r_old)) / zr
         p_new = z.copy()
-        p_new.axpy(p, zr_new / zr)
+        p_new.axpy(p, beta)
         p, zr = p_new, zr_new
         relres = np.sqrt(r.dot(r)) / bnorm
         if callback:
@@ -657,7 +664,7 @@ def main(args):
             args.consistent
         ):  # a rhs in the range of the operator, to see if the real one is not
             b = apply(pcg(apply, b, x0, precon, args.consistent))
-        xsol = pcg(apply, b, x0, precon, args.cg, args.cg_tol, report)
+        xsol = pcg(apply, b, x0, precon, args.cg, args.cg_tol, report, args.flexible)
         wsol = xsol.maps[0].map
         if args.resdiag:
             residual_diagnostics(
@@ -741,6 +748,11 @@ if __name__ == "__main__":
         default=None,
         help="Choose each band's lattice from the support of its filter (window above this) so that "
         "it is not undersampled; default keeps the lattice of get_need_lims. The caches get a tag.",
+    )
+    parser.add_argument(
+        "--flexible",
+        action="store_true",
+        help="Flexible (Polak-Ribiere) CG, for a preconditioner with inner iterations",
     )
     parser.add_argument(
         "--act-only",
