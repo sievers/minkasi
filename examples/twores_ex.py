@@ -28,6 +28,8 @@ from minkasi.needlet.needlet import (
 )
 from pixell import enmap, utils
 from scipy import sparse
+from scipy.linalg import eigh_tridiagonal
+from scipy.ndimage import distance_transform_edt
 
 
 def save_response(prefix, resp):
@@ -307,7 +309,9 @@ def symmetry_check(m2_dot, act_dot, like, solve=None):
             print("<x,Px> / |x|^2:", vals)
 
 
-def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None, flexible=False):
+def pcg(
+    apply, rhs, x0, precon, niter, tol=0.0, callback=None, flexible=False, lanczos=None
+):
     """
     Preconditioned CG on a Mapset with callable operator and preconditioner.
 
@@ -330,6 +334,9 @@ def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None, flexible=False):
     flexible : bool, default: False
         Use the Polak-Ribiere form of beta, which tolerates a preconditioner that is not exactly a
         fixed linear operator (e.g. one with inner CG iterations).
+    lanczos : dict | None, default: None
+        If given, filled with the CG coefficients "alpha" and "beta" and the normalised preconditioned
+        residuals "q" (arrays of the map shape), from which ritz_analysis builds the Lanczos matrix.
 
     Returns
     -------
@@ -341,6 +348,9 @@ def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None, flexible=False):
     z = precon(r)
     p, zr = z.copy(), r.dot(z)
     for i in range(niter):
+        if lanczos is not None:
+            lanczos["q"].append(z.maps[0].map / np.sqrt(zr))
+            lanczos.setdefault("zr0", zr)
         Ap = apply(p)
         alpha = zr / p.dot(Ap)
         x.axpy(p, alpha)
@@ -354,12 +364,149 @@ def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None, flexible=False):
         p_new = z.copy()
         p_new.axpy(p, beta)
         p, zr = p_new, zr_new
+        if lanczos is not None:
+            lanczos["alpha"].append(alpha)
+            lanczos["beta"].append(beta)
         relres = np.sqrt(r.dot(r)) / bnorm
         if callback:
             callback(i, x, relres)
         if relres < tol:
             break
     return x
+
+
+def coefficient_support(
+    filt: np.ndarray, footprint: np.ndarray, tol: float
+) -> np.ndarray:
+    """
+    Wavelet coefficients whose needlet reaches the footprint: for each band, the radius beyond which
+    its real space kernel stays below tol times its peak, and the footprint dilated by that radius.
+
+    Parameters
+    ----------
+    filt : np.ndarray
+        Needlet filters, shape (nfilt, nx, ny), centred in Fourier space.
+    footprint : np.ndarray
+        Boolean map of the pixels the solution is wanted in.
+    tol : float
+        Relative kernel amplitude that defines its extent.
+
+    Returns
+    -------
+    keep : np.ndarray
+        Boolean array of shape (nfilt, nx, ny).
+    """
+    nx, ny = footprint.shape
+    dist = distance_transform_edt(~footprint)
+    yy, xx = np.meshgrid(
+        np.arange(nx) - nx // 2, np.arange(ny) - ny // 2, indexing="ij"
+    )
+    keep = np.empty(filt.shape, dtype=bool)
+    for i, f in enumerate(filt):
+        kern = np.abs(
+            np.fft.fftshift(
+                np.fft.irfft2(np.fft.fftshift(f)[:, : ny // 2 + 1], s=(nx, ny))
+            )
+        )
+        radius = np.hypot(xx, yy)[kern > tol * kern.max()].max()
+        keep[i] = dist <= radius
+    return keep
+
+
+def ritz_analysis(
+    lanczos: dict,
+    filt: np.ndarray,
+    mask: np.ndarray | float,
+    outroot: str,
+    x: np.ndarray | None = None,
+    nshow: int = 10,
+):
+    """
+    Ritz values and vectors of the preconditioned operator P A from a CG run started at zero. The CG
+    coefficients give the Lanczos tridiagonal matrix T = S diag(lambda) S^T of P^(1/2) A P^(1/2), and the
+    stored normalised preconditioned residuals q_k (sign (-1)^k) give the eigenvectors of P A as
+    u_j = sum_k S_kj q_k. The CG solution is then exactly x = sqrt(z_0 . r_0) sum_j S_0j / lambda_j u_j,
+    so every Ritz pair gets its contribution to the map inside the footprint. Prints the spectrum, the
+    smallest pairs and the pairs that contribute most inside the footprint, and saves
+    {outroot}_ritz.npz.
+
+    Parameters
+    ----------
+    lanczos : dict
+        "alpha", "beta", "q" and "zr0" as filled by pcg.
+    filt : np.ndarray
+        Needlet filters, shape (nfilt, nx, ny).
+    mask : np.ndarray | float
+        Hits mask in real space; nonzero is the footprint.
+    outroot : str
+        Output prefix.
+    x : np.ndarray | None, default: None
+        The CG solution (wavelet array), to check the decomposition.
+    nshow : int, default: 10
+        Number of pairs listed in each table.
+    """
+    a, b = np.array(lanczos["alpha"]), np.array(lanczos["beta"])
+    n = len(a)
+    diag = 1 / a
+    diag[1:] += b[:-1] / a[:-1]
+    lam, s = eigh_tridiagonal(diag, np.sqrt(b[:-1]) / a[:-1])
+    q = np.array(lanczos["q"])[:n] * ((-1.0) ** np.arange(n))[:, None, None, None]
+    u = np.tensordot(s.T, q, axes=1)  # eigenvectors of P A, wavelet arrays
+    coef = np.sqrt(lanczos["zr0"]) * s[0] / lam
+    nx, ny = filt.shape[1:]
+    foot = np.asarray(mask) + np.zeros((nx, ny)) > 0
+    kx = np.fft.fftshift(np.fft.fftfreq(nx)) * nx
+    ky = np.fft.fftshift(np.fft.fftfreq(ny)) * ny
+    kmag = np.hypot(*np.meshgrid(kx, ky, indexing="ij"))
+    maps = np.array([wav2map_real(v, filt)[0] for v in u])
+    infoot = (maps[:, foot] ** 2).sum(1) / np.maximum((maps**2).sum((1, 2)), 1e-300)
+    p2 = np.abs(np.fft.fftshift(np.fft.fft2(maps), axes=(1, 2))) ** 2
+    kbar = (p2 * kmag).sum((1, 2)) / p2.sum((1, 2))
+    contrib = np.abs(coef) * np.sqrt(
+        (maps[:, foot] ** 2).sum(1)
+    )  # |component| in footprint
+    xmap = np.tensordot(coef, maps, axes=1)
+    print(f"Ritz values of P A: min {lam[0]:.3e} max {lam[-1]:.3e} ({n})")
+    print(
+        "number below 1e-1, 1e-2, 1e-3, 1e-4:",
+        [int((lam < t).sum()) for t in (1e-1, 1e-2, 1e-3, 1e-4)],
+    )
+    if x is not None:
+        ref = wav2map_real(x, filt)[0]
+        err = np.linalg.norm((xmap - ref)[foot]) / np.linalg.norm(ref[foot])
+        print(
+            f"decomposition check: |sum - CG map| / |CG map| in footprint = {err:.1e}"
+        )
+    tot = np.linalg.norm(xmap[foot])
+    order = np.argsort(contrib)[::-1]
+    for title, idx in (
+        ("smallest", range(min(nshow, n))),
+        ("largest in footprint", order[:nshow]),
+    ):
+        print(
+            f"Ritz pairs, {title}: lambda, |part in footprint| / |map in footprint|, power in footprint, mean k"
+        )
+        for j in idx:
+            print(
+                f"  {lam[j]:.3e}  {contrib[j] / tot:.3f}  {infoot[j]:.2f}  {kbar[j]:.1f}"
+            )
+    for t in (1e-3, 1e-2, 1e-1):
+        sel = lam < t
+        part = np.linalg.norm(np.tensordot(coef[sel], maps[sel], axes=1)[foot]) / tot
+        print(
+            f"modes with lambda < {t:g}: {sel.sum()}, their part of the map in footprint {part:.3f}"
+        )
+    if minkasi.myrank == 0:
+        np.savez(
+            f"{outroot}_ritz.npz",
+            lam=lam,
+            coef=coef,
+            contrib=contrib / tot,
+            infoot=infoot,
+            kbar=kbar,
+            small=maps[: min(nshow, n)],
+            big=maps[order[:nshow]],
+        )
 
 
 def residual_diagnostics(apply, b, x, act_rhs, act_bands, outroot, filt, mask):
@@ -392,10 +539,16 @@ def residual_diagnostics(apply, b, x, act_rhs, act_bands, outroot, filt, mask):
     nrm = lambda a: np.sqrt((a**2).sum(axis=tuple(range(1, a.ndim))))
     print(f"true |r|/|b| = {np.sqrt(r.dot(r) / b.dot(b)):.2e}")
     print(
-        "band  |r_i|/|b|   |b_i|/|b|   |act rhs_i|/|b_i|   (act bands: %s)"
-        % list(act_bands)
+        f"band  |r_i|/|b|   |b_i|/|b|   |act rhs_i|/|b_i|   (act bands: {list(act_bands)})"
     )
     bn = np.sqrt(b.dot(b))
+    foot = np.asarray(mask) + np.zeros(rb.shape[1:]) > 0
+    rmap, bmap = wav2map_real(rb, filt)[0], wav2map_real(bb, filt)[0]
+    print(
+        "real space residual inside the footprint: |r| / |b| = "
+        f"{np.linalg.norm(rmap[foot]) / np.linalg.norm(bmap[foot]):.2e}"
+        f" (outside: {np.linalg.norm(rmap[~foot]) / np.linalg.norm(bmap[foot]):.2e})"
+    )
     for i, (ri, bi, ai) in enumerate(zip(nrm(rb), nrm(bb), nrm(ab))):
         print(f"{i:4d}  {ri / bn:.2e}   {bi / bn:.2e}   {ai / max(bi, 1e-300):.2e}")
     if minkasi.myrank == 0:
@@ -628,6 +781,49 @@ def main(args):
                 y.maps[0].map += act_dot(x)
             return y
 
+        if (
+            args.outside_prior is not None
+        ):  # weak prior pulling the map outside the footprint to zero
+            if args.act_only or args.min_hits <= 0:
+                raise SystemExit("--outside-prior needs the hits mask and the M2 term")
+            outside = 1.0 - (np.asarray(mask) > 0)
+            prior_resp = cached(
+                f"{cache}_outside",
+                lambda bands: wmap.get_response_matrix_map(
+                    outside.ravel(),
+                    nfilts=bands,
+                    radius=kw["radius"],
+                    exact_below=args.exact_below,
+                ),
+                args.redo,
+                need.nfilt,
+                kw_bands,
+            )
+            # weight relative to the M2 weight per pixel, from the finest band (one lattice point per pixel)
+            last = kw_bands[-1]
+            pts = np.ix_(wmap.nx_space[last], wmap.ny_space[last])
+            infoot = (np.asarray(mask) > 0)[pts].ravel()
+            eps = args.outside_prior * (
+                np.median(m2_resp[last].diagonal()[infoot])
+                / np.median(prior_resp[last].diagonal()[~infoot])
+            )
+            print(
+                f"outside prior: eps = {eps:.3e} ({args.outside_prior:g} of the M2 pixel weight)"
+            )
+            responses.append(
+                np.array(
+                    [None if g is None else eps * g for g in prior_resp], dtype=object
+                )
+            )
+            data_apply = apply
+
+            def apply(x):
+                y = data_apply(x)
+                y.maps[0].map += map2wav_real(
+                    eps * outside * wav2map_real(x.maps[0].map, filt)[0], filt
+                )[0]
+                return y
+
         solve = wmap.block_solver(
             responses[-1:] if args.act_only else responses,
             ridge=args.ridge,
@@ -646,6 +842,25 @@ def main(args):
             z.maps[0].map[:] = solve(r.maps[0].map)
             return z
 
+        if (
+            args.restrict is not None
+        ):  # only the coefficients whose needlet reaches the footprint
+            keep = coefficient_support(
+                filt, np.asarray(mask) + np.zeros(filt.shape[1:]) > 0, args.restrict
+            )
+            print("coefficients kept per band:", keep.mean(axis=(1, 2)).round(3))
+            full_apply, full_precon = apply, precon
+
+            def project(m):
+                m.maps[0].map *= keep
+                return m
+
+            def apply(x):
+                return project(full_apply(project(x.copy())))
+
+            def precon(r):
+                return project(full_precon(project(r.copy())))
+
         def report(i, x, relres):
             print(f"CG iter {i + 1}: |r|/|b| = {relres:.2e} ({time.time() - t0:.0f} s)")
             if (i + 1) in args.cg_save and minkasi.myrank == 0:
@@ -658,13 +873,20 @@ def main(args):
         if args.act_only:
             b.maps[0].map[:] = 0
         b.maps[0].map += act_rhs
+        if args.restrict is not None:
+            b.maps[0].map *= keep
         x0 = b.copy()
         x0.clear()
         if (
             args.consistent
         ):  # a rhs in the range of the operator, to see if the real one is not
             b = apply(pcg(apply, b, x0, precon, args.consistent))
-        xsol = pcg(apply, b, x0, precon, args.cg, args.cg_tol, report, args.flexible)
+        lan = {"alpha": [], "beta": [], "q": []} if args.ritz else None
+        xsol = pcg(
+            apply, b, x0, precon, args.cg, args.cg_tol, report, args.flexible, lan
+        )
+        if args.ritz:
+            ritz_analysis(lan, filt, mask, args.outroot, xsol.maps[0].map)
         wsol = xsol.maps[0].map
         if args.resdiag:
             residual_diagnostics(
@@ -748,6 +970,26 @@ if __name__ == "__main__":
         default=None,
         help="Choose each band's lattice from the support of its filter (window above this) so that "
         "it is not undersampled; default keeps the lattice of get_need_lims. The caches get a tag.",
+    )
+    parser.add_argument(
+        "--outside-prior",
+        type=float,
+        default=None,
+        help="Add a prior eps |map|^2 outside the footprint, eps this fraction of the M2 weight per pixel "
+        "(e.g. 1e-3). Default: none",
+    )
+    parser.add_argument(
+        "--restrict",
+        type=float,
+        default=None,
+        help="Solve only for the coefficients whose needlet reaches the footprint; the needlet extent is "
+        "where its kernel exceeds this fraction of its peak (e.g. 1e-2). Default: all coefficients",
+    )
+    parser.add_argument(
+        "--ritz",
+        action="store_true",
+        help="Keep the Lanczos vectors of the CG and print the spectrum of the preconditioned operator "
+        "and where its smallest eigenvectors live (memory: one map per iteration)",
     )
     parser.add_argument(
         "--flexible",

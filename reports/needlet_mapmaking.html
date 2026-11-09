@@ -117,7 +117,7 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
 <div class="meta">WITCH · branch needlet · MOOJ1142</div>
 <h1>Needlet mapmaking</h1>
 <p class="lede">How MUSTANG-2 timestreams and an ACT map are combined into one map, one scale range at a time, and what each stage costs.</p>
-<p>The investigation into why the CG solve stalls with ACT in the system, and the undersampled lattice it found, is written up separately: <a href="https://claude.ai/artifact/8udHrCCxBZcKZi7DGyUbJi">Needlet convergence investigation</a>.</p>
+<p>The investigation into why the CG solve stalls with ACT in the system, and the undersampled lattice it found, is written up separately: <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">Needlet convergence investigation</a>.</p>
 
 <h2>The problem</h2>
 <p>MUSTANG-2 (M2) scans lose the largest angular scales when a common mode is subtracted from each detector, so M2 alone cannot constrain them. ACT maps are good on those scales but have a 2.1′ beam and nothing on the smallest. The aim is one map that takes each instrument on the scales where it is informative.</p>
@@ -148,7 +148,7 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
   <li>
     <h3>Build the map and the filters</h3>
     <div class="tag">setup_wmap</div>
-    <p>Pad the field by 25% on every side, so that wrap-around from the periodic filters lands away from the data, and make a square map with a highly composite size. Build the 10 needlet filters on that grid. Each band is then given the coarsest lattice that does not undersample it: a few points for the large scales, nearly the full grid for the smallest. Until recently the lattices were √2 too coarse; see the section on problems found in the original code, and the <a href="https://claude.ai/artifact/8udHrCCxBZcKZi7DGyUbJi">investigation log</a>.</p>
+    <p>Pad the field by 25% on every side, so that wrap-around from the periodic filters lands away from the data, and make a square map with a highly composite size. Build the 10 needlet filters on that grid. Each band is then given the coarsest lattice that does not undersample it: a few points for the large scales, nearly the full grid for the smallest. Until recently the lattices were √2 too coarse; see the section on problems found in the original code, and the <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">investigation log</a>.</p>
   </li>
   <li>
     <h3>Pointing, first noise model, hits, mask</h3>
