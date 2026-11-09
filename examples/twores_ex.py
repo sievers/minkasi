@@ -355,6 +355,47 @@ def pcg(apply, rhs, x0, precon, niter, tol=0.0, callback=None):
     return x
 
 
+def residual_diagnostics(apply, b, x, act_rhs, act_bands, outroot, filt, mask):
+    """
+    Print the true residual b - A x per band (norm relative to the norm of b in that band) and save it
+    as a real space map, to see where the CG residual that does not go away lives.
+
+    Parameters
+    ----------
+    apply : Callable[[Mapset], Mapset]
+        The operator.
+    b : Mapset
+        Right hand side, M2 plus ACT.
+    x : Mapset
+        Solution.
+    act_rhs : np.ndarray
+        The ACT part of b, shape of the wavelet array.
+    act_bands : Sequence[int]
+        Bands in which ACT is used.
+    outroot : str
+        Prefix of the output map.
+    filt : np.ndarray
+        Needlet filters.
+    mask : np.ndarray | float
+        Hits mask.
+    """
+    r = b.copy()
+    r.axpy(apply(x), -1)
+    rb, bb, ab = r.maps[0].map, b.maps[0].map, act_rhs
+    nrm = lambda a: np.sqrt((a**2).sum(axis=tuple(range(1, a.ndim))))
+    print(f"true |r|/|b| = {np.sqrt(r.dot(r) / b.dot(b)):.2e}")
+    print(
+        "band  |r_i|/|b|   |b_i|/|b|   |act rhs_i|/|b_i|   (act bands: %s)"
+        % list(act_bands)
+    )
+    bn = np.sqrt(b.dot(b))
+    for i, (ri, bi, ai) in enumerate(zip(nrm(rb), nrm(bb), nrm(ab))):
+        print(f"{i:4d}  {ri / bn:.2e}   {bi / bn:.2e}   {ai / max(bi, 1e-300):.2e}")
+    if minkasi.myrank == 0:
+        np.save(f"{outroot}_resid.npy", wav2map_real(rb, filt)[0])
+        np.save(f"{outroot}_resid_mask.npy", np.asarray(mask) + np.zeros(rb.shape[1:]))
+
+
 def main(args):
     """
     Run the whole pipeline.
@@ -421,6 +462,10 @@ def main(args):
     todvec.make_rhs(rhs)  # wavelet basis rhs, of the residual unless --direct
     wmap.get_downsamps()
     cache = os.path.join(args.cache, args.name)
+    if (
+        args.lattice_tol is not None
+    ):  # the matrices depend on the lattice, keep them apart
+        cache += f"_nyq{args.lattice_tol:g}"
     # window of the response matrices: a few filter extents, never more than --radius
     radii = [
         min(
@@ -431,12 +476,21 @@ def main(args):
     ]
     kw = {"max_res": args.max_res, "radius": None if args.radius is None else radii}
     kw_bands = wmap.select_filters(None if args.direct else args.max_res)
+    if args.lattice_tol is not None:
+        wmap.get_downsamps(args.lattice_tol)
+        print(
+            "lattice from the filter support: downsamps",
+            wmap.downsamps,
+            "points",
+            wmap.nxs_red,
+        )
     t0 = time.time()
     m2_resp = cached(
         cache + "_m2",
         lambda b: wmap.get_response_matrix(
             todvec,
             nfilts=b,
+            downsamps=None if args.lattice_tol is None else wmap.downsamps,
             radius=kw["radius"],
             exact_below=args.exact_below,
         ),
@@ -558,13 +612,20 @@ def main(args):
             return ya
 
         def apply(x):
+            if args.act_only:  # the ACT term alone, no TODs
+                y = x.copy()
+                y.maps[0].map[:] = act_dot(x)
+                return y
             y = todvec.dot(x)
             if paths:
                 y.maps[0].map += act_dot(x)
             return y
 
         solve = wmap.block_solver(
-            responses, inner=args.inner, lmin_cache=cache + "_lmin.json"
+            responses[-1:] if args.act_only else responses,
+            ridge=args.ridge,
+            inner=args.inner,
+            lmin_cache=cache + "_lmin.json",
         )
         print(f"factorized the block preconditioner in {time.time() - t0:.1f} s")
         for resp in responses:  # the solver holds what it needs, free the rest
@@ -587,6 +648,8 @@ def main(args):
                 )
 
         b = rhs.copy()
+        if args.act_only:
+            b.maps[0].map[:] = 0
         b.maps[0].map += act_rhs
         x0 = b.copy()
         x0.clear()
@@ -594,7 +657,12 @@ def main(args):
             args.consistent
         ):  # a rhs in the range of the operator, to see if the real one is not
             b = apply(pcg(apply, b, x0, precon, args.consistent))
-        wsol = pcg(apply, b, x0, precon, args.cg, args.cg_tol, report).maps[0].map
+        xsol = pcg(apply, b, x0, precon, args.cg, args.cg_tol, report)
+        wsol = xsol.maps[0].map
+        if args.resdiag:
+            residual_diagnostics(
+                apply, b, xsol, act_rhs, act_bands, args.outroot, filt, mask
+            )
     else:
         wsol = wmap.solve_bands(rhs.maps[0].map + act_rhs, responses)
     mmap = wav2map_real(wsol, wmap.needlet.filters)[0] * mask
@@ -660,6 +728,30 @@ if __name__ == "__main__":
         default=0.0,
         help="Count this multiple of the lensed CMB power (CAMB) as noise in the ACT map on top of "
         "its white noise; 0 keeps the white noise model",
+    )
+    parser.add_argument(
+        "--ridge",
+        type=float,
+        default=1e-3,
+        help="Diagonal shift of the block preconditioner, relative to the mean diagonal of each band",
+    )
+    parser.add_argument(
+        "--lattice-tol",
+        type=float,
+        default=None,
+        help="Choose each band's lattice from the support of its filter (window above this) so that "
+        "it is not undersampled; default keeps the lattice of get_need_lims. The caches get a tag.",
+    )
+    parser.add_argument(
+        "--act-only",
+        action="store_true",
+        help="With --cg: solve the ACT term alone (operator and rhs) with its own block preconditioner, "
+        "to check that the ACT rhs is in the range of the ACT operator",
+    )
+    parser.add_argument(
+        "--resdiag",
+        action="store_true",
+        help="After the CG, print the true residual per band and save it as a map",
     )
     parser.add_argument(
         "--act-beam", type=float, default=2.1, help="ACT beam FWHM in arcmin"

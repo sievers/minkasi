@@ -15,6 +15,8 @@ from astropy.io import fits
 from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter
 
+FWHM2SIGMA = 1 / np.sqrt(8 * np.log(2))
+
 
 def design(shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -82,14 +84,22 @@ def main(args: argparse.Namespace):
     basis, r = design(good.shape)
     use = good & (r > args.exclude)
     runs = dict(zip(args.labels, args.roots))
+    act = fits.getdata(args.act).squeeze() if args.act else None
+    sig = args.act_beam * 60 / args.pixsize * FWHM2SIGMA
+    w = np.maximum(gaussian_filter(good.astype(float), sig), 1e-3)
+
+    def load(root: str, k: int) -> np.ndarray:
+        """Saved map, or with --act its difference with the ACT map after smoothing to the ACT beam."""
+        m = np.load(f"{root}_cg{k}.npy")
+        return (
+            m if act is None else gaussian_filter(np.where(good, m, 0), sig) / w - act
+        )
+
     amps = {}
     fig, axs = plt.subplots(1, 2, figsize=(10, 4), dpi=70 if args.debug else 120)
     for label, root in runs.items():
         amps[label] = np.array(
-            [
-                fit_quadratic(np.load(f"{root}_cg{k}.npy"), basis, use, good)[1]
-                for k in args.iters
-            ]
+            [fit_quadratic(load(root, k), basis, use, good)[1] for k in args.iters]
         )
         print(label)
         for k, (rms, bowl) in zip(args.iters, amps[label]):
@@ -155,5 +165,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--out", required=True, help="Output figure (.png); maps go to _maps.png"
     )
+    parser.add_argument(
+        "--act",
+        help="ACT map FITS on the same grid. Fit the difference of each map, smoothed to the ACT beam, "
+        "and the ACT map instead, so that the cluster cancels and what is left is large scale disagreement with ACT",
+    )
+    parser.add_argument("--act-beam", type=float, default=2.1, help="ACT FWHM, arcmin")
+    parser.add_argument("--pixsize", type=float, default=3.0, help="Pixel size, arcsec")
     parser.add_argument("--debug", action="store_true", help="Lower resolution figures")
     main(parser.parse_args())

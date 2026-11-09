@@ -4,11 +4,9 @@ import shutil
 import subprocess
 import sys
 
+import minkasi.minkasi_all as minkasi
 import numpy as np
 import pytest
-from scipy import sparse
-
-import minkasi.minkasi_all as minkasi
 from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
 from minkasi.needlet import needlet
@@ -23,6 +21,7 @@ from minkasi.needlet.needlet import (
     map2wav_real,
     wav2map_real,
 )
+from scipy import sparse
 
 PIXSIZE = 30.0 / 3600 * np.pi / 180  # radians
 
@@ -205,7 +204,7 @@ def test_color_groups_tile_and_separate(n, width):
 
 def test_mpi_reduce_chunks_whole_wavelet_map(monkeypatch):
     """The chunked MPI reduction must cover all bands of a (nfilt, nx, ny) map, not only nx * ny."""
-    import minkasi.maps.skymap as skymap
+    from minkasi.maps import skymap
 
     class FakeComm:
         def allreduce(self, x):
@@ -246,3 +245,17 @@ def test_block_solver_shared_over_mpi_ranks_matches_serial():
         env={**os.environ, "OMP_NUM_THREADS": "1"},
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_downsamps_from_filter_support_satisfy_nyquist(wmap):
+    """With tol the lattice of every band samples above twice the highest wavenumber of its filter."""
+    try:
+        wmap.get_downsamps(1e-3)
+        kx = np.fft.fftshift(np.fft.fftfreq(wmap.nx)) * wmap.nx
+        ky = np.fft.fftshift(np.fft.fftfreq(wmap.ny)) * wmap.ny
+        kmag = np.hypot(*np.meshgrid(kx, ky, indexing="ij"))
+        for filt, down in zip(wmap.needlet.filters, wmap.downsamps):
+            kmax = kmag[np.abs(filt) > 1e-3].max()
+            assert down == 1 or 2 * kmax * down <= wmap.nx
+    finally:
+        wmap.get_downsamps()

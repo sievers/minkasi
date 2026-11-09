@@ -990,12 +990,21 @@ class WavSkyMap(SkyMap):
             ny_space[i] = np.arange(down // 2, self.ny, down)
         return nx_space, ny_space
 
-    def get_downsamps(self):
+    def get_downsamps(self, tol=None):
         """
         Resizes maps so that the pixelization matches the smallest scale of the needlet,
         and sets downsamps, nxs_red, nys_red, nx_space, ny_space accordingly.
         The downsamp of each filter is the largest common factor of nx and ny that
         does not undersample the filter.
+
+        Parameters
+        ----------
+        tol : float | None, default: None
+            If given, the band limit of a filter is the largest wavenumber at which its window
+            exceeds tol, and the lattice spacing is at most half the wavelength of that
+            wavenumber (Nyquist). If None, the limit of get_need_lims is used, which lets the
+            filter extend beyond the Nyquist wavenumber of the lattice (about 1.3 times for the
+            bands tested).
         """
         map_size = (
             np.rad2deg(max(self.lims[1] - self.lims[0], self.lims[3] - self.lims[2]))
@@ -1003,10 +1012,18 @@ class WavSkyMap(SkyMap):
         )
         size_factors = factors(np.gcd(self.nx, self.ny))
         downsamps = np.empty(self.needlet.nfilt, dtype=int)
+        if tol is not None:
+            kx = np.fft.fftshift(np.fft.fftfreq(self.nx)) * self.nx
+            ky = np.fft.fftshift(np.fft.fftfreq(self.ny)) * self.ny
+            kmag = np.hypot(*np.meshgrid(kx, ky, indexing="ij"))
         for i in range(self.needlet.nfilt):
-            lims = self.needlet.get_need_lims(i, real_space=True)
-            n_samp = map_size / lims[0]
-            downsamp = max(np.floor(self.nx / n_samp), 1)
+            if tol is None:
+                lims = self.needlet.get_need_lims(i, real_space=True)
+                n_samp = map_size / lims[0]
+                downsamp = max(np.floor(self.nx / n_samp), 1)
+            else:
+                kmax = kmag[np.abs(self.needlet.filters[i]) > tol].max()
+                downsamp = max(np.floor(self.nx / (2 * kmax)), 1)
             downsamps[i] = size_factors[size_factors <= downsamp][-1]
         self.set_downsamps(downsamps)
 
