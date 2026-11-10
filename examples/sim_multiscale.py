@@ -125,16 +125,17 @@ def main(args: argparse.Namespace):
         for j, (img, nm, title) in enumerate(
             (
                 (truth, norm, "truth"),
-                (data, norm, f"simulated data, {label}"),
+                (data, norm, f"simulated data\n{label}"),
                 (
                     res,
                     rnorm,
-                    f"data minus truth, {label}"
+                    "data minus truth"
                     + (
-                        f' (M2 part smoothed to {args.res_smooth:g}")'
+                        f' (M2 part at {args.res_smooth:g}")'
                         if args.res_smooth > 0
                         else ""
-                    ),
+                    )
+                    + f"\n{label}",
                 ),
             )
         ):
@@ -181,7 +182,15 @@ if __name__ == "__main__":
     parser.add_argument("--freq", type=float, default=90e9)
     parser.add_argument("--size", type=float, default=30.0, help="arcmin")
     parser.add_argument("--factor", type=int, default=8)
-    parser.add_argument("--min-hits", type=float, default=20)
+    parser.add_argument(
+        "--min-hits", type=float, default=20, help="Hits for an ACT pixel to be split"
+    )
+    parser.add_argument(
+        "--show-hits",
+        type=float,
+        default=None,
+        help="Hits for a sub-pixel to show the joint map",
+    )
     parser.add_argument("--smooth", type=float, default=10.0, help="arcsec")
     parser.add_argument("--feather-hits", type=float, default=200.0)
     parser.add_argument(

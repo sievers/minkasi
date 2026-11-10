@@ -168,7 +168,7 @@ def compose(
     Parameters
     ----------
     args : argparse.Namespace
-        Parsed arguments (factor, min_hits, smooth, match, feather_hits).
+        Parsed arguments (factor, min_hits, show_hits, smooth, match, feather_hits).
     act_up : np.ndarray
         ACT map as constant blocks on the fine grid (fine_grid).
     joint : np.ndarray
@@ -188,7 +188,8 @@ def compose(
         True on the sub-pixels showing the joint map.
     """
     f = args.factor
-    m2 = hits >= args.min_hits
+    show = max(args.min_hits, args.show_hits or 0)
+    m2 = hits >= show  # sub-pixels showing the joint map; the others keep the ACT value
     if (
         args.smooth > 0
     ):  # normalised so the smoothing does not pull in the zeros outside the footprint
@@ -196,7 +197,8 @@ def compose(
         joint = gaussian_filter(joint * m2, sig) / np.maximum(
             gaussian_filter(m2.astype(float), sig), 1e-3
         )
-    blocks = m2.reshape(m2.shape[0] // f, f, m2.shape[1] // f, f).any((1, 3))
+    has = hits >= args.min_hits  # ACT pixels with any of these are split
+    blocks = has.reshape(has.shape[0] // f, f, has.shape[1] // f, f).any((1, 3))
     split = np.repeat(np.repeat(blocks, f, 0), f, 1)
     if args.match == "offset":
         off = np.median((joint - act_up)[m2])
@@ -205,7 +207,7 @@ def compose(
         )
         joint = joint - off
     w = (
-        np.clip((hits - args.min_hits) / args.feather_hits, 0, 1)
+        np.clip((hits - show) / args.feather_hits, 0, 1)
         if args.feather_hits > 0
         else 1.0
     )
@@ -381,7 +383,14 @@ if __name__ == "__main__":
         "--min-hits",
         type=float,
         default=20,
-        help="Hits for a sub-pixel to show the joint map",
+        help="Hits for an ACT pixel to be split (and the default of --show-hits)",
+    )
+    parser.add_argument(
+        "--show-hits",
+        type=float,
+        default=None,
+        help="Hits for a sub-pixel to show the joint map (default --min-hits); sub-pixels of split ACT pixels "
+        "with fewer show the ACT value. Display only: the solve can still use every sample",
     )
     parser.add_argument(
         "--smooth",
@@ -393,7 +402,7 @@ if __name__ == "__main__":
         "--feather-hits",
         type=float,
         default=0.0,
-        help="Blend joint into ACT over this many hits above --min-hits (0: no blending)",
+        help="Blend joint into ACT over this many hits above --show-hits (0: no blending)",
     )
     parser.add_argument("--match", choices=["offset", "none"], default="offset")
     parser.add_argument(
