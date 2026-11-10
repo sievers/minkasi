@@ -147,9 +147,7 @@ def main(args: argparse.Namespace):
 
     paths = sorted(glob.glob(args.act_glob))[: 2 if args.debug else None]
     conv = act_conversion(args.freq, args.m2_beam, args.m2_unit)
-    ivar = read_act(
-        paths, wmap.lims, wmap, minkasi.make_hits(todvec, wmap.real_map), conv=conv
-    )[0]
+    ivar = read_act(paths, wmap.lims, wmap, conv=conv)[0]
     ivar /= ACT_OSAMP**2  # weight per fine pixel, as in twores_ex
     act_beam = gaussian_beam_ft(shape, args.act_beam * 60 / args.pixsize)
 

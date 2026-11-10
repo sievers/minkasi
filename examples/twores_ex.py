@@ -338,10 +338,15 @@ def edge_taper(shape, width):
 ACT_OSAMP = 10  # fine pixels per ACT pixel
 
 
-def read_act(paths, lims, wmap, hits, fac=ACT_OSAMP, conv=1.0):
+def read_act(paths, lims, wmap, fac=ACT_OSAMP, conv=1.0):
     """
     Read ACT split maps and inverse variance maps in a box around the field and
     coadd them onto the (fine) wavelet map pixelization.
+
+    The ACT term models ACT pixels as fac x fac blocks of the fine grid (block_average). Each block takes the
+    ACT pixel at its centre's sky position, found through the two WCSs. (Before 2026-11-10 the ACT pixels were
+    copied onto the blocks by array index, which mirrored ACT in RA: pixell returns the box with RA increasing
+    along the array, the fine grid has RA decreasing.)
 
     Parameters
     ----------
@@ -351,10 +356,8 @@ def read_act(paths, lims, wmap, hits, fac=ACT_OSAMP, conv=1.0):
         Field limits (radians).
     wmap : WavSkyMap
         Map whose real_map pixelization to use.
-    hits : SkyMap
-        Hit map, used as the mask of the coarse to fine mapping.
     fac : int, default: 10
-        Oversampling factor of the ACT pixels.
+        Fine pixels per ACT pixel along each axis.
     conv : float, default: 1.0
         Factor converting ACT map units to the units of the M2 data. Maps are multiplied by
         it and ivar divided by its square.
@@ -362,27 +365,42 @@ def read_act(paths, lims, wmap, hits, fac=ACT_OSAMP, conv=1.0):
     Returns
     -------
     ivar : NDArray[np.floating]
-        Total inverse variance on the wmap pixelization, shape (nx, ny).
+        Total inverse variance on the wmap pixelization, shape (nx, ny), constant on each block.
     wdata : NDArray[np.floating]
-        Sum over splits of ivar * map on the wmap pixelization, shape (nx, ny).
+        Sum over splits of ivar * map on the wmap pixelization, shape (nx, ny), constant on each block.
     """
     ra, dec = np.mean(lims[:2]), np.mean(lims[2:])
     rad = 0.5 * utils.degree
     box = np.array([np.array([dec, ra]) - rad, np.array([dec, ra]) + rad])
-    ivar = np.zeros_like(wmap.real_map.map)
-    wdata = np.zeros_like(wmap.real_map.map)
+    nx, ny = wmap.real_map.map.shape
+    # block centres on the fine grid; map[i, j] is FITS pixel (i, j), i along RA
+    bi = np.arange(-(-nx // fac)) * fac + (fac - 1) / 2
+    bj = np.arange(-(-ny // fac)) * fac + (fac - 1) / 2
+    ii, jj = np.meshgrid(bi, bj, indexing="ij")
+    bra, bdec = np.deg2rad(wmap.real_map.wcs.wcs_pix2world(ii, jj, 0))
+
+    def to_fine(m):  # one value per block, repeated on its fine pixels
+        return np.repeat(np.repeat(m, fac, 0), fac, 1)[:nx, :ny]
+
+    ivar = np.zeros((nx, ny))
+    wdata = np.zeros((nx, ny))
     for path in paths:
         ivar_map = enmap.read_map(path, box=box) / conv**2
         act_map = enmap.read_map(path.replace("_ivar", "_map"), box=box) * conv
         if act_map.ndim == 3:
             act_map = act_map[0]  # temperature
-        two_res = minkasi.SkyMapTwoRes(
-            np.array(ivar_map), lims, fac, big_wcs=ivar_map.wcs
+        py, px = enmap.sky2pix(ivar_map.shape, ivar_map.wcs, [bdec, bra])
+        pick = [np.round(py).astype(int), np.round(px).astype(int)]  # nearest ACT pixel
+        inside = (
+            (pick[0] >= 0)
+            & (pick[0] < ivar_map.shape[-2])
+            & (pick[1] >= 0)
+            & (pick[1] < ivar_map.shape[-1])
         )
-        two_res.set_beam_gauss(3)
-        two_res.set_mask(hits.map)
-        ivar += two_res.coarse2fine(wmap.real_map.map, ivar_map)
-        wdata += two_res.coarse2fine(wmap.real_map.map, ivar_map * act_map)
+        pick = [np.clip(p, 0, n - 1) for p, n in zip(pick, ivar_map.shape[-2:])]
+        iv = np.where(inside, np.asarray(ivar_map)[pick[0], pick[1]], 0.0)
+        ivar += to_fine(iv)
+        wdata += to_fine(iv * np.asarray(act_map)[pick[0], pick[1]])
     return ivar, wdata
 
 
@@ -913,7 +931,7 @@ def main(args):
         # TODO: ivar is treated as a diagonal map space inverse covariance. Replace this with a
         # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
         conv = args.act_conv or act_conversion(args.freq, args.m2_beam, args.m2_unit)
-        ivar, wdata = read_act(paths, wmap.lims, wmap, hits, conv=conv)
+        ivar, wdata = read_act(paths, wmap.lims, wmap, conv=conv)
         if sky is not None:
             wdata = ivar * sim_act(
                 sky, ivar, args.act_beam * 60 / args.pixsize, args.sim_seed
@@ -984,7 +1002,7 @@ def main(args):
         responses.append(
             cached(
                 f"{cache}_act_t{args.taper}_c{conv:.3g}_b{args.act_beam}_pw_tr{args.act_min_transfer}"
-                + f"_n{ACT_OSAMP}"
+                + f"_n{ACT_OSAMP}_wcs"  # _wcs: ACT placed by sky position (fix of 2026-11-10)
                 + (f"_s{args.act_ivar_scale:g}" if args.act_ivar_scale != 1 else "")
                 + (f"_cmb{args.act_cmb:g}" if args.act_cmb > 0 else ""),
                 lambda b: wmap.get_response_matrix_map(
