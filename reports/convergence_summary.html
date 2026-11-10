@@ -113,7 +113,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </div>
 <figure>
 <img src="figs/summary/residuals.png" alt="Three panels of CG residual against iteration: the fixes, the ACT weight scan and the simulation runs">
-<figcaption><strong>CG residual histories.</strong> Left: the code fixes. The lattice fix lowered the late residual (3.8e-4 to 1.6e-4) and the unit fix left it unchanged. Without ACT the solve converges to 1e-12. Middle: scaling the ACT weight down by a factor of 10<sup>6</sup> still leaves a floor, while zero ACT weight converges. Right: the simulation solves. The M2-only curve reaches 1e-15 at iteration 190 and then rises through round-off; it had converged.</figcaption>
+<figcaption><strong>Figure 1. CG residual histories.</strong> Left: the code fixes. The lattice fix lowered the late residual (3.8e-4 to 1.6e-4) and the unit fix left it unchanged. Without ACT the solve converges to 1e-12. Middle: scaling the ACT weight down by a factor of 10<sup>6</sup> still leaves a floor, while zero ACT weight converges. Right: the simulation solves. The M2-only curve reaches 1e-15 at iteration 190 and then rises through round-off; it had converged.</figcaption>
 </figure>
 <div class="tablewrap">
 <table>
@@ -140,7 +140,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <p class="prose">On the small test problem (one TOD, 180 × 180 pixels), the Lanczos data from CG give the spectrum of the preconditioned operator. Without ACT, its few tiny eigenvalues are exact null modes that the right-hand side never excites. With ACT, they become small but nonzero (1.7e-4 to 6e-4), and they are excited. Each is a pattern of needlet coefficients sitting in a ring just outside the hit footprint. Only about 0% of its power falls inside the footprint, yet the solution weights it by 1/λ, so together these modes carry 9–13% of the map inside the footprint.</p>
 <figure>
 <img src="figs/summary/ritz_modes.png" alt="Ritz value spectra without and with ACT, and four maps of the slowest modes showing rings outside the footprint">
-<figcaption><strong>Spectrum and slowest modes, small problem (old ACT units).</strong> Left: Ritz values without ACT (blue, a few exact nulls near 1e-15 lie off the plot) and with ACT (orange, a few small but nonzero values). Right: the four slowest modes with ACT, with the M2 footprint drawn in black. They are oscillations at about 7–9 cycles per map just outside the footprint.</figcaption>
+<figcaption><strong>Figure 2. Spectrum and slowest modes, small problem (old ACT units).</strong> Left: Ritz values without ACT (blue, a few exact nulls near 1e-15 lie off the plot) and with ACT (orange, a few small but nonzero values). Right: the four slowest modes with ACT, with the M2 footprint drawn in black. They are oscillations at about 7–9 cycles per map just outside the footprint.</figcaption>
 </figure>
 </section>
 
@@ -169,6 +169,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <h3>ACT units <span class="chip ok">fixed · 6c6b240</span></h3>
 <p>The M2 TODs are in K<sub>RJ</sub>; WITCH confirms this, since its beam kernel sums to 1 and its prefactor goes from y to K<sub>RJ</sub>. ACT was being converted to Jy/beam: 4.37e-7 per µK<sub>CMB</sub> instead of 8.15e-7. ACT was therefore 1.86× too faint in amplitude and 3.5× too heavily weighted. The default is now <code>--m2-unit K_RJ</code>.</p>
 <img src="figs/summary/units_fix.png" alt="Bar charts: large-scale change between iterations before and after the unit fix, and the two conversion factors" style="width:100%;border-radius:4px;background:#fff">
+<p class="meta"><strong>Figure 3.</strong> Left: change of the 32–64 px band between saved iterations, 40 TODs, before and after the unit fix. Right: the two conversion factors.</p>
 </div>
 <div class="card">
 <h3>Earlier fixes</h3>
@@ -203,7 +204,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </div>
 <figure>
 <img src="figs/summary/tf40.png" alt="Transfer functions, information per mode for M2 and ACT, and the M2 share of the information with the needlet bands shaded">
-<figcaption><strong>40 TODs.</strong> Top: transfer functions. Middle: information per mode. Bottom: M2's share of the total information, with the needlet bands shaded. The two experiments cross at ℓ ≈ 5000 (about 2.5′ half-wavelength) in band 2. There is no hole in the total information; ACT's falls off about as fast as M2's rises.</figcaption>
+<figcaption><strong>Figure 4. Transfer functions and information per mode, 40 TODs.</strong> Top: transfer functions. Middle: information per mode. Bottom: M2's share of the total information, with the needlet bands shaded. The two experiments cross at ℓ ≈ 5000 (about 2.5′ half-wavelength) in band 2. There is no hole in the total information; ACT's falls off about as fast as M2's rises.</figcaption>
 </figure>
 <div class="tablewrap">
 <table>
@@ -250,20 +251,29 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </div>
 <figure>
 <img src="figs/summary/sim_bands.png" alt="Interior error against iteration for the two largest scales, and the transfer at the largest scale, for each simulation run">
-<figcaption><strong>Accuracy against iteration, interior of the footprint.</strong> The needlet and pixel solves with a good preconditioner are at their best early, and then their large-scale error grows as they converge. The Jacobi solve converges more slowly and follows the same path later. The prior run stays near its early accuracy. M2 alone recovers only 27% of the largest scale.</figcaption>
+<figcaption><strong>Figure 5. Accuracy against iteration, interior of the footprint.</strong> The needlet and pixel solves with a good preconditioner are at their best early, and then their large-scale error grows as they converge. The Jacobi solve converges more slowly and follows the same path later. The prior run stays near its early accuracy. M2 alone recovers only 27% of the largest scale.</figcaption>
 </figure>
 <figure>
 <img src="figs/summary/sim_drift.gif" alt="Animation over CG iterations of the large-scale band of the truth, the needlet solve, the prior solve and the M2-only solve, with differences from the truth">
-<figcaption><strong>Large-scale band (Gaussian band-pass 16–64 px), K<sub>RJ</sub> × 10<sup>6</sup>, iterations 40, 200, 400 and 600.</strong> Top: truth and maps. Bottom: map minus truth. The needlet solve's error grows in patches at the footprint edge, the prior solve stays clean, and M2 alone shows the classic bowl. Every joint solve gets the central decrement right to within 1%.</figcaption>
+<figcaption><strong>Figure 6. Large-scale band (Gaussian band-pass 16–64 px), K<sub>RJ</sub> × 10<sup>6</sup>, iterations 40, 200, 400 and 600.</strong> Top: truth and maps. Bottom: map minus truth. The needlet solve's error grows in patches at the footprint edge, the prior solve stays clean, and M2 alone shows the classic bowl. Every joint solve gets the central decrement right to within 1%.</figcaption>
 </figure>
 <div class="prose">
 <h3>Reading the simulation</h3>
 <ul>
-<li><strong>ACT fixes the bowl.</strong> All joint solves recover the decrement to about 1% and the largest scale with transfer 1.05–1.2, where M2 alone gives 0.27.</li>
+<li><strong>The joint map is already good.</strong> ACT fixes the bowl: all joint solves recover the decrement to about 1% and the largest scale with transfer 1.05–1.2, where M2 alone gives 0.27. What remains is the red and blue patches at the footprint edge in Figure 6. Those patches are what the residual floor and the large-scale drift are about.</li>
 <li><strong>Continuing to iterate is not making the map better.</strong> The extra iterations mostly fit the slow edge modes, and in this simulation the fitted amplitude is noise. That makes the unregularised least-squares solution worse at large scales than an early iterate. The residual floor is CG slowly working its way into these noise-dominated directions.</li>
 <li><strong>A small prior outside the footprint is the most accurate option tested.</strong> It is also the fastest to converge. Earlier on the toy problem it shifted the map by about 10% relative to the no-prior solution, and the simulation says that shift moves it toward the truth.</li>
 <li><strong>Not yet tested:</strong> a second noise or CMB realisation, so these numbers carry one realisation's scatter.</li>
 </ul>
+<h3>How the prior works</h3>
+<p>Options <code>--outside-prior 1e-2 --prior-non-act</code> add a quadratic penalty to the least-squares objective. It pulls the real-space map outside the footprint toward zero, but only through the bands that ACT does not constrain:</p>
+<ul>
+<li><strong>Penalty:</strong> ε ‖P<sub>out</sub> Σ<sub>j∉ACT</sub> F<sub>j</sub> x<sub>j</sub>‖². P<sub>out</sub> is 1 outside the footprint (hits &lt; 20) and 0 inside. The sum runs over the non-ACT bands, which are 4–9 here, since ACT is used in bands 0–3.</li>
+<li><strong>Effect on the operator:</strong> for each non-ACT band i it adds F<sub>i</sub> ε P<sub>out</sub> Σ<sub>j∉ACT</sub> F<sub>j</sub> x<sub>j</sub> to (H x)<sub>i</sub>, and adds nothing to b, so the mean of the prior is zero. The ACT bands are left alone, because ACT already measures them outside the footprint; its inverse variance is not masked.</li>
+<li><strong>Strength:</strong> ε = c × (median M2 weight per lattice point inside the footprint in the finest band) / (median prior weight per point outside), with c = 10<sup>−2</sup>. So outside the footprint, a pixel in the non-ACT bands is held about as firmly as 1% of a typical M2 pixel's weight.</li>
+<li><strong>Preconditioner:</strong> the prior's blocks are probed like the M2 and ACT blocks and added to the block preconditioner.</li>
+</ul>
+<p>It is a Tikhonov (ridge) regulariser on the unmeasured part of the solution. Without it, the fine-band needlets outside the footprint are fixed only by how they leak into the footprint edge, which is the weakly determined direction CG keeps working on. A zero-mean prior is not physical outside the footprint, but the ACT bands carry the sky there, and what it suppresses is finer than ACT can see. The prior touches only bands 4–9 (half-wavelength 0.7′ and smaller), yet it removes the edge patches in the 16–64 px band of Figure 6. That suggests those patches are mostly carried by fine-band coefficients just outside the edge, which no data constrain. This has not yet been checked band by band.</p>
 </div>
 </section>
 
