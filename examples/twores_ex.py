@@ -14,6 +14,9 @@ import astropy.constants as const
 import astropy.units as u
 import minkasi.minkasi_all as minkasi
 import numpy as np
+from astropy.io import fits
+from astropy.wcs import WCS
+from minkasi.mapmaking.map2tod import map2tod
 from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
 from minkasi.needlet.cmb import cmb_fourier_weight, lensed_cmb_cl
@@ -30,7 +33,7 @@ from minkasi.needlet.needlet import (
 from pixell import enmap, utils
 from scipy import sparse
 from scipy.linalg import eigh_tridiagonal
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, map_coordinates
 
 
 def save_response(prefix, resp):
@@ -153,7 +156,7 @@ def setup_wmap(todvec, pixsize, nfilt, pad_frac=0.0):
     return WavSkyMap(need, lims, ps, nx=n, ny=n)
 
 
-def read_tods(idir, ntods, name=None, total=None):
+def read_tods(idir, ntods, name=None, total=None, raw=False):
     """
     Read, downsample and common mode subtract MUSTANG-2 TODs, splitting files between MPI ranks.
 
@@ -167,6 +170,8 @@ def read_tods(idir, ntods, name=None, total=None):
         Source name; if given, the TODs blacklisted for it in minkasi.get_bad_tods are skipped.
     total : int | None, default: None
         If given, only the first `total` TODs (after the blacklist) are used, in all ranks together.
+    raw : bool, default: False
+        Skip the common mode and polynomial subtraction (see inject_sim, which applies it).
 
     Returns
     -------
@@ -185,10 +190,108 @@ def read_tods(idir, ntods, name=None, total=None):
             dat
         )  # sometimes we have faster sampled data than we need
         minkasi.truncate_tod(dat)
-        dat["dat_calib"] = minkasi.fit_cm_plus_poly(dat["dat_calib"])
+        if not raw:
+            dat["dat_calib"] = minkasi.fit_cm_plus_poly(dat["dat_calib"])
         todvec.add_tod(minkasi.Tod(dat))
         print(f"read {fname} in {time.time() - t1:.1f} s")
     return todvec
+
+
+def sample_sky(path: str, wmap: WavSkyMap) -> np.ndarray:
+    """
+    Sample a sky image (FITS with a celestial WCS, e.g. from make_sim_sky.py) at the pixel centres of a map.
+
+    Parameters
+    ----------
+    path : str
+        FITS file, the image in the primary HDU.
+    wmap : WavSkyMap
+        Map whose real space pixelization to use.
+
+    Returns
+    -------
+    sky : np.ndarray
+        Shape (nx, ny) of wmap.real_map.map, bilinear interpolation, 0 outside the image.
+    """
+    with fits.open(path) as hdul:
+        data, wcs = hdul[0].data.astype(float), WCS(hdul[0].header).celestial
+    nx, ny = wmap.real_map.map.shape
+    ii, jj = np.meshgrid(np.arange(nx), np.arange(ny), indexing="ij")
+    ra, dec = wmap.real_map.wcs.wcs_pix2world(
+        ii, jj, 0
+    )  # map[i, j] is FITS pixel (i, j)
+    px, py = wcs.wcs_world2pix(ra, dec, 0)
+    return map_coordinates(data, [py, px], order=1, cval=0.0)
+
+
+def inject_sim(todvec, wmap, sky, noise, seed):
+    """
+    Replace the TOD data by a simulation, following WITCH: the noise is either white with each detector's
+    level estimated from the data ("white") or the data with the sign flipped on every other TOD ("flip"),
+    and the sky is added on top. Then the common mode and polynomial are subtracted as for real data.
+
+    Parameters
+    ----------
+    todvec : TodVec
+        TODs read with read_tods(..., raw=True).
+    wmap : WavSkyMap
+        Map giving the pixelization.
+    sky : np.ndarray
+        Sky in the units of the TODs on the pixels of wmap.real_map.
+    noise : str
+        "white" or "flip".
+    seed : int
+        Random seed (white noise).
+    """
+    for i, tod in enumerate(todvec.tods):
+        dat = tod.info["dat_calib"]
+        k = minkasi.myrank + minkasi.nproc * i  # global TOD index, as in WITCH
+        if noise == "white":
+            lo, hi = np.percentile(np.diff(dat, axis=-1), [33.0, 68.0], axis=-1)
+            scale = (hi - lo) / np.sqrt(8)
+            dat = (
+                np.random.default_rng([seed, k]).normal(size=dat.shape) * scale[:, None]
+            )
+        else:
+            dat = dat * (-1) ** (k % 2)
+        sig = np.zeros_like(dat)
+        map2tod(sig, sky, wmap.real_map.get_pix(tod), do_add=True)
+        tod.info["dat_calib"] = minkasi.fit_cm_plus_poly(
+            np.ascontiguousarray(dat + sig)
+        )
+
+
+def sim_act(sky, ivar, beam_fwhm_pix, seed):
+    """
+    Simulated ACT map on the fine pixels: the sky smoothed with the ACT beam and averaged over ACT pixels,
+    plus white noise of inverse variance ivar per ACT pixel (constant over each block of fine pixels).
+
+    Parameters
+    ----------
+    sky : np.ndarray
+        Sky in the M2 data units on the fine pixels.
+    ivar : np.ndarray
+        ACT inverse variance per ACT pixel repeated on its fine pixels, in the M2 data units.
+    beam_fwhm_pix : float
+        ACT beam FWHM in fine pixels.
+    seed : int
+        Random seed.
+
+    Returns
+    -------
+    act : np.ndarray
+        The simulated ACT map on the fine pixels.
+    """
+    signal = block_average(
+        apply_beam(sky, gaussian_beam_ft(sky.shape, beam_fwhm_pix)), ACT_OSAMP
+    )
+    white = np.random.default_rng([seed, 1]).normal(size=sky.shape)
+    unit = (
+        block_average(white, ACT_OSAMP) * ACT_OSAMP
+    )  # unit variance, constant per ACT pixel
+    return signal + np.divide(
+        unit, np.sqrt(ivar), out=np.zeros_like(unit), where=ivar > 0
+    )
 
 
 def edge_taper(shape, width):
@@ -675,9 +778,19 @@ def main(args):
     args : argparse.Namespace
         Parsed command line arguments.
     """
-    todvec = read_tods(args.idir, args.ntods, args.name, args.ntods_total)
+    todvec = read_tods(
+        args.idir, args.ntods, args.name, args.ntods_total, raw=bool(args.sim_sky)
+    )
     wmap = setup_wmap(todvec, args.pixsize, args.nfilt, args.pad_frac)
     need = wmap.needlet
+    sky = None
+    if args.sim_sky:  # replace the data by a simulation of a known sky
+        sky = sample_sky(args.sim_sky, wmap)
+        inject_sim(todvec, wmap, sky, args.sim_noise, args.sim_seed)
+        if minkasi.myrank == 0:
+            truth = wmap.real_map.copy()
+            truth.map = sky
+            truth.write(args.outroot + "_truth.fits")
 
     for tod in todvec.tods:
         tod.info["ipix"] = wmap.get_pix(tod)
@@ -783,6 +896,10 @@ def main(args):
         # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
         conv = args.act_conv or act_conversion(args.freq, args.m2_beam, args.m2_unit)
         ivar, wdata = read_act(paths, wmap.lims, wmap, hits, conv=conv)
+        if sky is not None:
+            wdata = ivar * sim_act(
+                sky, ivar, args.act_beam * 60 / args.pixsize, args.sim_seed
+            )
         if (
             minkasi.myrank == 0
         ):  # ACT only (inverse variance weighted coadd) for comparison
@@ -1103,6 +1220,20 @@ if __name__ == "__main__":
         default=None,
         help="Choose each band's lattice from the support of its filter (window above this) so that "
         "it is not undersampled; default keeps the lattice of get_need_lims. The caches get a tag.",
+    )
+    parser.add_argument(
+        "--sim-sky",
+        default=None,
+        help="Simulate: replace the M2 and ACT data by this sky (FITS from make_sim_sky.py) plus noise",
+    )
+    parser.add_argument(
+        "--sim-noise",
+        choices=["white", "flip"],
+        default="flip",
+        help="Simulated M2 noise: white at the level of each detector, or the data with alternating signs",
+    )
+    parser.add_argument(
+        "--sim-seed", type=int, default=0, help="Seed of the simulated noise"
     )
     parser.add_argument(
         "--outside-prior",
