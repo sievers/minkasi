@@ -342,11 +342,21 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <tr><td>masked + outside prior, 600</td><td class="num">0.12</td><td class="num">0.15</td><td class="num">0.24</td><td class="num">0.12</td><td class="num">1.08</td><td class="num">9.7 µK</td></tr>
 <tr><td><strong>no mask, no prior, 40</strong></td><td class="num">0.09</td><td class="num">0.07</td><td class="num">0.18</td><td class="num">0.09</td><td class="num">1.04</td><td class="num">–</td></tr>
 <tr><td><strong>no mask, no prior, 600</strong></td><td class="num">0.16</td><td class="num">0.10</td><td class="num">0.28</td><td class="num">0.10</td><td class="num">0.98</td><td class="num">9.9 µK</td></tr>
+<tr><td><strong>no mask + outside prior (c = 10<sup>−2</sup>), 600</strong></td><td class="num">0.08</td><td class="num">0.09</td><td class="num">0.18</td><td class="num">0.09</td><td class="num">1.05</td><td class="num">–</td></tr>
+<tr><td>masked + signal-strength prior (c = 400), 600</td><td class="num">0.11</td><td class="num">0.10</td><td class="num">0.19</td><td class="num">0.09</td><td class="num">1.04</td><td class="num">–</td></tr>
+<tr><td>masked + prior on band 4 only, 600</td><td class="num">0.32</td><td class="num">0.31</td><td class="num">0.42</td><td class="num">0.25</td><td class="num">1.14</td><td class="num">–</td></tr>
 </tbody>
 </table>
 </div>
 <div class="prose">
-<p>Without the mask, the solve matches or beats the prior at the largest scales, with no prior at all, and the edge patches are mostly gone. It still drifts a little in bands 0 and 2 between iterations 40 and 600. Still running: no mask with the prior, the signal-strength prior, and the band-4-only prior.</p>
+<p>Without the mask, the solve matches or beats the prior at the largest scales, with no prior at all, and the edge patches are mostly gone. It still drifts a little in bands 0 and 2 between iterations 40 and 600.</p>
+<ul>
+<li><strong>No mask plus the weak prior is the most accurate combination</strong> (0.08, 0.09 and 0.18 in bands 0–2, largest scale 0.09), and it stays at that level from iteration 40 to 600. Without the mask the prior is a refinement, mainly in bands 0 and 2, not a fix.</li>
+<li><strong>A signal-strength prior</strong> (ε ≈ 8.5e9, the inverse sky variance of bands 4–9) gives almost the same accuracy even with the mask. Its CG residual stays at 7e-3, though: the stiff prior makes the system badly conditioned, so the residual is no guide to the map there.</li>
+<li><strong>A prior on band 4 alone does almost nothing</strong> (errors like the masked solve with no prior). The prior's benefit comes from the finest bands, 5–9, outside the footprint. That fits the mask explanation: a hard cut at the edge couples very fine-scale coefficients outside the footprint to the large scales inside.</li>
+<li>All runs recover the decrement to within 1% (−6.42e-4 against −6.49e-4).</li>
+</ul>
+<p>Running now: the real-data map with no mask, first with 40 TODs and then with all TODs.</p>
 <h3>Display maps</h3>
 <p>The figures below are for viewing only. They come from <code>examples/multiscale_map.py</code> (real data) and <code>examples/sim_multiscale.py</code> (simulation):</p>
 <ul>
