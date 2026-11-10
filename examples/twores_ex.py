@@ -191,9 +191,7 @@ def read_tods(idir, ntods, name=None, total=None, raw=False):
         )  # sometimes we have faster sampled data than we need
         minkasi.truncate_tod(dat)
         if not raw:
-            dat["dat_calib"], _, dat["cm"] = minkasi.fit_cm_plus_poly(
-                dat["dat_calib"], full_out=True
-            )
+            dat["dat_calib"] = minkasi.fit_cm_plus_poly(dat["dat_calib"])
         todvec.add_tod(minkasi.Tod(dat))
         print(f"read {fname} in {time.time() - t1:.1f} s")
     return todvec
@@ -258,32 +256,33 @@ def inject_sim(todvec, wmap, sky, noise, seed):
             dat = dat * (-1) ** (k % 2)
         sig = np.zeros_like(dat)
         map2tod(sig, sky, wmap.real_map.get_pix(tod), do_add=True)
-        tod.info["dat_calib"], _, tod.info["cm"] = minkasi.fit_cm_plus_poly(
-            np.ascontiguousarray(dat + sig), full_out=True
+        tod.info["dat_calib"] = minkasi.fit_cm_plus_poly(
+            np.ascontiguousarray(dat + sig)
         )
 
 
 class DeprojectedNoise:
     """
-    Noise model Q N^-1 Q, with Q the projection, for every detector, out of the templates fit_cm_plus_poly fits
-    (Legendre polynomials up to `order` and the common mode). The polynomial part is subtracted from the data
-    before mapmaking, so modes it removed get no weight and the model Q A m matches the data, Q d_filtered = Q d.
+    Noise model Q N^-1 Q, with Q the projection, for every detector, out of the Legendre polynomials up to
+    `order` that fit_cm_plus_poly subtracts from the data (the common mode is fitted with them but not subtracted,
+    so it stays to the noise model). The modes the subtraction removed get no weight and the model Q A m matches
+    the data, Q d_filtered = Q d.
     Other attributes are those of the wrapped model.
 
     Parameters
     ----------
     noise : object
         Noise model with apply_noise(dat).
-    cm : np.ndarray
-        Common mode template, shape (ndata,).
+    ndata : int
+        Number of samples.
     order : int, default: 2
         Highest Legendre order, as the `ord` of fit_cm_plus_poly.
     """
 
-    def __init__(self, noise, cm: np.ndarray, order: int = 2):
-        x = np.linspace(-1, 1, cm.size)
-        templates = np.column_stack([np.polynomial.legendre.legvander(x, order), cm])
-        self.noise, self.basis = noise, np.linalg.qr(templates)[0]
+    def __init__(self, noise, ndata: int, order: int = 2):
+        x = np.linspace(-1, 1, ndata)  # the abscissa of fit_cm_plus_poly
+        self.noise = noise
+        self.basis = np.linalg.qr(np.polynomial.legendre.legvander(x, order))[0]
 
     def project(self, dat: np.ndarray) -> np.ndarray:
         """
@@ -330,15 +329,15 @@ def set_noise(tod, deproject: bool, dat=None):
     Parameters
     ----------
     tod : Tod
-        TOD, with info["cm"] from read_tods or inject_sim when deprojecting.
+        TOD.
     deproject : bool
-        Project the fit_cm_plus_poly templates out of the noise model.
+        Project the polynomials fit_cm_plus_poly subtracts out of the noise model.
     dat : np.ndarray | None, default: None
         Data to estimate the noise from (default the TOD data).
     """
     tod.set_noise(minkasi.NoiseSmoothedSVD, dat=dat)
     if deproject:
-        tod.noise = DeprojectedNoise(tod.noise, tod.info["cm"])
+        tod.noise = DeprojectedNoise(tod.noise, tod.info["dat_calib"].shape[1])
 
 
 def sim_act(sky, ivar, beam_fwhm_pix, seed):
@@ -924,7 +923,7 @@ def main(args):
     rhs = mapset.copy()
     todvec.make_rhs(rhs)  # wavelet basis rhs, of the residual unless --direct
     wmap.get_downsamps()
-    cache = os.path.join(args.cache, args.name) + ("_dp" if args.deproject_poly else "")
+    cache = os.path.join(args.cache, args.name) + ("_dpoly" if args.deproject_poly else "")
     if (
         args.lattice_tol is not None
     ):  # the matrices depend on the lattice, keep them apart
@@ -1376,7 +1375,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--deproject-poly",
         action="store_true",
-        help="Project the fit_cm_plus_poly templates (per detector polynomial, common mode) out of the noise model",
+        help="Project the per detector polynomials subtracted by fit_cm_plus_poly out of the noise model",
     )
     parser.add_argument("--nfilt", type=int, default=10)
     parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
