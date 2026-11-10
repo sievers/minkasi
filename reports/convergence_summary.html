@@ -356,6 +356,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <li><strong>A prior on band 4 alone does almost nothing</strong> (errors like the masked solve with no prior). The prior's benefit comes from the finest bands, 5–9, outside the footprint. That fits the mask explanation: a hard cut at the edge couples very fine-scale coefficients outside the footprint to the large scales inside.</li>
 <li>All runs recover the decrement to within 1% (−6.42e-4 against −6.49e-4).</li>
 </ul>
+<div class="callout"><p><strong>Decision (10 Nov):</strong> the baseline is no mask and no prior. M2 and ACT are combined only through their noise models. The outside-footprint prior acts only on coefficients with no data at all, so it does not override the noise. But without the mask it improves the map only slightly (largest scale 0.10 → 0.09), which is not worth an extra assumption in the system. <code>--outside-prior</code> stays available as a diagnostic.</p></div>
 <p>Running now: the real-data map with no mask, first with 40 TODs and then with all TODs.</p>
 <h3>Display maps</h3>
 <p>The figures below are for viewing only. They come from <code>examples/multiscale_map.py</code> (real data) and <code>examples/sim_multiscale.py</code> (simulation):</p>
