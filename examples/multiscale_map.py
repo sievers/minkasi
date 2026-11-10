@@ -371,7 +371,7 @@ def ticks(norm: Normalize) -> np.ndarray:
 def draw(
     ax,
     image: np.ndarray,
-    split: np.ndarray,
+    shown: np.ndarray,
     norm: Normalize,
     cmap: str,
     outline: bool,
@@ -384,14 +384,16 @@ def draw(
     ----------
     ax : WCSAxes
         Axes with the fine-grid projection.
-    image, split : np.ndarray
-        Output of compose.
+    image : np.ndarray
+        Display map (compose).
+    shown : np.ndarray
+        Sub-pixels showing the joint map (the m2 output of compose), outlined with outline.
     norm : Normalize
         Colour normalisation in uK.
     cmap : str
         Colour map.
     outline : bool
-        Outline the split ACT pixels.
+        Outline where the joint map is shown, lightly smoothed so it follows the hits rather than single pixels.
     grid : bool, default: False
         Draw the RA/Dec coordinate grid.
 
@@ -404,7 +406,8 @@ def draw(
         image * 1e6, origin="lower", cmap=cmap, norm=norm, interpolation="nearest"
     )
     if outline:
-        ax.contour(split.astype(float), [0.5], colors="k", linewidths=0.6, alpha=0.6)
+        edge = gaussian_filter(shown.astype(float), 2.0)
+        ax.contour(edge, [0.5], colors="k", linewidths=0.6, alpha=0.6)
     ax.set_xlabel("RA")
     ax.set_ylabel("Dec")
     if grid:
@@ -427,9 +430,7 @@ def plot(args, image, split, m2, wcs):
     """
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(projection=wcs)
-    im = draw(
-        ax, image, split, make_norm(image, args), args.cmap, args.outline, args.grid
-    )
+    im = draw(ax, image, m2, make_norm(image, args), args.cmap, args.outline, args.grid)
     fig.colorbar(
         im, ax=ax, label=r"$\mu$K$_{\rm RJ}$", shrink=0.85, ticks=ticks(im.norm)
     )
@@ -550,7 +551,9 @@ if __name__ == "__main__":
         help="twoslope: separate linear scales below and above 0; linear: symmetric about 0",
     )
     parser.add_argument(
-        "--outline", action="store_true", help="Outline the split ACT pixels"
+        "--outline",
+        action="store_true",
+        help="Outline where the joint map is shown (hits >= --show-hits)",
     )
     parser.add_argument("--grid", action="store_true", help="Draw the RA/Dec grid")
     parser.add_argument("--title", default="MOOJ1142, M2 + ACT")

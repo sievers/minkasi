@@ -112,7 +112,7 @@ def main(args: argparse.Namespace):
             f"{label}: residual rms {res[m2].std() * 1e6:.1f} uK where M2 shows, "
             f"{res[~split].std() * 1e6:.1f} uK in the ACT pixels"
         )
-        rows.append((label, truth, data, res, split))
+        rows.append((label, truth, data, res, m2))
 
     # one scale for truth and data, from both, so that the noise in the data stays inside it
     norm = make_norm(np.concatenate([np.concatenate([r[1], r[2]]) for r in rows]), args)
@@ -123,7 +123,7 @@ def main(args: argparse.Namespace):
     )
     rnorm = Normalize(-rlim, rlim)
     fig = plt.figure(figsize=(17, 5.4 * len(rows)))
-    for k, (label, truth, data, res, split) in enumerate(rows):
+    for k, (label, truth, data, res, m2) in enumerate(rows):
         for j, (img, nm, title) in enumerate(
             (
                 (truth, norm, "truth"),
@@ -136,7 +136,7 @@ def main(args: argparse.Namespace):
             )
         ):
             ax = fig.add_subplot(len(rows), 3, 3 * k + j + 1, projection=wcs)
-            im = draw(ax, img, split, nm, args.cmap, args.outline, args.grid)
+            im = draw(ax, img, m2, nm, args.cmap, args.outline, args.grid)
             ax.set_title(title, fontsize=11)
             if j > 0:
                 ax.coords[1].set_ticklabel_visible(False)
