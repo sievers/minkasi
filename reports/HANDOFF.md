@@ -161,3 +161,15 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
 - Pages: status https://claude.ai/artifact/G5BMVxggqE7KRSRYHUsFxj (source `reports/convergence_summary.html`, section 8 is current),
   mapmaking https://claude.ai/artifact/83yLdSf6RiKEEh5Z6yDwkU (source `reports/needlet_mapmaking.html`, "Current best status").
   When the 106-TOD map is in, swap it into Figure 10 / the mapmaking page, and add the jackknife result to section 8.
+
+## 2026-11-10 evening: ACT was mirrored in RA in every real-data solve (fixed, 809620f)
+
+- The real-data tilt (~80 uK, same in every jackknife half) was a bug: `read_act` copied ACT pixels onto the fine grid by array index.
+  pixell returns the cutout with RA increasing along the array; the fine grid has RA decreasing. Evidence: joint map follows ACT in Dec,
+  opposite gradient in RA; the solve's ACT map correlates +0.63 with ACT mirrored in RA, -0.35 as is. Fixed: each 30" block takes the
+  ACT pixel at its centre's sky position (correlation with independently read ACT 0.999, ivar ratio 1.0000). ACT response caches now tagged `_wcs`.
+- All real-data results with ACT before the fix are superseded (krj600, nomask600, all106_nomask/run600, jack40, the 106-TOD numbers in
+  reports/needlet.html and the mapmaking page's older table). Simulations are unaffected (sim ACT built on the fine grid from the sky).
+- Running (detached, `run_wcs.sh`): `lat40/nomask600_wcs` then `all106_nomask/run600_wcs`, each followed by `act_consistency.py`
+  (`consistency.txt`) and a multiscale map (written to reports/figs/summary/best_real_multiscale.png and best_real106_multiscale.png;
+  rerender without the --title argument, which got underscores). Expect the consistency rms near 1 if the fix explains the tilt.

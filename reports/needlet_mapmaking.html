@@ -236,6 +236,7 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
   <tr><td>A stale response cache gave an unclear crash</td><td>The cache does not record the settings it was made with</td><td>A clear error naming the band and shapes. The cache still records nothing.</td><td><code>77a44eb</code></td></tr>
   <tr><td>ACT 1.86× too faint and 3.5× too heavily weighted against M2</td><td>ACT was converted to Jy/beam, but the M2 TODs are in K<sub>RJ</sub></td><td>Convert to K<sub>RJ</sub> (<code>--m2-unit K_RJ</code>, the default)</td><td><code>6c6b240</code></td></tr>
   <tr><td>Large scales near the footprint edge drift away from the truth as CG converges</td><td>The hits mask zeroes the model at low-hit pixels while their samples stay in the data; the noise model carries their sky into the footprint edge</td><td>Run without the mask (<code>--min-hits 0</code>)</td><td>option, no code change</td></tr>
+  <tr><td>Real joint map tilts by about 80 µK against ACT across the M2 region; opposite gradient to ACT in RA</td><td><code>read_act</code> copied ACT pixels onto the fine grid by array index; the ACT cutout has RA increasing along the array, the fine grid RA decreasing, so ACT was mirrored in RA in every real-data solve. Simulations were not affected.</td><td>Take each ACT pixel at the block centre's sky position</td><td><code>809620f</code></td></tr>
 </table>
 </div>
 
@@ -295,7 +296,7 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
 </figure>
 <figure>
   <img src="figs/summary/best_real_multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map, unmasked solve">
-  <figcaption><strong>Real data, 40 TODs, no mask, no prior, 600 iterations (K<sub>RJ</sub>).</strong> 18′ field, same display as above. The thin line marks where the joint map starts to show (hits ≥ 120). The ACT map is the coadd of the 8 DR6 f090 splits, and the joint map's offset from ACT in the M2 region (−7 µK) is subtracted. Seen at ACT resolution, this map tilts against ACT by about 80 µK across the M2 region. The tilt is not from the mask or the convergence and is not present in ACT; it is being investigated (<a href="https://claude.ai/artifact/G5BMVxggqE7KRSRYHUsFxj">status page</a>, section 8). The 106-TOD map is next.</figcaption>
+  <figcaption><strong>Real data, 40 TODs, no mask, no prior, 600 iterations (K<sub>RJ</sub>).</strong> 18′ field, same display as above. The thin line marks where the joint map starts to show (hits ≥ 120). The ACT map is the coadd of the 8 DR6 f090 splits, and the joint map's offset from ACT in the M2 region (−7 µK) is subtracted. <strong>This map was made with ACT mirrored in RA</strong>, a bug found and fixed on 10 November (<code>809620f</code>, see the problems table); that is the roughly 80 µK tilt against ACT. The corrected 40-TOD and 106-TOD maps are being made and will replace this one.</figcaption>
 </figure>
 
 <h2>Open questions</h2>
