@@ -191,7 +191,9 @@ def read_tods(idir, ntods, name=None, total=None, raw=False):
         )  # sometimes we have faster sampled data than we need
         minkasi.truncate_tod(dat)
         if not raw:
-            dat["dat_calib"] = minkasi.fit_cm_plus_poly(dat["dat_calib"])
+            dat["dat_calib"], _, dat["cm"] = minkasi.fit_cm_plus_poly(
+                dat["dat_calib"], full_out=True
+            )
         todvec.add_tod(minkasi.Tod(dat))
         print(f"read {fname} in {time.time() - t1:.1f} s")
     return todvec
@@ -256,9 +258,87 @@ def inject_sim(todvec, wmap, sky, noise, seed):
             dat = dat * (-1) ** (k % 2)
         sig = np.zeros_like(dat)
         map2tod(sig, sky, wmap.real_map.get_pix(tod), do_add=True)
-        tod.info["dat_calib"] = minkasi.fit_cm_plus_poly(
-            np.ascontiguousarray(dat + sig)
+        tod.info["dat_calib"], _, tod.info["cm"] = minkasi.fit_cm_plus_poly(
+            np.ascontiguousarray(dat + sig), full_out=True
         )
+
+
+class DeprojectedNoise:
+    """
+    Noise model Q N^-1 Q, with Q the projection, for every detector, out of the templates fit_cm_plus_poly fits
+    (Legendre polynomials up to `order` and the common mode). The polynomial part is subtracted from the data
+    before mapmaking, so modes it removed get no weight and the model Q A m matches the data, Q d_filtered = Q d.
+    Other attributes are those of the wrapped model.
+
+    Parameters
+    ----------
+    noise : object
+        Noise model with apply_noise(dat).
+    cm : np.ndarray
+        Common mode template, shape (ndata,).
+    order : int, default: 2
+        Highest Legendre order, as the `ord` of fit_cm_plus_poly.
+    """
+
+    def __init__(self, noise, cm: np.ndarray, order: int = 2):
+        x = np.linspace(-1, 1, cm.size)
+        templates = np.column_stack([np.polynomial.legendre.legvander(x, order), cm])
+        self.noise, self.basis = noise, np.linalg.qr(templates)[0]
+
+    def project(self, dat: np.ndarray) -> np.ndarray:
+        """
+        Apply Q.
+
+        Parameters
+        ----------
+        dat : np.ndarray
+            TOD data, shape (ndet, ndata).
+
+        Returns
+        -------
+        np.ndarray
+            The data with the templates projected out of every detector.
+        """
+        return dat - (dat @ self.basis) @ self.basis.T
+
+    def apply_noise(self, dat: np.ndarray) -> np.ndarray:
+        """
+        Apply Q N^-1 Q.
+
+        Parameters
+        ----------
+        dat : np.ndarray
+            TOD data, shape (ndet, ndata).
+
+        Returns
+        -------
+        np.ndarray
+            The weighted data.
+        """
+        return self.project(self.noise.apply_noise(self.project(dat)))
+
+    def __getattr__(self, name):
+        if name == "noise":  # not set yet (copy, unpickling)
+            raise AttributeError(name)
+        return getattr(self.noise, name)
+
+
+def set_noise(tod, deproject: bool, dat=None):
+    """
+    Set the smoothed SVD noise model of a TOD, wrapped in DeprojectedNoise if asked.
+
+    Parameters
+    ----------
+    tod : Tod
+        TOD, with info["cm"] from read_tods or inject_sim when deprojecting.
+    deproject : bool
+        Project the fit_cm_plus_poly templates out of the noise model.
+    dat : np.ndarray | None, default: None
+        Data to estimate the noise from (default the TOD data).
+    """
+    tod.set_noise(minkasi.NoiseSmoothedSVD, dat=dat)
+    if deproject:
+        tod.noise = DeprojectedNoise(tod.noise, tod.info["cm"])
 
 
 def sim_act(sky, ivar, beam_fwhm_pix, seed):
@@ -794,7 +874,7 @@ def main(args):
 
     for tod in todvec.tods:
         tod.info["ipix"] = wmap.get_pix(tod)
-        tod.set_noise(minkasi.NoiseSmoothedSVD)
+        set_noise(tod, args.deproject_poly)
     hits = minkasi.make_hits(todvec, wmap.real_map)
     if minkasi.myrank == 0:
         hits.write(args.outroot + "_hits.fits")
@@ -836,15 +916,15 @@ def main(args):
         if (
             args.direct
         ):  # the PCG model only cleans the noise estimate, the data keep the signal
-            tod.set_noise(minkasi.NoiseSmoothedSVD, dat=tod.info["dat_calib"] - tmp)
+            set_noise(tod, args.deproject_poly, tod.info["dat_calib"] - tmp)
         else:
             tod.info["dat_calib"] -= tmp
-            tod.set_noise(minkasi.NoiseSmoothedSVD)
+            set_noise(tod, args.deproject_poly)
 
     rhs = mapset.copy()
     todvec.make_rhs(rhs)  # wavelet basis rhs, of the residual unless --direct
     wmap.get_downsamps()
-    cache = os.path.join(args.cache, args.name)
+    cache = os.path.join(args.cache, args.name) + ("_dp" if args.deproject_poly else "")
     if (
         args.lattice_tol is not None
     ):  # the matrices depend on the lattice, keep them apart
@@ -1293,6 +1373,11 @@ if __name__ == "__main__":
         help="Minimum ACT beam transfer of a band for ACT to be used in it",
     )
     parser.add_argument("--ntods", type=int, default=2)
+    parser.add_argument(
+        "--deproject-poly",
+        action="store_true",
+        help="Project the fit_cm_plus_poly templates (per detector polynomial, common mode) out of the noise model",
+    )
     parser.add_argument("--nfilt", type=int, default=10)
     parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
     parser.add_argument("--maxiter", type=int, default=50)
