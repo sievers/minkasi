@@ -135,5 +135,5 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
 - `--deproject-poly` (`9f6332a`, fixed in `f42a467`): noise Q N^-1 Q, with Q projecting out Legendre orders 0-2 per detector, so the model matches the
   filtered data. The first version also projected out the common mode, which was wrong because it is still in the data; removed. Cache tag `_dpoly`.
   M2 information changes by 1/2/4% in bands 0/1/2 (polynomial only), so expect a small effect.
-- Running at time of writing (`sim/rundp.sh`): `sim/coefdp`, then `sim/m2onlydp`. Compare with
-  `python sim_compare.py --truth sim/coef/MOOJ1142_truth.fits --hits sim/coef/MOOJ1142_hits.fits --runs coef=sim/coef/MOOJ1142 coefdp=sim/coefdp/MOOJ1142 --iters 40 200 400 600`.
+- Q was removed in `72ae36f` (no effect; the noise model already does the down-weighting). The coefdp/m2onlydp runs died with a session disconnect and are not needed.
+- The residual on the plots is |b - H x_k| / |b| over all needlet coefficients (whole padded map, not preconditioned); small-eigenvalue directions barely show in it, so judge convergence against the simulated truth.

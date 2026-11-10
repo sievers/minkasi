@@ -95,13 +95,22 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <p class="lede">With M2 alone, conjugate gradient (CG) converges to machine precision. With ACT in the operator, the residual stops falling at a few times 10<sup>−4</sup>, and the largest scales of the map keep moving for hundreds of iterations.</p>
 <p>The goal is a combined map that has settled inside the M2 footprint, especially on scales of a few arcminutes and larger. Outside the footprint we use the ACT map as it is, so convergence there does not matter. The underlying science problem is the one that started this work. M2 alone loses the large scales (the "bowl"), and in the earlier ACT + M2 attempts the ACT beam caused trouble at the M2 map edge.</p>
 <div class="callout">
-<p><strong>In short:</strong> the residual floor comes from a handful of poorly determined modes. They live in a ring at the edge of the footprint, on scales where M2 and ACT hand over to each other (needlet bands 1–2, a few arcminutes). The simulation shows that the full-length solves start to fit noise in these modes. The in-footprint map is best at about iteration 40–200, and continuing to iterate makes the largest scales worse, mostly near the edge. An outside-footprint prior stops that drift. Whether the polynomial deprojection in the M2 noise model changes it is being tested now.</p>
+<p><strong>In short:</strong> the residual floor comes from a handful of poorly determined modes. They live in a ring at the edge of the footprint, on scales where M2 and ACT hand over to each other (needlet bands 1–2, a few arcminutes). The simulation shows that the full-length solves start to fit noise in these modes. The in-footprint map is best at about iteration 40–200, and continuing to iterate makes the largest scales worse, mostly near the edge. An outside-footprint prior stops that drift.</p>
 </div>
 </section>
 
 <section id="causes">
 <h2>2. Causes examined</h2>
-<p class="prose">The 40-TOD tests use 600 CG iterations unless noted. "Floor" means the CG relative residual |r|/|b|.</p>
+<p class="prose">The 40-TOD tests use 600 CG iterations unless noted. "Floor" means the level where the CG residual defined below stops falling.</p>
+<div class="callout prose" id="residual">
+<p><strong>What "residual" means here.</strong> CG solves the linear system <em>H x = b</em> for the needlet coefficients <em>x</em>: every band, at every lattice position of the padded map, inside and outside the footprint.</p>
+<ul>
+<li><strong>Operator:</strong> (<em>H x</em>)<sub>i</sub> = F<sub>i</sub> M A<sup>T</sup>N<sup>−1</sup>A M (Σ<sub>j</sub> F<sub>j</sub> x<sub>j</sub>) + F<sub>i</sub> B<sup>T</sup>W B (Σ<sub>j</sub> F<sub>j</sub> x<sub>j</sub>). The first term is M2: F<sub>i</sub> is band i's needlet filter, M the hits mask, A the pointing and N the SVD noise model. The second term is ACT, used only in the ACT bands: B is the ACT beam and pixel, W the ACT inverse variance. The prior term is added when one is used.</li>
+<li><strong>Right-hand side:</strong> <em>b</em> = F<sub>i</sub> M A<sup>T</sup>N<sup>−1</sup>d + F<sub>i</sub> B<sup>T</sup>W m<sub>ACT</sub>, the same weighting applied to the M2 TODs <em>d</em> and the ACT map.</li>
+<li><strong>Residual:</strong> <em>r<sub>k</sub> = b − H x<sub>k</sub></em> after k iterations. The curves plot ‖r<sub>k</sub>‖ / ‖b‖, a plain sum of squares over all coefficients. It is not preconditioned and not restricted to the footprint. With <code>--pixel-cg</code> the unknowns are the real-space pixels instead, with the same definition.</li>
+<li><strong>What it does and does not measure:</strong> <em>r<sub>k</sub> = H (x<sub>exact</sub> − x<sub>k</sub>)</em>, so an error along a direction where H has eigenvalue λ shows up in r only as λ times that error. Poorly determined directions (small λ) can carry a large map error while hardly showing in the residual, and well-measured directions dominate it. A small residual is therefore not a small map error, which is why section 6 compares the maps with the simulated truth directly.</li>
+</ul>
+</div>
 <figure>
 <img src="figs/summary/residuals.png" alt="Three panels of CG residual against iteration: the fixes, the ACT weight scan and the simulation runs">
 <figcaption><strong>CG residual histories.</strong> Left: the code fixes. The lattice fix lowered the late residual (3.8e-4 to 1.6e-4) and the unit fix left it unchanged. Without ACT the solve converges to 1e-12. Middle: scaling the ACT weight down by a factor of 10<sup>6</sup> still leaves a floor, while zero ACT weight converges. Right: the simulation solves. The M2-only curve reaches 1e-15 at iteration 190 and then rises through round-off; it had converged.</figcaption>
@@ -122,7 +131,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <tr><td>Coefficients outside the footprint</td><td>Drop them (<code>--restrict</code>)</td><td>Worse: new, slower edge modes</td><td><span class="chip no">ruled out</span></td></tr>
 <tr><td>Poorly constrained edge modes</td><td>Lanczos/Ritz analysis of the preconditioned operator</td><td>A few eigenvalues of 2e-4 to 6e-4, living just outside the footprint edge</td><td><span class="chip warn">identified, main suspect</span></td></tr>
 <tr><td>Nothing constrains the outside of the footprint</td><td>Prior ε|m|² outside (<code>--outside-prior</code>)</td><td>Converges fast; in the simulation it is the closest to the truth at the largest scales</td><td><span class="chip warn">works, still being judged</span></td></tr>
-<tr><td>M2 polynomial filter not in the noise model</td><td>Overlap measurement; Q N<sup>−1</sup> Q deprojection</td><td>Information changes only 1–4% in bands 0–2</td><td><span class="chip warn">small; simulation test running</span></td></tr>
+<tr><td>M2 polynomial filter not in the noise model</td><td>Overlap measurement; Q N<sup>−1</sup> Q deprojection</td><td>Information changes only 1–4% in bands 0–2; the noise model already down-weights those modes</td><td><span class="chip no">ruled out, Q removed</span></td></tr>
 </tbody>
 </table>
 </div>
@@ -145,6 +154,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <li><strong>The needlet basis on its own.</strong> Pixel-space CG also stalls, so the floor belongs to the problem, not to the coefficient representation.</li>
 <li><strong>Dropping coefficients outside the footprint.</strong> It makes things worse.</li>
 <li><strong>The lattice bug, as the whole story.</strong> It was real and is fixed, but the joint floor remains.</li>
+<li><strong>The M2 polynomial filter missing from the noise model.</strong> Putting it in (Q N<sup>−1</sup> Q) changed M2's information by only 1–4%, so the option was removed again (section 4).</li>
 </ul>
 </section>
 
@@ -173,8 +183,9 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <p><code>coarse2fine</code> only upsamples, so the ACT inverse variance covers the whole map. An earlier claim that it was masked was wrong. The outside of the footprint is therefore free only in the bands without ACT.</p>
 </div>
 <div class="card">
-<h3>M2 noise model and the polynomial <span class="chip warn">testing · f42a467</span></h3>
-<p><code>fit_cm_plus_poly</code> fits the common mode and a per-detector quadratic together, but subtracts only the quadratic; the common mode stays in the data. The SVD noise model never sees the subtracted polynomial. New option <code>--deproject-poly</code>: N<sup>−1</sup> → Q N<sup>−1</sup> Q, where Q projects Legendre orders 0–2 out of every detector, so the model matches the filtered data exactly. A first version also projected out the common mode. That was a mistake, because it removes signal that is still in the data, and it has been corrected. See section 5.</p>
+<h3>M2 noise model and the polynomial <span class="chip no">tested, no effect, removed · 72ae36f</span></h3>
+<p><code>fit_cm_plus_poly</code> fits the common mode and a per-detector quadratic together, but subtracts only the quadratic; the common mode stays in the data. The SVD noise model never sees the subtracted polynomial, so the model and data could disagree at large scales. Tested with an option <code>--deproject-poly</code>: N<sup>−1</sup> → Q N<sup>−1</sup> Q, where Q projects Legendre orders 0–2 out of every detector, so the model matches the filtered data exactly. A first version also projected out the common mode. That was a mistake, because the common mode is still in the data, and it was corrected.</p>
+<p><strong>Result:</strong> Q changes M2's information per mode by 1%, 2% and 4% in bands 0, 1 and 2 (section 5). The SVD noise model already gives those modes almost no weight, which shows the noise model handles this correctly by itself. Q was an extra step with no effect, and it has been removed (added in <code>9f6332a</code> and <code>f42a467</code>, removed in <code>72ae36f</code>). The simulation runs with Q were stopped before they finished and are not needed.</p>
 </div>
 </div>
 </section>
@@ -211,7 +222,8 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <ol>
 <li><strong>The noise model already says "don't trust M2 on large scales".</strong> The common mode stays in the data, so the SVD noise model sees the atmosphere and down-weights it. M2's information per mode is about 500× lower in band 0 than at small scales. M2 holds 0.3% of the information in band 0 and 4% in band 1, with no manual band cut.</li>
 <li><strong>The handover is in band 2</strong>, where M2 holds 37% and ACT 63%. This is the same band, and the same edge region, where the slow modes live.</li>
-<li><strong>The polynomial is a small correction.</strong> Projecting it out of the noise model changes M2's information by only 1–4% in bands 0–2. The first version, which wrongly also projected out the common mode, changed it by 2–6%. In the joint solve, the bias from the unmodelled polynomial should be about 1% in bands 0–1.</li>
+<li><strong>The polynomial does not matter.</strong> Projecting it out of the noise model (Q, see section 4) changes M2's information by only 1–4% in bands 0–2. The first version, which wrongly also projected out the common mode, changed it by 2–6%. The noise model already does the down-weighting, so Q was removed.</li>
+<li><strong>The noise down-weighting is why M2 alone loses the large scales.</strong> M2's data carry almost no information there, so the M2-only map cannot recover them (the bowl, transfer 0.27 in section 6). That is what ACT is for, and the joint solves recover them.</li>
 <li><strong>A correction to an earlier extrapolation:</strong> from the 2-TOD debug run I estimated M2's share at about 33% in band 1. The measured value with 40 TODs is 3.8%.</li>
 </ol>
 <p class="meta">Caveats: the ACT transfer in band 0 (0.87) is lowered by masking to the footprint, since the 2.1′ beam spreads signal outside it. The ACT term uses white noise from the inverse-variance map, without the CMB weighting or ACT's own large-scale noise.</p>
@@ -258,12 +270,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <section id="now" class="prose">
 <h2>7. Current picture and next steps</h2>
 <p>The working explanation: M2 and ACT hand over in band 2. At the footprint edge, neither experiment pins down needlets that hang half outside the footprint. That leaves a few weakly determined, noise-dominated modes. CG spends hundreds of iterations on them, which shows up as the residual floor. Fitting them makes the large scales near the edge worse, not better. This is closely related to the original "ACT beam causes trouble at the M2 edge" problem.</p>
-<h3>Running now</h3>
-<ul>
-<li><code>coefdp</code>: the needlet solve with <code>--deproject-poly</code>, 600 iterations, on the same simulation.</li>
-<li><code>m2onlydp</code>: the M2-only solve with <code>--deproject-poly</code>.</li>
-</ul>
-<p>From the information change, expect at most a few-percent effect. If <code>coefdp</code> still drifts, the polynomial is ruled out as the cause of the drift.</p>
+<p>This is a spatial problem, not a spectral one. The noise model already does the scale weighting between M2 and ACT correctly. What no weighting can fix is that, near the edge, the needlets at band 1–2 scales extend into a region where M2 has no data and ACT measures those scales only weakly (beam transfer about 0.5). Those combinations are then fixed only by noise, unless a prior or an early stop decides them.</p>
 <h3>Options to decide on</h3>
 <ul>
 <li>Adopt the outside-footprint prior, judged by the simulation, and choose its strength (c = 1e-2 used here).</li>
