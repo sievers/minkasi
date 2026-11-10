@@ -117,3 +117,23 @@ the real-space residual inside the footprint.
 - Do not use `pkill -f` or `pgrep -f` patterns that match their own command line (use the bracket trick `'twores_ex.py --nam[e]'`); kill your own jobs by PID.
 - Run the tests with `~/venvs/general/bin/python -m pytest tests/test_needlet.py tests/test_cmb.py`.
 - Useful scripts in `examples/`: `plot_residual_curves.py`, `cg_convergence.py`, `compare_maps_bands.py`, `compare_gif.py`, `plot_final_aplpy.py`, `plot_map_aplpy.py`, `bowling_test.py`, `probe_band_gif.py`.
+
+## 2026-11-10: units, simulation, transfer functions, deprojection
+
+Summary page (current status, read first): https://claude.ai/artifact/G5BMVxggqE7KRSRYHUsFxj, source `reports/convergence_summary.html`,
+figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_residual_curves.py`, `transfer_overlap.py`).
+
+- Units (`6c6b240`): M2 TODs are K_RJ; ACT was converted to Jy/beam (4.37e-7 instead of 8.15e-7 per uK_CMB). Not the cause of the
+  residual floor (krj600 and nyq600 residual curves are the same), but large scales settle faster (32-64 px change 0.23/0.13/0.09 vs 0.41/0.40/0.16).
+- Simulation (`examples/make_sim_sky.py` uses WITCH; `twores_ex --sim-sky --sim-noise flip`), runs in `sim/`, table in `sim/summary.txt`.
+  Joint solves get the decrement to 1% (truth -6.49e-4). Interior 32-64 px error: coef 0.14 at iteration 40 -> 0.32 at 600 (drifts, at the edge),
+  pixn the same, pixj slower, prior (c=1e-2, non-ACT bands) 0.12 and stable = best. m2only: transfer 0.27 (the bowl).
+- Transfer functions (`examples/transfer_overlap.py`, `overlap/tf40*`): M2 information per mode (Fourier diagonal of A^T N^-1 A with the
+  SVD noise model) against the ACT term. M2 share: band 0 0.3%, band 1 3.8%, band 2 37%, band 3 92%; crossover at l ~ 5000 (2.5' half wavelength).
+  The SVD noise model already down-weights large scales. The common mode is NOT removed from the data: fit_cm_plus_poly subtracts only the
+  per-detector quadratic, whose data transfer is 0.55/0.72/0.93 in bands 0/1/2.
+- `--deproject-poly` (`9f6332a`, fixed in `f42a467`): noise Q N^-1 Q, with Q projecting out Legendre orders 0-2 per detector, so the model matches the
+  filtered data. The first version also projected out the common mode, which was wrong because it is still in the data; removed. Cache tag `_dpoly`.
+  M2 information changes by 1/2/4% in bands 0/1/2 (polynomial only), so expect a small effect.
+- Running at time of writing (`sim/rundp.sh`): `sim/coefdp`, then `sim/m2onlydp`. Compare with
+  `python sim_compare.py --truth sim/coef/MOOJ1142_truth.fits --hits sim/coef/MOOJ1142_hits.fits --runs coef=sim/coef/MOOJ1142 coefdp=sim/coefdp/MOOJ1142 --iters 40 200 400 600`.
