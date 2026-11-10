@@ -10,6 +10,7 @@ import glob
 import os
 import time
 
+import astropy.constants as const
 import astropy.units as u
 import minkasi.minkasi_all as minkasi
 import numpy as np
@@ -87,25 +88,28 @@ def cached(prefix, compute, redo, nfilt, bands):
     return resp
 
 
-def act_conversion(freq=90e9, beam_fwhm=9.0, unit="Jy"):
+def act_conversion(freq=90e9, beam_fwhm=9.0, unit="K_RJ"):
     """
-    Factor converting ACT maps (uK CMB) to the units of the M2 data (unit/beam, RJ).
+    Factor converting ACT maps (uK CMB) to the units of the M2 data.
 
     Parameters
     ----------
     freq : float, default: 90e9
         Observing frequency in Hz.
     beam_fwhm : float, default: 9.0
-        FWHM of the M2 beam in arcsec.
-    unit : str, default: "Jy"
-        Flux unit of the M2 TODs, "Jy" or "mJy". The median per sample noise of the MOOJ1142
-        TODs is about 2 in their units, which is only realistic for Jy/beam.
+        FWHM of the M2 beam in arcsec, only used for the flux units.
+    unit : str, default: "K_RJ"
+        Unit of the M2 TODs: "K_RJ" (Rayleigh-Jeans temperature, the calibration of the MUSTANG-2
+        TODs, as in WITCH) or the flux units "Jy" and "mJy" (per M2 beam).
 
     Returns
     -------
     float
-        unit/beam per uK_CMB.
+        M2 units per uK_CMB.
     """
+    if unit == "K_RJ":  # dB/dT of the CMB blackbody relative to Rayleigh-Jeans
+        x = (const.h * freq * u.Hz / (const.k_B * 2.7255 * u.K)).to_value(u.one)
+        return 1e-6 * x**2 * np.exp(x) / np.expm1(x) ** 2
     omega = (2 * np.pi * (beam_fwhm * u.arcsec / (8 * np.log(2)) ** 0.5) ** 2).to(u.sr)
     equiv = u.thermodynamic_temperature(freq * u.Hz, 2.7255 * u.K)
     return ((1 * u.uK).to(u.Jy / u.sr, equiv) * omega).to_value(u.Unit(unit))
@@ -1058,9 +1062,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--m2-unit",
-        default="Jy",
-        choices=["Jy", "mJy"],
-        help="Flux unit of the M2 TODs",
+        default="K_RJ",
+        choices=["K_RJ", "Jy", "mJy"],
+        help="Unit of the M2 TODs (K_RJ: Rayleigh-Jeans temperature; Jy, mJy: per M2 beam)",
     )
     parser.add_argument(
         "--m2-beam", type=float, default=9.0, help="M2 beam FWHM in arcsec"
