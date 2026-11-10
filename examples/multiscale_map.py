@@ -25,7 +25,7 @@ from twores_ex import act_conversion
 
 def read_act_coadd(
     pattern: str, ra: float, dec: float, size: float, conv: float
-) -> enmap.ndmap:
+) -> tuple[enmap.ndmap, enmap.ndmap]:
     """
     Inverse-variance weighted coadd of the ACT split maps (temperature) in a box, converted to the M2 units.
 
@@ -42,8 +42,8 @@ def read_act_coadd(
 
     Returns
     -------
-    enmap.ndmap
-        The coadd on the ACT pixelization, [dec, ra] order.
+    coadd, ivar : enmap.ndmap
+        The coadd and its inverse variance (in the M2 units) on the ACT pixelization, [dec, ra] order.
     """
     half = size / 120 * utils.degree
     c = np.array([dec, ra]) * utils.degree
@@ -54,9 +54,8 @@ def read_act_coadd(
         m = enmap.read_map(path.replace("_ivar", "_map"), box=box)
         m = m[0] if m.ndim == 3 else m
         num, den = num + ivar * m, den + ivar
-    return enmap.ndmap(
-        np.divide(num, den, out=np.zeros(den.shape), where=den > 0) * conv, den.wcs
-    )
+    coadd = np.divide(num, den, out=np.zeros(den.shape), where=den > 0) * conv
+    return enmap.ndmap(coadd, den.wcs), enmap.ndmap(den / conv**2, den.wcs)
 
 
 def subgrid_wcs(wcs: WCS, factor: int) -> WCS:
@@ -103,48 +102,101 @@ def sample(path: str, wcs: WCS, shape: tuple[int, int], order: int) -> np.ndarra
     """
     with fits.open(path) as hdul:
         data, src = hdul[0].data.astype(float).squeeze(), WCS(hdul[0].header).celestial
+    return sample_array(data, src, wcs, shape, order)
+
+
+def sample_array(
+    data: np.ndarray, src: WCS, wcs: WCS, shape: tuple[int, int], order: int
+) -> np.ndarray:
+    """
+    Sample an image with a WCS at the pixel centres of another grid.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Image, [y, x].
+    src : WCS
+        Its WCS.
+    wcs : WCS
+        Target grid.
+    shape : tuple[int, int]
+        Target shape, [y, x].
+    order : int
+        Interpolation order (0 nearest, 1 bilinear).
+
+    Returns
+    -------
+    np.ndarray
+        Samples, 0 outside the image.
+    """
     yy, xx = np.mgrid[: shape[0], : shape[1]]
     px, py = src.wcs_world2pix(*wcs.wcs_pix2world(xx, yy, 0), 0)
     return map_coordinates(data, [py, px], order=order, cval=0.0)
 
 
-def compose(args, act: enmap.ndmap) -> tuple[np.ndarray, np.ndarray, np.ndarray, WCS]:
+def fine_grid(act: enmap.ndmap, factor: int) -> tuple[WCS, tuple[int, int], np.ndarray]:
+    """
+    The sub-pixel grid of an ACT map and the map repeated onto it.
+
+    Parameters
+    ----------
+    act : enmap.ndmap
+        Map on the ACT pixelization.
+    factor : int
+        Sub-pixels per ACT pixel along each axis.
+
+    Returns
+    -------
+    wcs : WCS
+        WCS of the fine grid.
+    shape : tuple[int, int]
+        Its shape.
+    up : np.ndarray
+        The ACT map as constant blocks on the fine grid.
+    """
+    wcs = subgrid_wcs(WCS(act.wcs.to_header()), factor)
+    up = np.repeat(np.repeat(np.asarray(act), factor, 0), factor, 1)
+    return wcs, up.shape, up
+
+
+def compose(
+    args, act_up: np.ndarray, joint: np.ndarray, hits: np.ndarray, pix: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Build the two-resolution map on the sub-pixel grid.
 
     Parameters
     ----------
     args : argparse.Namespace
-        Parsed arguments.
-    act : enmap.ndmap
-        ACT coadd.
+        Parsed arguments (factor, min_hits, smooth, match, feather_hits).
+    act_up : np.ndarray
+        ACT map as constant blocks on the fine grid (fine_grid).
+    joint : np.ndarray
+        Joint map sampled on the fine grid.
+    hits : np.ndarray
+        M2 hits sampled on the fine grid.
+    pix : float
+        Sub-pixel size in arcsec.
 
     Returns
     -------
     image : np.ndarray
-        Display map on the fine grid; split ACT pixels hold sub-pixel values, the others are constant blocks.
+        Display map; split ACT pixels hold sub-pixel values, the others are constant blocks.
     split : np.ndarray
         True on the sub-pixels of split ACT pixels.
     m2 : np.ndarray
         True on the sub-pixels showing the joint map.
-    wcs : WCS
-        WCS of the fine grid.
     """
     f = args.factor
-    wcs = subgrid_wcs(WCS(act.wcs.to_header()), f)
-    shape = (act.shape[0] * f, act.shape[1] * f)
-    act_up = np.repeat(np.repeat(np.asarray(act), f, 0), f, 1)
-    hits = sample(args.hits, wcs, shape, 0)
-    joint = sample(args.joint, wcs, shape, 1)
     m2 = hits >= args.min_hits
     if (
         args.smooth > 0
     ):  # normalised so the smoothing does not pull in the zeros outside the footprint
-        sig = args.smooth / np.sqrt(8 * np.log(2)) / (abs(wcs.wcs.cdelt[0]) * 3600)
+        sig = args.smooth / np.sqrt(8 * np.log(2)) / pix
         joint = gaussian_filter(joint * m2, sig) / np.maximum(
             gaussian_filter(m2.astype(float), sig), 1e-3
         )
-    blocks = m2.reshape(act.shape[0], f, act.shape[1], f).any((1, 3))
+    blocks = m2.reshape(m2.shape[0] // f, f, m2.shape[1] // f, f).any((1, 3))
     split = np.repeat(np.repeat(blocks, f, 0), f, 1)
     if args.match == "offset":
         off = np.median((joint - act_up)[m2])
@@ -158,7 +210,87 @@ def compose(args, act: enmap.ndmap) -> tuple[np.ndarray, np.ndarray, np.ndarray,
         else 1.0
     )
     image = np.where(m2, w * joint + (1 - w) * act_up, act_up)
-    return image, split, m2, wcs
+    return image, split, m2
+
+
+def make_norm(image: np.ndarray, args) -> Normalize:
+    """
+    Colour normalisation of a display map, in uK.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        Display map in K.
+    args : argparse.Namespace
+        Parsed arguments (vmin, vmax, stretch).
+
+    Returns
+    -------
+    Normalize
+        twoslope: 0 at the centre of the colour map, the negative (decrement) and positive (CMB) sides scaled
+        separately so that both use the full colour range; linear: symmetric about 0.
+    """
+    lo = image.min() * 1e6 if args.vmin is None else args.vmin
+    hi = np.percentile(image, 99.7) * 1e6 if args.vmax is None else args.vmax
+    if args.stretch == "linear":
+        lo, hi = -max(-lo, hi), max(-lo, hi)
+    return (
+        TwoSlopeNorm(0.0, lo, hi) if args.stretch == "twoslope" else Normalize(lo, hi)
+    )
+
+
+def ticks(norm: Normalize) -> np.ndarray:
+    """
+    Colour bar ticks with both sides of a two-slope scale labelled.
+
+    Parameters
+    ----------
+    norm : Normalize
+        Colour normalisation.
+
+    Returns
+    -------
+    np.ndarray
+        Ticks: the ends, halves and 0, rounded toward 0 to 2 significant figures so they stay in range.
+    """
+    t = np.array([norm.vmin, norm.vmin / 2, 0.0, norm.vmax / 2, norm.vmax])
+    step = 10.0 ** (np.floor(np.log10(np.maximum(np.abs(t), 1e-30))) - 1)
+    return np.trunc(t / step) * step
+
+
+def draw(
+    ax, image: np.ndarray, split: np.ndarray, norm: Normalize, cmap: str, outline: bool
+):
+    """
+    Draw a display map on WCS axes.
+
+    Parameters
+    ----------
+    ax : WCSAxes
+        Axes with the fine-grid projection.
+    image, split : np.ndarray
+        Output of compose.
+    norm : Normalize
+        Colour normalisation in uK.
+    cmap : str
+        Colour map.
+    outline : bool
+        Outline the split ACT pixels.
+
+    Returns
+    -------
+    AxesImage
+        The image, for a colour bar.
+    """
+    im = ax.imshow(
+        image * 1e6, origin="lower", cmap=cmap, norm=norm, interpolation="nearest"
+    )
+    if outline:
+        ax.contour(split.astype(float), [0.5], colors="k", linewidths=0.6, alpha=0.6)
+    ax.set_xlabel("RA")
+    ax.set_ylabel("Dec")
+    ax.coords.grid(color="0.5", alpha=0.25, linestyle=":")
+    return im
 
 
 def plot(args, image, split, m2, wcs):
@@ -174,26 +306,12 @@ def plot(args, image, split, m2, wcs):
     wcs : WCS
         WCS of the fine grid.
     """
-    # twoslope: 0 at the centre of the colour map, the negative (decrement) and positive (CMB) sides scaled
-    # separately so that both use the full colour range; linear: symmetric about 0
-    lo = image.min() * 1e6 if args.vmin is None else args.vmin
-    hi = np.percentile(image, 99.7) * 1e6 if args.vmax is None else args.vmax
-    if args.stretch == "linear":
-        lo, hi = -max(-lo, hi), max(-lo, hi)
-    norm = (
-        TwoSlopeNorm(0.0, lo, hi) if args.stretch == "twoslope" else Normalize(lo, hi)
-    )
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(projection=wcs)
-    im = ax.imshow(
-        image * 1e6, origin="lower", cmap=args.cmap, norm=norm, interpolation="nearest"
+    im = draw(ax, image, split, make_norm(image, args), args.cmap, args.outline)
+    fig.colorbar(
+        im, ax=ax, label=r"$\mu$K$_{\rm RJ}$", shrink=0.85, ticks=ticks(im.norm)
     )
-    if args.outline:
-        ax.contour(split.astype(float), [0.5], colors="k", linewidths=0.6, alpha=0.6)
-    ax.set_xlabel("RA")
-    ax.set_ylabel("Dec")
-    ax.coords.grid(color="0.5", alpha=0.25, linestyle=":")
-    fig.colorbar(im, ax=ax, label=r"$\mu$K$_{\rm RJ}$", shrink=0.85)
     pix = abs(wcs.wcs.cdelt[0]) * 3600
     ax.set_title(
         f'{args.title}\nACT {pix * args.factor:g}" pixels, split into {args.factor}x{args.factor} '
@@ -218,8 +336,11 @@ def main(args: argparse.Namespace):
         ny, nx = hdul[0].data.squeeze().shape
     ra, dec = hw.wcs_pix2world((nx - 1) / 2, (ny - 1) / 2, 0)
     conv = act_conversion(args.freq, unit="K_RJ")
-    act = read_act_coadd(args.act_glob, float(ra), float(dec), args.size, conv)
-    image, split, m2, wcs = compose(args, act)
+    act = read_act_coadd(args.act_glob, float(ra), float(dec), args.size, conv)[0]
+    wcs, shape, act_up = fine_grid(act, args.factor)
+    pix = abs(wcs.wcs.cdelt[0]) * 3600
+    hits, joint = sample(args.hits, wcs, shape, 0), sample(args.joint, wcs, shape, 1)
+    image, split, m2 = compose(args, act_up, joint, hits, pix)
     print(
         f"ACT map {act.shape}, fine grid {image.shape}; {split.mean():.1%} of the area split, "
         f"{m2.mean():.1%} showing the joint map"
