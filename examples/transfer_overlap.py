@@ -28,7 +28,6 @@ from twores_ex import (
     act_conversion,
     read_act,
     read_tods,
-    set_noise,
     setup_wmap,
 )
 
@@ -141,7 +140,7 @@ def main(args: argparse.Namespace):
     wmap = setup_wmap(todvec, args.pixsize, args.nfilt, args.pad_frac)
     for tod in todvec.tods:
         tod.info["ipix"] = wmap.get_pix(tod)
-        set_noise(tod, args.deproject_poly)
+        tod.set_noise(minkasi.NoiseSmoothedSVD)
     hits = minkasi.make_hits(todvec, wmap.real_map).map
     fp = (hits >= args.min_hits).astype(float)
     shape = fp.shape
@@ -269,9 +268,6 @@ if __name__ == "__main__":
     parser.add_argument("--m2-beam", type=float, default=9.0, help="Arcsec")
     parser.add_argument("--freq", type=float, default=90e9, help="Hz")
     parser.add_argument("--m2-unit", default="K_RJ", choices=["K_RJ", "Jy", "mJy"])
-    parser.add_argument(
-        "--deproject-poly", action="store_true", help="As in twores_ex.py"
-    )
     parser.add_argument("--nprobe", type=int, default=8)
     parser.add_argument("--nbin", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)

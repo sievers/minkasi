@@ -261,85 +261,6 @@ def inject_sim(todvec, wmap, sky, noise, seed):
         )
 
 
-class DeprojectedNoise:
-    """
-    Noise model Q N^-1 Q, with Q the projection, for every detector, out of the Legendre polynomials up to
-    `order` that fit_cm_plus_poly subtracts from the data (the common mode is fitted with them but not subtracted,
-    so it stays to the noise model). The modes the subtraction removed get no weight and the model Q A m matches
-    the data, Q d_filtered = Q d.
-    Other attributes are those of the wrapped model.
-
-    Parameters
-    ----------
-    noise : object
-        Noise model with apply_noise(dat).
-    ndata : int
-        Number of samples.
-    order : int, default: 2
-        Highest Legendre order, as the `ord` of fit_cm_plus_poly.
-    """
-
-    def __init__(self, noise, ndata: int, order: int = 2):
-        x = np.linspace(-1, 1, ndata)  # the abscissa of fit_cm_plus_poly
-        self.noise = noise
-        self.basis = np.linalg.qr(np.polynomial.legendre.legvander(x, order))[0]
-
-    def project(self, dat: np.ndarray) -> np.ndarray:
-        """
-        Apply Q.
-
-        Parameters
-        ----------
-        dat : np.ndarray
-            TOD data, shape (ndet, ndata).
-
-        Returns
-        -------
-        np.ndarray
-            The data with the templates projected out of every detector.
-        """
-        return dat - (dat @ self.basis) @ self.basis.T
-
-    def apply_noise(self, dat: np.ndarray) -> np.ndarray:
-        """
-        Apply Q N^-1 Q.
-
-        Parameters
-        ----------
-        dat : np.ndarray
-            TOD data, shape (ndet, ndata).
-
-        Returns
-        -------
-        np.ndarray
-            The weighted data.
-        """
-        return self.project(self.noise.apply_noise(self.project(dat)))
-
-    def __getattr__(self, name):
-        if name == "noise":  # not set yet (copy, unpickling)
-            raise AttributeError(name)
-        return getattr(self.noise, name)
-
-
-def set_noise(tod, deproject: bool, dat=None):
-    """
-    Set the smoothed SVD noise model of a TOD, wrapped in DeprojectedNoise if asked.
-
-    Parameters
-    ----------
-    tod : Tod
-        TOD.
-    deproject : bool
-        Project the polynomials fit_cm_plus_poly subtracts out of the noise model.
-    dat : np.ndarray | None, default: None
-        Data to estimate the noise from (default the TOD data).
-    """
-    tod.set_noise(minkasi.NoiseSmoothedSVD, dat=dat)
-    if deproject:
-        tod.noise = DeprojectedNoise(tod.noise, tod.info["dat_calib"].shape[1])
-
-
 def sim_act(sky, ivar, beam_fwhm_pix, seed):
     """
     Simulated ACT map on the fine pixels: the sky smoothed with the ACT beam and averaged over ACT pixels,
@@ -873,7 +794,7 @@ def main(args):
 
     for tod in todvec.tods:
         tod.info["ipix"] = wmap.get_pix(tod)
-        set_noise(tod, args.deproject_poly)
+        tod.set_noise(minkasi.NoiseSmoothedSVD)
     hits = minkasi.make_hits(todvec, wmap.real_map)
     if minkasi.myrank == 0:
         hits.write(args.outroot + "_hits.fits")
@@ -915,15 +836,15 @@ def main(args):
         if (
             args.direct
         ):  # the PCG model only cleans the noise estimate, the data keep the signal
-            set_noise(tod, args.deproject_poly, tod.info["dat_calib"] - tmp)
+            tod.set_noise(minkasi.NoiseSmoothedSVD, dat=tod.info["dat_calib"] - tmp)
         else:
             tod.info["dat_calib"] -= tmp
-            set_noise(tod, args.deproject_poly)
+            tod.set_noise(minkasi.NoiseSmoothedSVD)
 
     rhs = mapset.copy()
     todvec.make_rhs(rhs)  # wavelet basis rhs, of the residual unless --direct
     wmap.get_downsamps()
-    cache = os.path.join(args.cache, args.name) + ("_dpoly" if args.deproject_poly else "")
+    cache = os.path.join(args.cache, args.name)
     if (
         args.lattice_tol is not None
     ):  # the matrices depend on the lattice, keep them apart
@@ -1372,11 +1293,6 @@ if __name__ == "__main__":
         help="Minimum ACT beam transfer of a band for ACT to be used in it",
     )
     parser.add_argument("--ntods", type=int, default=2)
-    parser.add_argument(
-        "--deproject-poly",
-        action="store_true",
-        help="Project the per detector polynomials subtracted by fit_cm_plus_poly out of the noise model",
-    )
     parser.add_argument("--nfilt", type=int, default=10)
     parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
     parser.add_argument("--maxiter", type=int, default=50)
