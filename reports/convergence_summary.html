@@ -338,10 +338,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <table>
 <thead><tr><th>Interior error / truth</th><th>Band 0</th><th>Band 1</th><th>Band 2</th><th>Largest scale (32–64 px)</th><th>Its transfer</th><th>Display residual rms, M2 part</th></tr></thead>
 <tbody>
-<tr><td>masked, iteration 600</td><td class="num">0.34</td><td class="num">0.36</td><td class="num">0.49</td><td class="num">0.32</td><td class="num">1.15</td><td class="num">12.3 µK</td></tr>
-<tr><td>masked + outside prior, 600</td><td class="num">0.12</td><td class="num">0.15</td><td class="num">0.24</td><td class="num">0.12</td><td class="num">1.08</td><td class="num">11.0 µK</td></tr>
+<tr><td>masked, iteration 600</td><td class="num">0.34</td><td class="num">0.36</td><td class="num">0.49</td><td class="num">0.32</td><td class="num">1.15</td><td class="num">11.1 µK</td></tr>
+<tr><td>masked + outside prior, 600</td><td class="num">0.12</td><td class="num">0.15</td><td class="num">0.24</td><td class="num">0.12</td><td class="num">1.08</td><td class="num">9.7 µK</td></tr>
 <tr><td><strong>no mask, no prior, 40</strong></td><td class="num">0.09</td><td class="num">0.07</td><td class="num">0.18</td><td class="num">0.09</td><td class="num">1.04</td><td class="num">–</td></tr>
-<tr><td><strong>no mask, no prior, 600</strong></td><td class="num">0.16</td><td class="num">0.10</td><td class="num">0.28</td><td class="num">0.10</td><td class="num">0.98</td><td class="num">11.3 µK</td></tr>
+<tr><td><strong>no mask, no prior, 600</strong></td><td class="num">0.16</td><td class="num">0.10</td><td class="num">0.28</td><td class="num">0.10</td><td class="num">0.98</td><td class="num">9.9 µK</td></tr>
 </tbody>
 </table>
 </div>
@@ -351,17 +351,18 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <p>The figures below are for viewing only. They come from <code>examples/multiscale_map.py</code> (real data) and <code>examples/sim_multiscale.py</code> (simulation):</p>
 <ul>
 <li><strong>Base grid:</strong> 30″ ACT pixels. Each one containing M2 data (hits ≥ 20) is split into 8 × 8 sub-pixels of 3.75″.</li>
-<li><strong>What a sub-pixel shows:</strong> the joint map, smoothed to 10″, where it has at least 120 hits. It is feathered into the ACT value over the next 300 hits. Sub-pixels with fewer than 120 hits show their ACT pixel's value.</li>
+<li><strong>What a sub-pixel shows:</strong> the joint map, where it has at least 120 hits, feathered into the ACT value over the next 300 hits. Sub-pixels with fewer than 120 hits show their ACT pixel's value.</li>
+<li><strong>Smoothing that follows the hits:</strong> the joint map is smoothed to 10″ FWHM where it has at least 3000 hits. Below that, the FWHM grows as 10″ × √(3000 / hits), up to 30″ (<code>--smooth-ref-hits 3000</code>). The M2 noise after smoothing goes as 1 / (FWHM √hits), so this keeps the displayed noise about the same everywhere instead of letting it grow toward the edge. For 40 TODs the FWHM is about 16″ at the 90th-percentile hits and 30″ at the median. With all TODs the noise is about 1.6 times lower, so a smaller reference will do.</li>
 <li><strong>Display only:</strong> the threshold affects only the picture. The solve still uses every sample, which is what removes the edge bias, while the picture no longer shows the noisy low-hit pixels.</li>
 <li><strong>Elsewhere:</strong> unsplit pixels show the ACT map.</li>
 </ul>
 <div class="callout">
-<p><strong>Why low-hit pixels speckle.</strong> On the scales a few sub-pixels across, ACT contributes nothing: those are very high ℓ, where its beam transfer is 0.004 or less in band 4 and about 0 above (Figure 4). So at those scales the joint map is pure M2, and where M2 has few hits it is pure M2 noise. Its rms grows as 1/√hits, and the 10″ smoothing does not remove it. The joint solve is behaving correctly here: there is no information on those scales at those pixels, and the noise shows it. The display threshold (<code>--show-hits</code>) hides those pixels by showing the ACT value instead, which on those scales just means showing nothing. A larger smoothing near the edge would do the same while keeping the large scales of the joint map.</p>
+<p><strong>Why low-hit pixels speckle.</strong> On the scales a few sub-pixels across, ACT contributes nothing: those are very high ℓ, where its beam transfer is 0.004 or less in band 4 and about 0 above (Figure 4). So at those scales the joint map is pure M2, and where M2 has few hits it is pure M2 noise. Its rms grows as 1/√hits. With 40 TODs it is large even at full weight: 32 µK at 10″ smoothing for 420–1000 hits, against a positive colour range of only 78 µK set by the CMB, so noise peaks saturate. The joint solve is behaving correctly here: there is no information on those scales at those pixels, and the noise shows it. The display threshold (<code>--show-hits</code>) hides those pixels by showing the ACT value instead, which on those scales just means showing nothing. The hits-dependent smoothing deals with the rest: it smooths more where there are fewer hits, and keeps the large scales of the joint map.</p>
 </div>
 </div>
 <figure>
 <img src="figs/summary/best_sim_multiscale.png" alt="Simulation with no mask: truth, simulated data and residual as two-resolution maps">
-<figcaption><strong>Figure 8. Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> Truth: the simulated sky, and in the ACT pixels the sky as a noiseless ACT sees it (ACT beam, pixel average). Data: the joint map, and in the ACT pixels a simulated ACT map with noise from the real ACT inverse variance. The residual's M2 part is smoothed to 30″. Its rms is 11.3 µK in the M2 part and 17.8 µK in the ACT pixels, which is ACT noise.</figcaption>
+<figcaption><strong>Figure 8. Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> Truth: the simulated sky, and in the ACT pixels the sky as a noiseless ACT sees it (ACT beam, pixel average). Data: the joint map, and in the ACT pixels a simulated ACT map with noise from the real ACT inverse variance. The residual's M2 part is smoothed to 30″. Its rms is 9.9 µK in the M2 part and 17.8 µK in the ACT pixels, which is ACT noise.</figcaption>
 </figure>
 <figure>
 <img src="figs/summary/sim_multiscale.png" alt="Simulation: masked needlet solve and masked solve with the outside prior, truth, data and residual">

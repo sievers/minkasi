@@ -291,7 +291,7 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
 </ul>
 <figure>
   <img src="figs/summary/best_sim_multiscale.png" alt="Simulation, best configuration: truth, simulated data and residual as two-resolution maps">
-  <figcaption><strong>Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> Display maps for viewing only: 30″ ACT pixels, split into 8 × 8 sub-pixels (3.75″) where M2 has data. A sub-pixel shows the joint map, smoothed to 10″, where it has at least 120 hits, feathered into ACT over the next 300 hits. Below 120 hits it shows its ACT pixel's value, since at those fine scales ACT carries no information and the map there would be pure low-hit M2 noise. The residual's M2 part is smoothed to 30″: 11 µK rms there, against 18 µK of ACT noise in the ACT pixels.</figcaption>
+  <figcaption><strong>Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> Display maps for viewing only: 30″ ACT pixels, split into 8 × 8 sub-pixels (3.75″) where M2 has data. A sub-pixel shows the joint map where it has at least 120 hits, feathered into ACT over the next 300 hits. Below 120 hits it shows its ACT pixel's value, since at those fine scales ACT carries no information and the map there would be pure low-hit M2 noise. The joint map is smoothed to 10″ where it has at least 3000 hits, and more where it has fewer: FWHM 10″ × √(3000 / hits), up to 30″. That keeps the displayed M2 noise about constant. The residual's M2 part is smoothed to 30″: 10 µK rms there, against 18 µK of ACT noise in the ACT pixels.</figcaption>
 </figure>
 <figure>
   <img src="figs/summary/multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map, masked solve">

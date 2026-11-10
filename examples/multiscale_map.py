@@ -159,6 +159,67 @@ def fine_grid(act: enmap.ndmap, factor: int) -> tuple[WCS, tuple[int, int], np.n
     return wcs, up.shape, up
 
 
+def smooth_by_hits(
+    joint: np.ndarray,
+    m2: np.ndarray,
+    hits: np.ndarray,
+    pix: float,
+    fwhm: float,
+    ref_hits: float | None,
+    fwhm_max: float,
+    nlevel: int = 6,
+) -> np.ndarray:
+    """
+    Gaussian smoothing inside a region, normalised so that it does not pull in the values outside, with a width that
+    can grow where the hits are low: FWHM = fwhm * sqrt(ref_hits / hits), between fwhm and fwhm_max. The M2 noise per
+    pixel goes as 1 / sqrt(hits) and after smoothing as 1 / (FWHM sqrt(hits)), so this keeps the displayed noise about
+    constant below ref_hits.
+
+    Parameters
+    ----------
+    joint : np.ndarray
+        Map to smooth.
+    m2 : np.ndarray
+        Region to smooth within.
+    hits : np.ndarray
+        Hits per pixel.
+    pix : float
+        Pixel size in arcsec.
+    fwhm : float
+        FWHM in arcsec where hits >= ref_hits (everywhere if ref_hits is None).
+    ref_hits : float | None
+        Hits above which the FWHM is `fwhm`.
+    fwhm_max : float
+        Largest FWHM in arcsec.
+    nlevel : int, default: 6
+        Number of smoothing widths computed; each pixel interpolates between the two that bracket its FWHM.
+
+    Returns
+    -------
+    np.ndarray
+        The smoothed map.
+    """
+
+    def smooth(f):
+        sig = f / np.sqrt(8 * np.log(2)) / pix
+        return gaussian_filter(joint * m2, sig) / np.maximum(
+            gaussian_filter(m2.astype(float), sig), 1e-3
+        )
+
+    if not ref_hits or fwhm_max <= fwhm:
+        return smooth(fwhm)
+    target = np.clip(fwhm * np.sqrt(ref_hits / np.maximum(hits, 1e-3)), fwhm, fwhm_max)
+    levels = np.geomspace(fwhm, fwhm_max, nlevel)
+    maps = np.array([smooth(f) for f in levels])
+    t = np.interp(np.log(target), np.log(levels), np.arange(nlevel))
+    lo = np.floor(t).astype(int).clip(0, nlevel - 2)
+    frac = t - lo
+    rows = np.indices(t.shape)
+    return (1 - frac) * maps[lo, rows[0], rows[1]] + frac * maps[
+        lo + 1, rows[0], rows[1]
+    ]
+
+
 def compose(
     args, act_up: np.ndarray, joint: np.ndarray, hits: np.ndarray, pix: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -168,7 +229,7 @@ def compose(
     Parameters
     ----------
     args : argparse.Namespace
-        Parsed arguments (factor, min_hits, show_hits, smooth, match, feather_hits).
+        Parsed arguments (factor, min_hits, show_hits, smooth, smooth_ref_hits, smooth_max, match, feather_hits).
     act_up : np.ndarray
         ACT map as constant blocks on the fine grid (fine_grid).
     joint : np.ndarray
@@ -190,12 +251,9 @@ def compose(
     f = args.factor
     show = max(args.min_hits, args.show_hits or 0)
     m2 = hits >= show  # sub-pixels showing the joint map; the others keep the ACT value
-    if (
-        args.smooth > 0
-    ):  # normalised so the smoothing does not pull in the zeros outside the footprint
-        sig = args.smooth / np.sqrt(8 * np.log(2)) / pix
-        joint = gaussian_filter(joint * m2, sig) / np.maximum(
-            gaussian_filter(m2.astype(float), sig), 1e-3
+    if args.smooth > 0:
+        joint = smooth_by_hits(
+            joint, m2, hits, pix, args.smooth, args.smooth_ref_hits, args.smooth_max
         )
     has = hits >= args.min_hits  # ACT pixels with any of these are split
     blocks = has.reshape(has.shape[0] // f, f, has.shape[1] // f, f).any((1, 3))
@@ -239,6 +297,34 @@ def make_norm(image: np.ndarray, args) -> Normalize:
     return (
         TwoSlopeNorm(0.0, lo, hi) if args.stretch == "twoslope" else Normalize(lo, hi)
     )
+
+
+def smoothing_label(args) -> str:
+    """
+    Short description of the display settings for a figure title.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments (smooth, smooth_ref_hits, smooth_max, show_hits, min_hits, feather_hits).
+
+    Returns
+    -------
+    str
+        For example 'M2 part smoothed to 10" (above 3000 hits, up to 30" below), shown above 120 hits'.
+    """
+    if args.smooth <= 0:
+        sm = "M2 part unsmoothed"
+    elif args.smooth_ref_hits:
+        sm = (
+            f'M2 part smoothed to {args.smooth:g}" above {args.smooth_ref_hits:g} hits, '
+            f'up to {args.smooth_max:g}" below'
+        )
+    else:
+        sm = f'M2 part smoothed to {args.smooth:g}"'
+    show = max(args.min_hits, args.show_hits or 0)
+    fe = f", feathered over {args.feather_hits:g}" if args.feather_hits > 0 else ""
+    return f"{sm}; shown above {show:g} hits{fe}"
 
 
 def ticks(norm: Normalize) -> np.ndarray:
@@ -317,7 +403,7 @@ def plot(args, image, split, m2, wcs):
     pix = abs(wcs.wcs.cdelt[0]) * 3600
     ax.set_title(
         f'{args.title}\nACT {pix * args.factor:g}" pixels, split into {args.factor}x{args.factor} '
-        f'({pix:g}") where M2 has data',
+        f'({pix:g}") where M2 has data\n{smoothing_label(args)}',
         fontsize=10,
     )
     fig.savefig(args.out, dpi=args.dpi, bbox_inches="tight")
@@ -397,6 +483,18 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help="Gaussian FWHM for the M2 part, arcsec",
+    )
+    parser.add_argument(
+        "--smooth-ref-hits",
+        type=float,
+        default=None,
+        help="Below this many hits the smoothing FWHM grows as sqrt(ref / hits), up to --smooth-max (default: fixed FWHM)",
+    )
+    parser.add_argument(
+        "--smooth-max",
+        type=float,
+        default=30.0,
+        help="arcsec, largest FWHM with --smooth-ref-hits",
     )
     parser.add_argument(
         "--feather-hits",

@@ -29,6 +29,7 @@ from multiscale_map import (
     read_act_coadd,
     sample,
     sample_array,
+    smoothing_label,
     ticks,
 )
 from twores_ex import act_conversion
@@ -150,7 +151,7 @@ def main(args: argparse.Namespace):
             )
     fig.suptitle(
         f'Simulation, ACT {pix * args.factor:g}" pixels split into {args.factor}x{args.factor} ({pix:g}") '
-        f'where M2 has data; M2 part smoothed to {args.smooth:g}", feathered over {args.feather_hits:g} hits',
+        f"where M2 has data\n{smoothing_label(args)}",
         fontsize=12,
     )
     fig.savefig(args.out, dpi=args.dpi, bbox_inches="tight")
@@ -192,6 +193,18 @@ if __name__ == "__main__":
         help="Hits for a sub-pixel to show the joint map",
     )
     parser.add_argument("--smooth", type=float, default=10.0, help="arcsec")
+    parser.add_argument(
+        "--smooth-ref-hits",
+        type=float,
+        default=None,
+        help="Below this many hits the smoothing FWHM grows as sqrt(ref / hits), up to --smooth-max (default: fixed FWHM)",
+    )
+    parser.add_argument(
+        "--smooth-max",
+        type=float,
+        default=30.0,
+        help="arcsec, largest FWHM with --smooth-ref-hits",
+    )
     parser.add_argument("--feather-hits", type=float, default=200.0)
     parser.add_argument(
         "--res-smooth",
