@@ -457,7 +457,7 @@ if __name__ == "__main__":
         "--freq", type=float, default=90e9, help="Hz, for the ACT unit conversion"
     )
     parser.add_argument(
-        "--size", type=float, default=30.0, help="Side of the map, arcmin"
+        "--size", type=float, default=18.0, help="Side of the map, arcmin"
     )
     parser.add_argument(
         "--factor",

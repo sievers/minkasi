@@ -114,7 +114,8 @@ def main(args: argparse.Namespace):
         )
         rows.append((label, truth, data, res, split))
 
-    norm = make_norm(rows[0][1], args)
+    # one scale for truth and data, from both, so that the noise in the data stays inside it
+    norm = make_norm(np.concatenate([np.concatenate([r[1], r[2]]) for r in rows]), args)
     rlim = (
         args.res_lim
         or np.percentile(np.abs(np.concatenate([r[3].ravel() for r in rows])), 99.5)
@@ -181,7 +182,7 @@ if __name__ == "__main__":
         "--act-beam", type=float, default=2.1, help="ACT beam FWHM, arcmin"
     )
     parser.add_argument("--freq", type=float, default=90e9)
-    parser.add_argument("--size", type=float, default=30.0, help="arcmin")
+    parser.add_argument("--size", type=float, default=18.0, help="arcmin")
     parser.add_argument("--factor", type=int, default=8)
     parser.add_argument(
         "--min-hits", type=float, default=20, help="Hits for an ACT pixel to be split"
