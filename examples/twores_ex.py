@@ -1011,11 +1011,14 @@ def main(args):
         if (
             args.outside_prior is not None
         ):  # weak prior pulling the map outside the footprint to zero
-            if args.act_only or args.min_hits <= 0:
-                raise SystemExit("--outside-prior needs the hits mask and the M2 term")
-            outside = 1.0 - (np.asarray(mask) > 0)
+            if args.act_only:
+                raise SystemExit("--outside-prior needs the M2 term")
+            # the prior's footprint is set by its own hits threshold, so it also works without the M2 mask
+            foot = hits.map >= args.prior_min_hits
+            outside = 1.0 - foot
             prior_resp = cached(
-                f"{cache}_outside",
+                f"{cache}_outside"
+                + (f"_h{args.prior_min_hits:g}" if args.prior_min_hits != 20 else ""),
                 lambda bands: wmap.get_response_matrix_map(
                     outside.ravel(),
                     nfilts=bands,
@@ -1029,7 +1032,7 @@ def main(args):
             # weight relative to the M2 weight per pixel, from the finest band (one lattice point per pixel)
             last = kw_bands[-1]
             pts = np.ix_(wmap.nx_space[last], wmap.ny_space[last])
-            infoot = (np.asarray(mask) > 0)[pts].ravel()
+            infoot = foot[pts].ravel()
             eps = args.outside_prior * (
                 np.median(m2_resp[last].diagonal()[infoot])
                 / np.median(prior_resp[last].diagonal()[~infoot])
@@ -1037,8 +1040,15 @@ def main(args):
             print(
                 f"outside prior: eps = {eps:.3e} ({args.outside_prior:g} of the M2 pixel weight)"
             )
-            # with --prior-non-act only the bands without ACT get the prior (ACT measures the others)
-            poff = [i for i in act_bands] if args.prior_non_act else []
+            # bands without the prior: those not in --prior-bands, or with --prior-non-act the ACT bands
+            if args.prior_bands is not None:
+                poff = [i for i in range(need.nfilt) if i not in args.prior_bands]
+            else:
+                poff = list(act_bands) if args.prior_non_act else []
+            print(
+                "outside prior in bands",
+                [i for i in range(need.nfilt) if i not in poff],
+            )
             responses.append(
                 np.array(
                     [
@@ -1253,6 +1263,19 @@ if __name__ == "__main__":
         "--prior-non-act",
         action="store_true",
         help="Apply --outside-prior only to the bands in which ACT is not used",
+    )
+    parser.add_argument(
+        "--prior-bands",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Apply --outside-prior only to these bands (overrides --prior-non-act)",
+    )
+    parser.add_argument(
+        "--prior-min-hits",
+        type=float,
+        default=20,
+        help="--outside-prior acts where hits < this, independent of --min-hits",
     )
     parser.add_argument(
         "--restrict",
