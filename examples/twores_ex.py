@@ -221,6 +221,11 @@ def sample_sky(path: str, wmap: WavSkyMap) -> np.ndarray:
         ii, jj, 0
     )  # map[i, j] is FITS pixel (i, j)
     px, py = wcs.wcs_world2pix(ra, dec, 0)
+    # snap round-off onto whole pixels, so an image on the same grid is returned exactly (else the last row and
+    # column can land 1e-12 outside the image and get cval)
+    px, py = (
+        np.where(np.abs(p - np.round(p)) < 1e-6, np.round(p), p) for p in (px, py)
+    )
     return map_coordinates(data, [py, px], order=1, cval=0.0)
 
 
@@ -885,7 +890,7 @@ def main(args):
     print(f"M2 response took {time.time() - t0:.1f} s")
     responses = [m2_resp]
     act_bands = []
-    act_rhs = 0
+    act_rhs = prior_rhs = 0
     t0 = time.time()
     paths = sorted(glob.glob(args.act_glob))
     if args.debug:
@@ -1010,15 +1015,19 @@ def main(args):
 
         if (
             args.outside_prior is not None
-        ):  # weak prior pulling the map outside the footprint to zero
+        ):  # prior eps |P (m_B - m0_B)|^2 on the bands B in the region P, m0 = --prior-mean (default 0)
             if args.act_only:
                 raise SystemExit("--outside-prior needs the M2 term")
-            # the prior's footprint is set by its own hits threshold, so it also works without the M2 mask
-            foot = hits.map >= args.prior_min_hits
+            # the region: nonzero pixels of --prior-mask, or hits < --prior-min-hits (independent of the M2 mask)
+            if args.prior_mask:
+                foot = sample_sky(args.prior_mask, wmap) <= 0.5
+                tag = "_m" + os.path.splitext(os.path.basename(args.prior_mask))[0]
+            else:
+                foot = hits.map >= args.prior_min_hits
+                tag = f"_h{args.prior_min_hits:g}" if args.prior_min_hits != 20 else ""
             outside = 1.0 - foot
             prior_resp = cached(
-                f"{cache}_outside"
-                + (f"_h{args.prior_min_hits:g}" if args.prior_min_hits != 20 else ""),
+                f"{cache}_outside" + tag,
                 lambda bands: wmap.get_response_matrix_map(
                     outside.ravel(),
                     nfilts=bands,
@@ -1060,14 +1069,27 @@ def main(args):
             )
             data_apply = apply
 
+            def prior_term(m):  # F_i eps P m on the prior bands
+                yp = map2wav_real(eps * outside * m, filt)[0]
+                yp[poff] = 0
+                return yp
+
             def apply(x):
                 y = data_apply(x)
                 xp = x.maps[0].map.copy()
                 xp[poff] = 0
-                yp = map2wav_real(eps * outside * wav2map_real(xp, filt)[0], filt)[0]
-                yp[poff] = 0
-                y.maps[0].map += yp
+                y.maps[0].map += prior_term(wav2map_real(xp, filt)[0])
                 return y
+
+            if args.prior_mean:  # pull toward the prior bands of a map, not toward zero
+                wm = map2wav_real(
+                    sample_sky(args.prior_mean, wmap) * args.prior_mean_scale, filt
+                )[0]
+                wm[poff] = 0
+                prior_rhs = prior_term(wav2map_real(wm, filt)[0])
+                print(
+                    f"prior mean from {args.prior_mean}, prior-band rms {wav2map_real(wm, filt)[0].std():.2e}"
+                )
 
         solve = wmap.block_solver(
             responses[-1:] if args.act_only else responses,
@@ -1117,7 +1139,7 @@ def main(args):
         b = rhs.copy()
         if args.act_only:
             b.maps[0].map[:] = 0
-        b.maps[0].map += act_rhs
+        b.maps[0].map += act_rhs + prior_rhs
         if args.restrict is not None:
             b.maps[0].map *= keep
         x0 = b.copy()
@@ -1249,8 +1271,9 @@ if __name__ == "__main__":
         "--outside-prior",
         type=float,
         default=None,
-        help="Add a prior eps |map|^2 outside the footprint, eps this fraction of the M2 weight per pixel "
-        "(e.g. 1e-3). Default: none",
+        help="Add a prior eps |P (m_B - m0_B)|^2: region P (hits < --prior-min-hits, or --prior-mask), bands B "
+        "(--prior-bands or --prior-non-act, default all), mean m0 (--prior-mean, default 0); eps is this fraction "
+        "of the M2 weight per pixel (e.g. 1e-2). Default: none",
     )
     parser.add_argument(
         "--pixel-cg",
@@ -1276,6 +1299,23 @@ if __name__ == "__main__":
         type=float,
         default=20,
         help="--outside-prior acts where hits < this, independent of --min-hits",
+    )
+    parser.add_argument(
+        "--prior-mask",
+        default=None,
+        help="FITS image (celestial WCS); --outside-prior acts where it is > 0.5, instead of the hits threshold",
+    )
+    parser.add_argument(
+        "--prior-mean",
+        default=None,
+        help="FITS map (in the M2 units, e.g. an ACT map or a model) whose prior bands --outside-prior pulls "
+        "toward, instead of zero",
+    )
+    parser.add_argument(
+        "--prior-mean-scale",
+        type=float,
+        default=1.0,
+        help="Factor applied to --prior-mean (e.g. a unit conversion)",
     )
     parser.add_argument(
         "--restrict",
