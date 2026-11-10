@@ -273,7 +273,44 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <li><strong>Strength:</strong> ε = c × (median M2 weight per lattice point inside the footprint in the finest band) / (median prior weight per point outside), with c = 10<sup>−2</sup>. So outside the footprint, a pixel in the non-ACT bands is held about as firmly as 1% of a typical M2 pixel's weight.</li>
 <li><strong>Preconditioner:</strong> the prior's blocks are probed like the M2 and ACT blocks and added to the block preconditioner.</li>
 </ul>
-<p>It is a Tikhonov (ridge) regulariser on the unmeasured part of the solution. Without it, the fine-band needlets outside the footprint are fixed only by how they leak into the footprint edge, which is the weakly determined direction CG keeps working on. A zero-mean prior is not physical outside the footprint, but the ACT bands carry the sky there, and what it suppresses is finer than ACT can see. The prior touches only bands 4–9 (half-wavelength 0.7′ and smaller), yet it removes the edge patches in the 16–64 px band of Figure 6. That suggests those patches are mostly carried by fine-band coefficients just outside the edge, which no data constrain. This has not yet been checked band by band.</p>
+<p>It is a Tikhonov (ridge) regulariser on the unmeasured part of the solution. Without it, the fine-band needlets outside the footprint are fixed only by how they leak into the footprint edge, which is the weakly determined direction CG keeps working on. A zero-mean prior is not physical outside the footprint, but the ACT bands carry the sky there, and what it suppresses is finer than ACT can see.</p>
+<h3>Which bands carry the error</h3>
+<p>Script <code>examples/band_error.py</code> splits the in-footprint error (map minus truth) into needlet bands, F<sub>i</sub><sup>2</sup>(m − truth). The saved maps are zero outside the footprint, so only the inside is used. I had guessed that the edge patches sat in the fine bands 4+, the ones the prior acts on. They do not.</p>
+<figure>
+<img src="figs/summary/band_error.png" alt="Map minus truth split into needlet bands 0 to 7 for the needlet solve at iterations 40 and 600 and the prior solve at 600">
+<figcaption><strong>Figure 7. Map minus truth inside the footprint, split by needlet band.</strong> Rows: needlet solve at iteration 40, needlet solve at 600, prior solve at 600. Each column has one colour scale. The error that grows with iteration is in bands 0–2, the ACT bands, and the prior removes it. Bands 3 and up are the same in all three rows; they are M2 noise, which only more data reduces.</figcaption>
+</figure>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Error / truth rms, interior</th><th>Band 0</th><th>Band 1</th><th>Band 2</th><th>Band 3</th><th>Band 4</th><th>Band 5</th></tr></thead>
+<tbody>
+<tr><td>needlet CG, iteration 40</td><td class="num">0.19</td><td class="num">0.17</td><td class="num">0.26</td><td class="num">0.52</td><td class="num">0.87</td><td class="num">2.65</td></tr>
+<tr><td>needlet CG, iteration 600</td><td class="num">0.34</td><td class="num">0.36</td><td class="num">0.49</td><td class="num">0.55</td><td class="num">0.87</td><td class="num">2.65</td></tr>
+<tr><td>prior, iteration 600</td><td class="num">0.12</td><td class="num">0.15</td><td class="num">0.24</td><td class="num">0.52</td><td class="num">0.86</td><td class="num">2.65</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><strong>The drift is in bands 0–2.</strong> From iteration 40 to 600 their interior error roughly doubles; nothing changes in bands 3 and up. In the edge strip, bands 1–3 carry 77–84% of the 16–64 px error, and band 4 only 6–12%.</li>
+<li><strong>The prior fixes bands 0–2, although it acts only on bands 4–9 outside the footprint.</strong> At iteration 600 it is better than the needlet solve was at iteration 40 (0.12 against 0.19 in band 0). So the coupling between the fine bands outside and the large scales inside goes through the operator, not through the bands overlapping. My guess is the hits mask M in the M2 term: cutting a fine-scale needlet at the footprint edge gives it some large-scale content. That has not been tested.</li>
+<li><strong>Bands 5 and up</strong> are M2-noise dominated (error several times the signal or more), as expected for 40 TODs. Their signal is mostly beam-suppressed.</li>
+</ul>
+<h3>A signal-based prior strength</h3>
+<p>For a zero-mean Gaussian prior on the bands it acts on (4–9), the natural strength is ε = 1 / (sky variance per pixel of the sum of those bands). From the simulated sky components:</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Sky part, bands 4–9</th><th>rms per pixel (K<sub>RJ</sub>)</th><th>ε = 1 / variance</th><th>Relative to ε used</th></tr></thead>
+<tbody>
+<tr><td>Cluster (whole map)</td><td class="num">1.0e-5</td><td class="num">9.8e9</td><td class="num">4.6e4</td></tr>
+<tr><td>Point source (whole map)</td><td class="num">4.5e-6</td><td class="num">4.9e10</td><td class="num">2.3e5</td></tr>
+<tr><td>CMB (whole map)</td><td class="num">1.7e-7</td><td class="num">3.6e13</td><td class="num">1.7e8</td></tr>
+<tr><td>All together (whole map)</td><td class="num">1.1e-5</td><td class="num">8.2e9</td><td class="num">3.9e4</td></tr>
+<tr><td>Truth in the 20 px strip just outside the footprint</td><td class="num">1.2e-6</td><td class="num">7.0e11</td><td class="num">3.3e6</td></tr>
+<tr><td>Used: c = 10<sup>−2</sup> of the M2 pixel weight</td><td class="num">(M2 noise 2.2e-4 per pixel)</td><td class="num">2.1e5</td><td class="num">1</td></tr>
+</tbody>
+</table>
+</div>
+<p>On these scales the sky outside the footprint is 20–200 times smaller than the M2 noise per pixel, and the primary CMB is damped away. A physically motivated zero-mean prior would therefore be 10<sup>4</sup>–10<sup>6</sup> times stronger than the one used, and would essentially fix those coefficients at zero. Pulling toward zero is about right for these bands; what is left there is cluster substructure and point sources, and the cluster part is from this simulation's model. Caveats: the variance per pixel treats the fine part as white, and the cluster and the source are not Gaussian or stationary.</p>
 </div>
 </section>
 
