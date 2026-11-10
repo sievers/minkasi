@@ -156,7 +156,7 @@ def setup_wmap(todvec, pixsize, nfilt, pad_frac=0.0):
     return WavSkyMap(need, lims, ps, nx=n, ny=n)
 
 
-def read_tods(idir, ntods, name=None, total=None, raw=False):
+def read_tods(idir, ntods, name=None, total=None, raw=False, tod_list=None):
     """
     Read, downsample and common mode subtract MUSTANG-2 TODs, splitting files between MPI ranks.
 
@@ -172,15 +172,23 @@ def read_tods(idir, ntods, name=None, total=None, raw=False):
         If given, only the first `total` TODs (after the blacklist) are used, in all ranks together.
     raw : bool, default: False
         Skip the common mode and polynomial subtraction (see inject_sim, which applies it).
+    tod_list : str | None, default: None
+        Text file with one TOD path per line; if given, these TODs are used instead of the directory,
+        blacklist and `total`.
 
     Returns
     -------
     todvec : TodVec
     """
-    tod_names = sorted(glob.glob(os.path.join(idir, "Sig*.fits")))
-    if name is not None:
-        tod_names = minkasi.cut_blacklist(tod_names, minkasi.get_bad_tods(name)[0])
-    tod_names = tod_names[:total][minkasi.myrank :: minkasi.nproc][:ntods]
+    if tod_list is not None:
+        with open(tod_list) as f:
+            tod_names = [line.strip() for line in f if line.strip()][:total]
+    else:
+        tod_names = sorted(glob.glob(os.path.join(idir, "Sig*.fits")))
+        if name is not None:
+            tod_names = minkasi.cut_blacklist(tod_names, minkasi.get_bad_tods(name)[0])
+        tod_names = tod_names[:total]
+    tod_names = tod_names[minkasi.myrank :: minkasi.nproc][:ntods]
     todvec = minkasi.TodVec()
     for fname in tod_names:
         t1 = time.time()
@@ -784,7 +792,12 @@ def main(args):
         Parsed command line arguments.
     """
     todvec = read_tods(
-        args.idir, args.ntods, args.name, args.ntods_total, raw=bool(args.sim_sky)
+        args.idir,
+        args.ntods,
+        args.name,
+        args.ntods_total,
+        raw=bool(args.sim_sky),
+        tod_list=args.tod_list,
     )
     wmap = setup_wmap(todvec, args.pixsize, args.nfilt, args.pad_frac)
     need = wmap.needlet
@@ -1356,6 +1369,11 @@ if __name__ == "__main__":
         help="Minimum ACT beam transfer of a band for ACT to be used in it",
     )
     parser.add_argument("--ntods", type=int, default=2)
+    parser.add_argument(
+        "--tod-list",
+        default=None,
+        help="Text file of TOD paths to use instead of --idir and the blacklist (e.g. from tod_splits.py)",
+    )
     parser.add_argument("--nfilt", type=int, default=10)
     parser.add_argument("--pixsize", type=float, default=3.0, help="Arcseconds")
     parser.add_argument("--maxiter", type=int, default=50)
