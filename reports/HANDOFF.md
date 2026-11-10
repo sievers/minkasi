@@ -69,6 +69,11 @@ the real-space residual inside the footprint.
   is written to `/mnt/welch/USERS/jorlo/needlets/ritz/prior_summary.txt` when they finish (script `ritz/summarize_prior.py`).
   What to look for: smallest eigenvalues raised, faster convergence, and a small in-footprint bias against the reference.
 - If the prior works, next: test it on 40 TODs with the corrected lattice and judge convergence inside the footprint only.
+- Result (full table in `ritz/prior_summary.txt`): the prior makes the in-footprint map converge fast (at c = 1e-2 and 1e-1 it stops
+  changing by iteration 50) but moves it away from the no-prior solution by 3-5% (c = 1e-4, not converged) to 10-14% (c >= 1e-3),
+  including 8-11% more than 10 px from the edge. So on this toy problem the in-footprint map depends on what is assumed outside at
+  the 10% level. A zero-mean prior outside is not physical (the sky there is not zero). Proposed next test, not yet run: let ACT
+  constrain the outside (ACT inverse variance not masked to the M2 hits), i.e. a prior whose mean is the ACT map.
 
 ## Open items
 
