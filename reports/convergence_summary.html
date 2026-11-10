@@ -380,8 +380,19 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <figcaption><strong>Figure 9. For comparison, the two masked solves</strong> (needlet CG without and with the outside prior), shown the same way as Figure 8. The patches at the footprint edge in the first row's residual are what the mask causes.</figcaption>
 </figure>
 <figure>
-<img src="figs/summary/multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map from the masked solve">
-<figcaption><strong>Figure 10. Real data, 40 TODs, masked solve (600 iterations, K<sub>RJ</sub>).</strong> Same display as Figure 8, with the colour scale set by the map itself. The ACT map is the coadd of the 8 DR6 f090 splits, and the thin line marks where the joint map starts to show (hits ≥ 120). The joint map's offset from ACT inside the M2 region (−10 µK) is subtracted. This is a placeholder from the earlier masked run. The same map with no mask is queued, first for 40 TODs and then for all TODs, and will replace it here.</figcaption>
+<img src="figs/summary/best_real_multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map from the unmasked solve">
+<figcaption><strong>Figure 10. Real data, 40 TODs, no mask, no prior, 600 iterations (K<sub>RJ</sub>).</strong> Same display as Figure 8, with the colour scale set by the map itself. The ACT map is the coadd of the 8 DR6 f090 splits, and the thin line marks where the joint map starts to show (hits ≥ 120). The joint map's offset from ACT inside the M2 region (−7 µK) is subtracted. The 106-TOD map is next.</figcaption>
 </figure>
+<div class="prose">
+<h3>The real map tilts against ACT</h3>
+<p>Seen at ACT resolution, the real joint map differs from ACT inside the M2 region by 2.6× ACT's noise. The simulation gives 1.0. The difference is a tilt of about 81 µK at the region's edge, high on the left. Removing a plane leaves ACT noise. What the checks show:</p>
+<ul>
+<li><strong>Not the mask:</strong> 2.66× masked, 2.57× unmasked, same tilt.</li>
+<li><strong>Not convergence:</strong> the tilt is 81 µK at iteration 40 and stays there to 600.</li>
+<li><strong>Not visible in ACT's own checks:</strong> the same tilt appears against ACT pa5 and pa6 separately (pa5 − pa6 tilt 2 µK), and a half-split ACT null is white noise at its stated level, averaging down to 2 µK over 4′. Ground pickup common to all ACT data would not show in these.</li>
+<li><strong>Not in the simulation:</strong> the simulated M2 noise is the real data with alternate TODs sign-flipped, and the simulated map has no tilt against the truth.</li>
+</ul>
+<p>So the tilt is in the real M2 data and adds up coherently on the sky. Possible causes are pickup tied to azimuth or elevation, which every TOD sees the same way because each one tracks the source, or an M2/ACT calibration or transfer difference. The planned test is a jackknife of the M2 TODs by observing session and by elevation. A shared M2 systematic should show the same tilt in every half; a time-varying one should not.</p>
+</div>
 </section>
 </div>
