@@ -137,3 +137,27 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
   M2 information changes by 1/2/4% in bands 0/1/2 (polynomial only), so expect a small effect.
 - Q was removed in `72ae36f` (no effect; the noise model already does the down-weighting). The coefdp/m2onlydp runs died with a session disconnect and are not needed.
 - The residual on the plots is |b - H x_k| / |b| over all needlet coefficients (whole padded map, not preconditioned); small-eigenvalue directions barely show in it, so judge convergence against the simulated truth.
+
+## 2026-11-10 afternoon: the mask, display maps, the real-data tilt
+
+- **The hits mask caused the large-scale edge drift.** With `--min-hits 20` the M2 model is zero at low-hit pixels while their samples stay
+  in the data; the SVD noise model carries that sky into the footprint edge. 40-TOD simulation, interior largest-scale error at iteration 600:
+  masked 0.32, unmasked 0.10 (transfer 0.98), unmasked + outside prior 0.09. **Baseline decision (user): no mask, no prior**, M2 and ACT
+  combined only through the noise models (`--direct --cg 600 --lattice-tol 1e-3 --min-hits 0`). The prior stays as a diagnostic.
+- Prior options now: `--outside-prior c`, `--prior-bands`/`--prior-non-act`, `--prior-min-hits`, `--prior-mask FILE`, `--prior-mean FILE`
+  (+ `--prior-mean-scale`). Checked on the debug problem (mean reproduced to 0.03 uK; mask file reproduces the hits region exactly).
+  Fixed in the same commit (`3d020e9`): `sample_sky` lost the last row/column to round-off when resampling an image on the same grid.
+- Display maps (for viewing only): `examples/multiscale_map.py` (real data) and `examples/sim_multiscale.py` (truth / data / residual).
+  ACT 30" pixels split 8x8 where M2 has data; settings used on the pages: `--smooth 10 --smooth-ref-hits 3000 --show-hits 120
+  --feather-hits 300 --outline` (sim figures also `--vmax 150`). Default field 18'.
+- **Open: the real joint map tilts against ACT** by ~81 uK across the M2 region (2.57x ACT noise; the simulation gives 0.97x).
+  Not the mask, not convergence (same at iteration 40), not ACT (pa5 and pa6 agree, split null white). So it is a sky-coherent M2
+  systematic or an M2/ACT calibration/transfer difference. Tool: `examples/act_consistency.py --root <outroot>`.
+- Running, detached (setsid), in order:
+  1. `all106_nomask/run.sh`: 106 TODs, no mask, 600 iterations -> `all106_nomask/run600/`, then a multiscale map
+     `reports/figs/summary/best_real106_multiscale.png` (made with the older display settings; rerender with the ones above).
+  2. `jack40/run.sh`: jackknife of the 40 TODs (`--tod-list`, lists from `examples/tod_splits.py`): time1/time2 (2018 vs 2020+2023) and
+     elev_lo/elev_hi, 200 iterations each; summary with the tilt per half in `jack40/summary.txt`.
+- Pages: status https://claude.ai/artifact/G5BMVxggqE7KRSRYHUsFxj (source `reports/convergence_summary.html`, section 8 is current),
+  mapmaking https://claude.ai/artifact/83yLdSf6RiKEEh5Z6yDwkU (source `reports/needlet_mapmaking.html`, "Current best status").
+  When the 106-TOD map is in, swap it into Figure 10 / the mapmaking page, and add the jackknife result to section 8.
