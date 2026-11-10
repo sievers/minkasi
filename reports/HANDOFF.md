@@ -74,6 +74,14 @@ the real-space residual inside the footprint.
   including 8-11% more than 10 px from the edge. So on this toy problem the in-footprint map depends on what is assumed outside at
   the 10% level. A zero-mean prior outside is not physical (the sky there is not zero). Proposed next test, not yet run: let ACT
   constrain the outside (ACT inverse variance not masked to the M2 hits), i.e. a prior whose mean is the ACT map.
+- Correction: ACT's inverse variance is NOT masked to the M2 hits (`coarse2fine` only upsamples; ivar covers the whole map). The outside
+  is free only in the bands without ACT. Follow-up tests (small problem, 400 iterations, `ritz/`): prior only on non-ACT bands (`pna`)
+  = same as the prior on all bands; ACT also in band 2 (`t001`) converges slower. New `--pixel-cg {jacobi,needlet}` solves for the
+  real-space map: residual at 400 iterations 1.5e-3 (Jacobi, stalls) and 7.1e-4 (needlet preconditioner), against 1.2e-6 for the
+  needlet-coefficient solve. All solutions except the coefficient reference agree within 3-9% in the footprint interior; each
+  differs from the coefficient reference by 11-12%. So the in-footprint map has a component of about 11% that the data barely
+  determine, and the coefficient (overcomplete) formulation fills it differently from all the others. Next proposed: a simulation
+  with a known input sky to decide which is closer to the truth.
 
 ## Open items
 

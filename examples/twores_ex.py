@@ -413,6 +413,112 @@ def coefficient_support(
     return keep
 
 
+def pixel_solve(args, apply, m2_dot, act_dot, solve, b, wmap, hits, ivar, mask, t0):
+    """
+    CG for the real space map instead of the needlet coefficients. With W = wav2map_real and
+    sum_i F_i^2 = 1, the map space operator is W apply W^T and the right hand side W b. The preconditioner is
+    either the needlet block solve in map space, W solve W^T ("needlet"), or the inverse of an estimate of
+    the operator diagonal ("jacobi"): M2 proportional to the hits and ACT proportional to its inverse variance,
+    each scaled by the operator applied to one pixel.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Uses pixel_cg, cg, cg_tol, cg_save, outroot.
+    apply : Callable[[Mapset], Mapset]
+        Operator on needlet coefficients.
+    m2_dot : Callable[[Mapset], Mapset]
+        M2 part of the operator on needlet coefficients.
+    act_dot : Callable[[Mapset], np.ndarray] | None
+        ACT part of the operator on needlet coefficients.
+    solve : Callable[[np.ndarray], np.ndarray]
+        Block solve on needlet coefficients.
+    b : Mapset
+        Right hand side in needlet coefficients.
+    wmap : WavSkyMap
+        The map.
+    hits : np.ndarray
+        Hits map.
+    ivar : np.ndarray | None
+        ACT inverse variance as used in the operator.
+    mask : np.ndarray | float
+        Hits mask.
+    t0 : float
+        Start time for the log.
+
+    Returns
+    -------
+    wsol : np.ndarray
+        The solution as needlet coefficients, W^T m, so that wav2map_real gives back m.
+    """
+    filt = wmap.needlet.filters
+    pix = Mapset()
+    pix.add_map(wmap.real_map.copy())
+    wav = b.copy()
+    foot = np.asarray(mask) + np.zeros(hits.shape) > 0
+
+    def lift(op, m):  # W op W^T on a real map
+        wav.maps[0].map[:] = map2wav_real(m, filt)[0]
+        out = op(wav)
+        return wav2map_real(
+            out if isinstance(out, np.ndarray) else out.maps[0].map, filt
+        )[0]
+
+    def papply(m):
+        y = m.copy()
+        y.maps[0].map[:] = lift(apply, m.maps[0].map)
+        return y
+
+    if args.pixel_cg == "needlet":
+        pre = lambda m: wav2map_real(solve(map2wav_real(m, filt)[0]), filt)[0]
+    else:
+        delta = np.zeros(hits.shape)
+        p0 = np.unravel_index(np.argmax(hits), hits.shape)
+        delta[p0] = 1
+        diag = lift(m2_dot, delta)[p0] / hits[p0] * hits
+        if act_dot is not None:
+            diag = diag + lift(act_dot, delta)[p0] / ivar[p0] * ivar
+        print(f"jacobi: diagonal from {diag.min():.3e} to {diag.max():.3e}")
+        pre = lambda m: np.divide(m, diag, out=np.zeros_like(m), where=diag > 0)
+
+    def pprecon(r):
+        z = r.copy()
+        z.maps[0].map[:] = pre(r.maps[0].map)
+        return z
+
+    def report(i, x, relres):
+        print(f"CG iter {i + 1}: |r|/|b| = {relres:.2e} ({time.time() - t0:.0f} s)")
+        if (i + 1) in args.cg_save and minkasi.myrank == 0:
+            np.save(f"{args.outroot}_cg{i + 1}.npy", x.maps[0].map * mask)
+
+    rng = np.random.default_rng(
+        1
+    )  # symmetry and positivity of the operator and preconditioner
+    u, v = rng.normal(size=(2, *hits.shape))
+    au, av = lift(apply, u), lift(apply, v)
+    pu, pv = pre(u), pre(v)
+    print(
+        f"pixel operator asymmetry {abs((u * av).sum() - (v * au).sum()) / abs((u * av).sum()):.1e}, "
+        f"preconditioner asymmetry {abs((u * pv).sum() - (v * pu).sum()) / abs((u * pv).sum()):.1e}, "
+        f"u.Au {(u * au).sum():.3e}, u.Pu {(u * pu).sum():.3e}, |P A u| / |u| "
+        f"{np.linalg.norm(pre(au)) / np.linalg.norm(u):.3e}"
+    )
+    rhs = pix.copy()
+    rhs.maps[0].map[:] = wav2map_real(b.maps[0].map, filt)[0]
+    x0 = rhs.copy()
+    x0.clear()
+    x = pcg(papply, rhs, x0, pprecon, args.cg, args.cg_tol, report)
+    r = rhs.copy()
+    r.axpy(papply(x), -1)
+    rm, bm = r.maps[0].map, rhs.maps[0].map
+    print(
+        "real space residual inside the footprint: |r| / |b| = "
+        f"{np.linalg.norm(rm[foot]) / np.linalg.norm(bm[foot]):.2e}"
+        f" (outside: {np.linalg.norm(rm[~foot]) / np.linalg.norm(bm[foot]):.2e})"
+    )
+    return map2wav_real(x.maps[0].map, filt)[0]
+
+
 def ritz_analysis(
     lanczos: dict,
     filt: np.ndarray,
@@ -810,18 +916,26 @@ def main(args):
             print(
                 f"outside prior: eps = {eps:.3e} ({args.outside_prior:g} of the M2 pixel weight)"
             )
+            # with --prior-non-act only the bands without ACT get the prior (ACT measures the others)
+            poff = [i for i in act_bands] if args.prior_non_act else []
             responses.append(
                 np.array(
-                    [None if g is None else eps * g for g in prior_resp], dtype=object
+                    [
+                        None if g is None or i in poff else eps * g
+                        for i, g in enumerate(prior_resp)
+                    ],
+                    dtype=object,
                 )
             )
             data_apply = apply
 
             def apply(x):
                 y = data_apply(x)
-                y.maps[0].map += map2wav_real(
-                    eps * outside * wav2map_real(x.maps[0].map, filt)[0], filt
-                )[0]
+                xp = x.maps[0].map.copy()
+                xp[poff] = 0
+                yp = map2wav_real(eps * outside * wav2map_real(xp, filt)[0], filt)[0]
+                yp[poff] = 0
+                y.maps[0].map += yp
                 return y
 
         solve = wmap.block_solver(
@@ -882,16 +996,31 @@ def main(args):
         ):  # a rhs in the range of the operator, to see if the real one is not
             b = apply(pcg(apply, b, x0, precon, args.consistent))
         lan = {"alpha": [], "beta": [], "q": []} if args.ritz else None
-        xsol = pcg(
-            apply, b, x0, precon, args.cg, args.cg_tol, report, args.flexible, lan
-        )
-        if args.ritz:
-            ritz_analysis(lan, filt, mask, args.outroot, xsol.maps[0].map)
-        wsol = xsol.maps[0].map
-        if args.resdiag:
-            residual_diagnostics(
-                apply, b, xsol, act_rhs, act_bands, args.outroot, filt, mask
+        if args.pixel_cg:
+            wsol = pixel_solve(
+                args,
+                apply,
+                todvec.dot,
+                act_dot if paths else None,
+                solve,
+                b,
+                wmap,
+                hits.map,
+                ivar if paths else None,
+                mask,
+                t0,
             )
+        else:
+            xsol = pcg(
+                apply, b, x0, precon, args.cg, args.cg_tol, report, args.flexible, lan
+            )
+            if args.ritz:
+                ritz_analysis(lan, filt, mask, args.outroot, xsol.maps[0].map)
+            wsol = xsol.maps[0].map
+            if args.resdiag:
+                residual_diagnostics(
+                    apply, b, xsol, act_rhs, act_bands, args.outroot, filt, mask
+                )
     else:
         wsol = wmap.solve_bands(rhs.maps[0].map + act_rhs, responses)
     mmap = wav2map_real(wsol, wmap.needlet.filters)[0] * mask
@@ -977,6 +1106,18 @@ if __name__ == "__main__":
         default=None,
         help="Add a prior eps |map|^2 outside the footprint, eps this fraction of the M2 weight per pixel "
         "(e.g. 1e-3). Default: none",
+    )
+    parser.add_argument(
+        "--pixel-cg",
+        choices=["needlet", "jacobi"],
+        default=None,
+        help="With --cg: solve for the real space map instead of the needlet coefficients, with the needlet "
+        "block solve or a Jacobi (hits and ACT inverse variance) preconditioner",
+    )
+    parser.add_argument(
+        "--prior-non-act",
+        action="store_true",
+        help="Apply --outside-prior only to the bands in which ACT is not used",
     )
     parser.add_argument(
         "--restrict",
