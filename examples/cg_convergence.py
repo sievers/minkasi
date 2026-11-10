@@ -49,7 +49,8 @@ def main(args: argparse.Namespace):
     args : argparse.Namespace
         Parsed command line arguments.
     """
-    good = fits.getdata(args.hits).squeeze() >= args.min_hits
+    # minkasi writes FITS maps transposed with respect to the saved .npy arrays
+    good = fits.getdata(args.hits).squeeze().T >= args.min_hits
     maps = {k: np.load(f"{args.root}_cg{k}.npy") for k in args.iters}
     last = args.iters[-1]
     fig, ax = plt.subplots(figsize=(6, 4), dpi=70 if args.debug else 120)

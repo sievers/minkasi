@@ -80,11 +80,12 @@ def main(args: argparse.Namespace):
     args : argparse.Namespace
         Parsed command line arguments.
     """
-    good = fits.getdata(args.hits).squeeze() >= args.min_hits
+    # minkasi writes FITS maps transposed with respect to the saved .npy arrays
+    good = fits.getdata(args.hits).squeeze().T >= args.min_hits
     basis, r = design(good.shape)
     use = good & (r > args.exclude)
     runs = dict(zip(args.labels, args.roots))
-    act = fits.getdata(args.act).squeeze() if args.act else None
+    act = fits.getdata(args.act).squeeze().T if args.act else None
     sig = args.act_beam * 60 / args.pixsize * FWHM2SIGMA
     w = np.maximum(gaussian_filter(good.astype(float), sig), 1e-3)
 
