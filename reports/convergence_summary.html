@@ -362,15 +362,15 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </div>
 <figure>
 <img src="figs/summary/best_sim_multiscale.png" alt="Simulation with no mask: truth, simulated data and residual as two-resolution maps">
-<figcaption><strong>Figure 8. Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> Truth: the simulated sky, and in the ACT pixels the sky as a noiseless ACT sees it (ACT beam, pixel average). Data: the joint map, and in the ACT pixels a simulated ACT map with noise from the real ACT inverse variance. The residual's M2 part is smoothed to 30″. Its rms is 9.9 µK in the M2 part and 17.8 µK in the ACT pixels, which is ACT noise.</figcaption>
+<figcaption><strong>Figure 8. Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> 18′ field. 30″ ACT pixels, split into 8 × 8 sub-pixels (3.75″) where M2 has data (hits ≥ 20). The thin stair-step line outlines the split pixels. The M2 part is smoothed to 10″ above 3000 hits and up to 30″ below, shown above 120 hits and feathered into ACT over 300. The positive end of the colour scale is fixed at +150 µK, about the real map's CMB range, because this simulated patch has little CMB. Truth: the simulated sky, and in the ACT pixels the sky as a noiseless ACT sees it (ACT beam, pixel average). Data: the joint map, and in the ACT pixels a simulated ACT map with noise from the real ACT inverse variance. The residual's M2 part is smoothed to 30″. Its rms is 9.9 µK in the M2 part and 17.5 µK in the ACT pixels, which is ACT noise.</figcaption>
 </figure>
 <figure>
 <img src="figs/summary/sim_multiscale.png" alt="Simulation: masked needlet solve and masked solve with the outside prior, truth, data and residual">
-<figcaption><strong>Figure 9. For comparison, the two masked solves</strong> (needlet CG without and with the outside prior), shown the same way. The patches at the footprint edge in the first row's residual are what the mask causes.</figcaption>
+<figcaption><strong>Figure 9. For comparison, the two masked solves</strong> (needlet CG without and with the outside prior), shown the same way as Figure 8. The patches at the footprint edge in the first row's residual are what the mask causes.</figcaption>
 </figure>
 <figure>
 <img src="figs/summary/multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map from the masked solve">
-<figcaption><strong>Figure 10. Real data, 40 TODs, masked solve (600 iterations, K<sub>RJ</sub>).</strong> The ACT map is the coadd of the 8 DR6 f090 splits. This is a placeholder from the earlier masked run. The same map with no mask is queued, first for 40 TODs and then for all TODs, and will replace it here.</figcaption>
+<figcaption><strong>Figure 10. Real data, 40 TODs, masked solve (600 iterations, K<sub>RJ</sub>).</strong> Same display as Figure 8, with the colour scale set by the map itself. The ACT map is the coadd of the 8 DR6 f090 splits, and the thin stair-step line outlines the ACT pixels split into M2 sub-pixels. The joint map's offset from ACT inside the M2 region (−10 µK) is subtracted. This is a placeholder from the earlier masked run. The same map with no mask is queued, first for 40 TODs and then for all TODs, and will replace it here.</figcaption>
 </figure>
 </section>
 </div>

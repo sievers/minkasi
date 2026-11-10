@@ -22,6 +22,7 @@ from matplotlib.colors import Normalize
 from scipy.ndimage import gaussian_filter
 
 from multiscale_map import (
+    caption,
     compose,
     draw,
     fine_grid,
@@ -29,7 +30,6 @@ from multiscale_map import (
     read_act_coadd,
     sample,
     sample_array,
-    smoothing_label,
     ticks,
 )
 from twores_ex import act_conversion
@@ -127,22 +127,16 @@ def main(args: argparse.Namespace):
         for j, (img, nm, title) in enumerate(
             (
                 (truth, norm, "truth"),
-                (data, norm, f"simulated data\n{label}"),
+                (data, norm, f"simulated data, {label}"),
                 (
                     res,
                     rnorm,
-                    "data minus truth"
-                    + (
-                        f' (M2 part at {args.res_smooth:g}")'
-                        if args.res_smooth > 0
-                        else ""
-                    )
-                    + f"\n{label}",
+                    f"data minus truth, {label}",
                 ),
             )
         ):
             ax = fig.add_subplot(len(rows), 3, 3 * k + j + 1, projection=wcs)
-            im = draw(ax, img, split, nm, args.cmap, args.outline)
+            im = draw(ax, img, split, nm, args.cmap, args.outline, args.grid)
             ax.set_title(title, fontsize=11)
             if j > 0:
                 ax.coords[1].set_ticklabel_visible(False)
@@ -150,11 +144,7 @@ def main(args: argparse.Namespace):
             fig.colorbar(
                 im, ax=ax, label=r"$\mu$K$_{\rm RJ}$", shrink=0.8, ticks=ticks(nm)
             )
-    fig.suptitle(
-        f'Simulation, ACT {pix * args.factor:g}" pixels split into {args.factor}x{args.factor} ({pix:g}") '
-        f"where M2 has data\n{smoothing_label(args)}",
-        fontsize=12,
-    )
+    print("caption:", caption(args, pix))
     fig.savefig(args.out, dpi=args.dpi, bbox_inches="tight")
     print("wrote", args.out)
 
@@ -222,6 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--stretch", choices=["twoslope", "linear"], default="twoslope")
     parser.add_argument("--cmap", default="RdBu_r")
     parser.add_argument("--outline", action="store_true")
+    parser.add_argument("--grid", action="store_true", help="Draw the RA/Dec grid")
     parser.add_argument("--out", required=True)
     parser.add_argument("--dpi", type=int, default=110)
     parser.add_argument(

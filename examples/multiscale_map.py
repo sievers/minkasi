@@ -327,6 +327,28 @@ def smoothing_label(args) -> str:
     return f"{sm}; shown above {show:g} hits{fe}"
 
 
+def caption(args, pix: float) -> str:
+    """
+    Figure caption text with the pixelization and the display settings.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+    pix : float
+        Sub-pixel size in arcsec.
+
+    Returns
+    -------
+    str
+        The caption.
+    """
+    return (
+        f'ACT {pix * args.factor:g}" pixels, split into {args.factor}x{args.factor} ({pix:g}") where M2 has data '
+        f"(hits >= {args.min_hits:g}); {smoothing_label(args)}."
+    )
+
+
 def ticks(norm: Normalize) -> np.ndarray:
     """
     Colour bar ticks with both sides of a two-slope scale labelled.
@@ -347,7 +369,13 @@ def ticks(norm: Normalize) -> np.ndarray:
 
 
 def draw(
-    ax, image: np.ndarray, split: np.ndarray, norm: Normalize, cmap: str, outline: bool
+    ax,
+    image: np.ndarray,
+    split: np.ndarray,
+    norm: Normalize,
+    cmap: str,
+    outline: bool,
+    grid: bool = False,
 ):
     """
     Draw a display map on WCS axes.
@@ -364,6 +392,8 @@ def draw(
         Colour map.
     outline : bool
         Outline the split ACT pixels.
+    grid : bool, default: False
+        Draw the RA/Dec coordinate grid.
 
     Returns
     -------
@@ -377,7 +407,8 @@ def draw(
         ax.contour(split.astype(float), [0.5], colors="k", linewidths=0.6, alpha=0.6)
     ax.set_xlabel("RA")
     ax.set_ylabel("Dec")
-    ax.coords.grid(color="0.5", alpha=0.25, linestyle=":")
+    if grid:
+        ax.coords.grid(color="0.5", alpha=0.25, linestyle=":")
     return im
 
 
@@ -396,16 +427,15 @@ def plot(args, image, split, m2, wcs):
     """
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(projection=wcs)
-    im = draw(ax, image, split, make_norm(image, args), args.cmap, args.outline)
+    im = draw(
+        ax, image, split, make_norm(image, args), args.cmap, args.outline, args.grid
+    )
     fig.colorbar(
         im, ax=ax, label=r"$\mu$K$_{\rm RJ}$", shrink=0.85, ticks=ticks(im.norm)
     )
     pix = abs(wcs.wcs.cdelt[0]) * 3600
-    ax.set_title(
-        f'{args.title}\nACT {pix * args.factor:g}" pixels, split into {args.factor}x{args.factor} '
-        f'({pix:g}") where M2 has data\n{smoothing_label(args)}',
-        fontsize=10,
-    )
+    ax.set_title(args.title, fontsize=11)
+    print("caption:", caption(args, pix))
     fig.savefig(args.out, dpi=args.dpi, bbox_inches="tight")
     print("wrote", args.out)
 
@@ -522,6 +552,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--outline", action="store_true", help="Outline the split ACT pixels"
     )
+    parser.add_argument("--grid", action="store_true", help="Draw the RA/Dec grid")
     parser.add_argument("--title", default="MOOJ1142, M2 + ACT")
     parser.add_argument(
         "--fits", default=None, help="Also write the fine-grid display map to this FITS"
