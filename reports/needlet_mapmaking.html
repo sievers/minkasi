@@ -117,10 +117,10 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
 <div class="meta">WITCH · branch needlet · MOOJ1142</div>
 <h1>Needlet mapmaking</h1>
 <p class="lede">How MUSTANG-2 timestreams and an ACT map are combined into one map, one scale range at a time, and what each stage costs.</p>
-<p>The investigation into why the CG solve stalls with ACT in the system, and the undersampled lattice it found, is written up separately: <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">Needlet convergence investigation</a>.</p>
+<p>The investigation into why the CG solve stalls with ACT in the system is written up separately. <a href="https://claude.ai/artifact/G5BMVxggqE7KRSRYHUsFxj">Large-scale convergence status</a> is the current summary, and the <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">needlet convergence investigation</a> is the detailed log. The <a href="#status">current best status</a> is at the end of this page.</p>
 
 <h2>The problem</h2>
-<p>MUSTANG-2 (M2) scans lose the largest angular scales when a common mode is subtracted from each detector, so M2 alone cannot constrain them. ACT maps are good on those scales but have a 2.1′ beam and nothing on the smallest. The aim is one map that takes each instrument on the scales where it is informative.</p>
+<p>MUSTANG-2 (M2) loses the largest angular scales: the atmosphere is common to all detectors, so the M2 noise model gives large-scale modes almost no weight (the common mode is fitted but not subtracted), and M2 alone cannot constrain them. ACT maps are good on those scales but have a 2.1′ beam and nothing on the smallest. The aim is one map that takes each instrument on the scales where it is informative.</p>
 <p>The map is represented as a stack of <b>needlet bands</b>, each covering a range of scales. In that basis the information from the M2 timestreams and from ACT can be added band by band, and the combined system solved once.</p>
 
 <figure>
@@ -219,7 +219,7 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
     </ol>
     <p>Step 1 puts all bands in at once and step 3 reads them all out, and that is where the coupling comes from. The block solve of step 7 keeps only the diagonal blocks and inverts each one alone. CG applies the true operator, so the off-diagonal blocks and the ACT term are in the system it solves.</p>
     <p>The preconditioner is the block solve with 20 inner iterations, a fixed, symmetric positive-definite operator. It changes how fast CG converges and not where it ends up: ACT is in the operator and the right-hand side as well as the preconditioner, and it is the operator that sets the solution. The output map is Σ F<sub>i</sub> x<sub>i</sub> times the mask.</p>
-    <div class="pick"><p><b>Recommended:</b> <code>--direct --cg 40</code> for compact structure and the cluster decrement. Run longer for anything at 1′ or larger.</p></div>
+    <div class="pick"><p><b>Recommended (updated 10 Nov):</b> <code>--direct --cg 600 --lattice-tol 1e-3 --min-hits 0</code>, with ACT in K<sub>RJ</sub> (the default). Without the hits mask, the large scales stay close to the truth out to 600 iterations; see the <a href="#status">current status</a>.</p></div>
   </li>
 </ol>
 
@@ -234,6 +234,8 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
   <tr><td>Edge ringing, band overlaps counted twice</td><td>The truncated probed ANA is indefinite; overlaps were counted twice (from the commit message)</td><td>See the commit, which also pads the map</td><td><code>dcf2377</code></td></tr>
   <tr><td>ACT term wrong in units, residual, beam, pixel window and band selection</td><td>As listed in the commit message</td><td>See the commit</td><td><code>9545eb7</code></td></tr>
   <tr><td>A stale response cache gave an unclear crash</td><td>The cache does not record the settings it was made with</td><td>A clear error naming the band and shapes. The cache still records nothing.</td><td><code>77a44eb</code></td></tr>
+  <tr><td>ACT 1.86× too faint and 3.5× too heavily weighted against M2</td><td>ACT was converted to Jy/beam, but the M2 TODs are in K<sub>RJ</sub></td><td>Convert to K<sub>RJ</sub> (<code>--m2-unit K_RJ</code>, the default)</td><td><code>6c6b240</code></td></tr>
+  <tr><td>Large scales near the footprint edge drift away from the truth as CG converges</td><td>The hits mask zeroes the model at low-hit pixels while their samples stay in the data; the noise model carries their sky into the footprint edge</td><td>Run without the mask (<code>--min-hits 0</code>)</td><td>option, no code change</td></tr>
 </table>
 </div>
 
@@ -279,9 +281,26 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
   <figcaption>The CMB-weighted solve of 106 TODs: the M2 map, the map smoothed to the ACT beam and filled with ACT outside the footprint, and the ACT map.</figcaption>
 </figure>
 
+<h2 id="status">Current best status (10 November 2026)</h2>
+<p>The numbers in the section above are from before the unit fix, with the hits mask. Since then, a simulation with a known sky has been used to judge every option against the truth. It uses a WITCH model of MOOJ1142 and a CMB realisation, injected into 40 real TODs whose noise is the real data with the sign flipped on alternate TODs; ACT is simulated from the same sky with the real ACT noise level. The details are on the <a href="https://claude.ai/artifact/G5BMVxggqE7KRSRYHUsFxj">status page</a>.</p>
+<ul class="tight">
+  <li><strong>The cluster decrement is right in every joint solve:</strong> within 1% of the truth. ACT also fixes M2's large-scale bowl: M2 alone recovers 27% of the largest scale, the joint solves about 100%.</li>
+  <li><strong>The hits mask was the main source of the large-scale trouble at the footprint edge.</strong> With it, the largest-scale error inside the footprint grows from 0.14 at iteration 40 to 0.32 at 600. Without it (<code>--min-hits 0</code>), it stays at 0.09–0.10 with transfer 0.98, as good as the outside-footprint prior but with no prior at all.</li>
+  <li><strong>The residual floor</strong> comes from a few poorly determined modes at the footprint edge, on the scales where M2 and ACT hand over (band 2, about 2.5′). The residual is not a measure of map error there, so convergence is judged against the simulated truth.</li>
+  <li><strong>The M2 noise model already does the large-scale down-weighting:</strong> M2 holds 0.3% of the information in band 0 and 4% in band 1. Adding the subtracted polynomial to the noise model changed this by 1–4%, so it was not kept.</li>
+</ul>
+<figure>
+  <img src="figs/summary/best_sim_multiscale.png" alt="Simulation, best configuration: truth, simulated data and residual as two-resolution maps">
+  <figcaption><strong>Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> Display maps for viewing only: 30″ ACT pixels, split into 8 × 8 sub-pixels (3.75″) where M2 has data. A sub-pixel shows the joint map, smoothed to 10″, where it has at least 120 hits, feathered into ACT over the next 300 hits. Below 120 hits it shows its ACT pixel's value, since at those fine scales ACT carries no information and the map there would be pure low-hit M2 noise. The residual's M2 part is smoothed to 30″: 11 µK rms there, against 18 µK of ACT noise in the ACT pixels.</figcaption>
+</figure>
+<figure>
+  <img src="figs/summary/multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map, masked solve">
+  <figcaption><strong>Real data, 40 TODs, K<sub>RJ</sub> units, 600 iterations, still with the mask.</strong> Same display. The ACT map is the coadd of the 8 DR6 f090 splits. Runs without the mask are queued, for 40 TODs and then for all TODs, and will replace this map.</figcaption>
+</figure>
+
 <h2>Open questions</h2>
 <ul class="tight">
-  <li>Why the large scales keep moving out to 200 iterations, and why ACT does not speed them up more.</li>
+  <li>The remaining small drift without the mask (bands 0 and 2, iterations 40 to 600), and whether a weak prior outside the footprint is still worth adding. Tests are running.</li>
   <li>Whether <code>--act-cmb 1</code> should be the default. It is 0 now.</li>
   <li>The earlier 40-TOD and first 106-TOD results in the report still carry the 100× ACT weight and have not been recomputed.</li>
   <li>Speed: the wavelet transforms are done once per TOD per apply, and could be done once per apply.</li>
