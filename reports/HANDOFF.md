@@ -199,7 +199,9 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
 - Queue on cores 0-15: `sim/run_pix_nomask.sh` (pixj/pixn unmasked -> `sim/summary_pix_nomask.txt`), then `jack40/run_m2only.sh`
   (M2-only per jackknife half -> `jack40/summary_m2only.txt`; then run bowl profiles per half).
 - A399-401 on cores 16-23 (`a399_401/run.sh`): 304 TODs from /mnt/welch/MUSTANG/M2-TODs/bridge, ACT f090 from /mnt/welch/ACT/bridge
-  (native 30" maps; ivar is (3,3,..), now handled), 8 ranks x 38 TODs (16 ranks would need ~220 GB: the responses of the 1260^2 map take
-  ~13.5 GB per rank, measured in a 4-TOD smoke test). Saves at 40/100/200/400/600; memory log `run600/mem.txt`; then act_consistency and a
-  70' multiscale map (`run600/A399_401_multiscale.png`). A401 is the decrement at the top of the field, A399 at the bottom left (outside M2).
+  (native 30" maps; ivar is (3,3,..), now handled), 8 ranks x 38 TODs. OOM-killed while probing band 7 (32 GB per rank and rising,
+  256 GB total). The 4-TOD smoke test had sized the map from its own TODs (480^2, not 1260^2), so it measured a MOOJ1142-sized problem;
+  response memory depends on the map lattice, not on hits. Full run needs ~145 GB per rank at --radius 30: moved to an HPC, see
+  `reports/A399_401_HPC.md` (new `--dry-run` prints the per-band sizes and memory per rank before probing).
+  A401 is the decrement at the top of the field, A399 at the bottom left (outside M2).
 - Display note: the multiscale maps put RA increasing to the right (ACT cutout orientation); labels are right, convention is flipped.

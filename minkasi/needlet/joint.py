@@ -163,9 +163,10 @@ class JointMapper:
             self.rhs
         )  # wavelet basis rhs, of the residual unless --direct
 
-    def m2_response(self) -> None:
+    def lattice(self) -> None:
         """
-        The lattices of the bands and the M2 response matrices (cached).
+        The lattice of each band, the probe window of each band (self.radius), the bands solved (self.bands) and the
+        cache prefix.
         """
         cfg = self.cfg
         wmap, need = self.wmap, self.wmap.needlet
@@ -193,6 +194,42 @@ class JointMapper:
                 "points",
                 wmap.nxs_red,
             )
+
+    def memory_estimate(self) -> None:
+        """
+        Print the entries of each band's M2 response matrix (as probe_band stores them: the whole lattice times the
+        probe window, whatever the hits) and the memory per MPI rank they imply. Every rank holds all the matrices.
+        Peak is while probing the largest band (~54 bytes per entry of that band, measured on MOOJ1142, on top of the
+        smaller bands already stored and the TODs); resident is the stored CSR matrices (12 bytes per entry, 16 when a
+        band has more than 2^31 entries) through the CG.
+        """
+        cfg, wmap = self.cfg, self.wmap
+        nent = np.zeros(len(wmap.downsamps))
+        for b in self.bands:
+            nx, ny = wmap.nxs_red[b], wmap.nys_red[b]
+            if self.radius is None or nx * ny <= cfg.exact_below:
+                w = nx * ny
+            else:
+                r = int(np.ceil(self.radius[b] / wmap.downsamps[b]))
+                w = min(2 * r + 1, nx) * min(2 * r + 1, ny)
+            nent[b] = nx * ny * w
+            print(
+                f"band {b}: downsamp {wmap.downsamps[b]}, lattice {nx} x {ny}, {w} entries per row, "
+                f"{nent[b] / 1e6:.1f} M entries"
+            )
+        stored = (12 + 4 * (nent > 2**31)) * nent
+        big = np.argmax(nent)
+        peak = 54 * nent[big] + stored.sum() - stored[big]
+        print(
+            f'map {wmap.nx} x {wmap.ny} pixels of {cfg.pixsize:g}"; {nent.sum() / 1e9:.2f} G entries; per rank: '
+            f"resident {stored.sum() / 1e9:.1f} GB, peak while probing ~{peak / 1e9:.1f} GB, plus the TODs"
+        )
+
+    def m2_response(self) -> None:
+        """
+        The M2 response matrices (cached).
+        """
+        cfg, wmap, need = self.cfg, self.wmap, self.wmap.needlet
         t0 = time.time()
         self.m2_resp = cached_responses(
             self.cache + "_m2",
@@ -582,8 +619,14 @@ class JointMapper:
         The whole pipeline.
         """
         self.read()
+        if self.cfg.dry_run:
+            self.lattice()
+            if myrank == 0:
+                self.memory_estimate()
+            return
         self.prepare()
         self.initial_pcg()
+        self.lattice()
         self.m2_response()
         self.act_term()
         t0 = time.time()
@@ -828,6 +871,11 @@ def parse_args(
         help="Use only this many TODs in total (after the blacklist)",
     )
     a("--redo", action="store_true", help="Recompute cached responses")
+    a(
+        "--dry-run",
+        action="store_true",
+        help="Read the TODs, print each band's lattice and the response matrix memory per rank, and exit",
+    )
     a("--debug", action="store_true", help="Fewer TODs/iterations, coarser pixels")
     cfg = p.parse_args(argv)
     cfg.direct |= cfg.cg > 0
