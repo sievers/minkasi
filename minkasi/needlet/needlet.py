@@ -7,6 +7,7 @@ from functools import reduce
 from typing import (
     Callable,
     Optional,
+    Sequence,
     Union,
 )
 
@@ -1722,3 +1723,98 @@ def wav2map(
     if print_time:
         print("wav2map took ", tic - toc)
     return np.array(sky_map)
+
+
+def wavskymap_for_tods(
+    todvec: TodVec, pixsize: float, nfilt: int, pad_frac: float = 0.0
+) -> "WavSkyMap":
+    """
+    Build the needlet and the WavSkyMap covering the TODs. The map is square with a highly composite size so that
+    filters can be downsampled by many factors; the bounds only need to contain the data.
+
+    Parameters
+    ----------
+    todvec : TodVec
+        TODs to cover.
+    pixsize : float
+        Pixel size in arcsec.
+    nfilt : int
+        Number of needlet filters.
+    pad_frac : float, default: 0.0
+        Fraction of the data extent added on every side. The filters are periodic, so this moves the artefacts of
+        the map edges away from the data.
+
+    Returns
+    -------
+    wmap : WavSkyMap
+    """
+    x0, x1, y0, y1 = todvec.lims()
+    px, py = pad_frac * (x1 - x0), pad_frac * (y1 - y0)
+    lims = [x0 - px, x1 + px, y0 - py, y1 + py]
+    ps = pixsize / 3600 * np.pi / 180
+    n0 = SkyMap(list(lims), ps, square=True, multiple=2).map.shape[0]
+    n = highly_composite_size(n0)
+    box = SkyMap(list(lims), ps, nx=n, ny=n).map
+    need = Needlet(
+        np.arange(nfilt), lightcone=box, L=n * pixsize * np.sqrt(2), pixsize=pixsize
+    )
+    need.get_needlet_filters_2d(
+        need.lightcone_box.get_grid_dimless_2d(return_grid=True)
+    )
+    return WavSkyMap(need, lims, ps, nx=n, ny=n)
+
+
+def save_responses(prefix: str, resp: NDArray) -> None:
+    """
+    Save a list of per filter sparse matrices as {prefix}_{filter}.npz.
+
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the files.
+    resp : NDArray[object]
+        Sparse matrix per filter, None for those not computed.
+    """
+    for i, r in enumerate(resp):
+        if r is not None:
+            sparse.save_npz(f"{prefix}_{i}.npz", r)
+
+
+def cached_responses(
+    prefix: str, compute, redo: bool, nfilt: int, bands: Sequence[int]
+) -> NDArray:
+    """
+    Load the response matrices of the requested bands from the cache at prefix, and compute and save only those
+    that are missing. The cache does not record how the matrices were made (TODs, radius, units, ...): use a new
+    directory or redo when these change.
+
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the cache.
+    compute : Callable[[list[int]], NDArray]
+        Function taking a list of bands and returning the response matrices (see WavSkyMap.get_response_matrix).
+    redo : bool
+        Ignore any existing cache.
+    nfilt : int
+        Number of filters.
+    bands : Sequence[int]
+        Bands needed.
+
+    Returns
+    -------
+    resp : NDArray[object]
+        Sparse matrix per filter, None for the bands not requested.
+    """
+    have = [i for i in bands if not redo and os.path.exists(f"{prefix}_{i}.npz")]
+    missing = [i for i in bands if i not in have]
+    resp = np.full(nfilt, None, dtype=object)
+    for i in have:
+        resp[i] = sparse.load_npz(f"{prefix}_{i}.npz")
+    if missing:
+        new = compute(missing)
+        for i in missing:
+            resp[i] = new[i]
+        if myrank == 0:
+            save_responses(prefix, new)
+    return resp

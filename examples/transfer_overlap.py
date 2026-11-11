@@ -21,15 +21,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import minkasi.minkasi_all as minkasi
 import numpy as np
+from minkasi.needlet.act import ACT_OSAMP, act_conversion, read_act
 from minkasi.needlet.needlet import apply_beam, block_average, gaussian_beam_ft
-
-from twores_ex import (
-    ACT_OSAMP,
-    act_conversion,
-    read_act,
-    read_tods,
-    setup_wmap,
-)
+from minkasi.needlet.needlet import wavskymap_for_tods as setup_wmap
+from minkasi.tods.io import read_tods
 
 
 def radial_bins(shape: tuple[int, int], pix_arcsec: float, nbin: int):

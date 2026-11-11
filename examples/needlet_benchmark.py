@@ -11,9 +11,9 @@ import minkasi.minkasi_all as minkasi
 import numpy as np
 from astropy.io import fits
 from matplotlib import pyplot as plt
+from minkasi.needlet.needlet import wavskymap_for_tods as setup_wmap
+from minkasi.tods.io import read_tods
 from scipy.ndimage import gaussian_filter
-
-from twores_ex import read_tods, setup_wmap
 
 
 def plot_maps(files, out, smooth=None, hits=None, min_hits=20, act_sigma=17.9):

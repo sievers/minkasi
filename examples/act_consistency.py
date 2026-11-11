@@ -12,10 +12,10 @@ import argparse
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
+from minkasi.needlet.act import act_conversion
 from scipy.ndimage import gaussian_filter
 
 from multiscale_map import fine_grid, read_act_coadd, sample, sample_array
-from twores_ex import act_conversion
 
 FWHM2SIGMA = 1 / np.sqrt(8 * np.log(2))
 

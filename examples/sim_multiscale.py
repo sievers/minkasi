@@ -19,6 +19,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from matplotlib.colors import Normalize
+from minkasi.needlet.act import act_conversion
 from scipy.ndimage import gaussian_filter
 
 from multiscale_map import (
@@ -32,7 +33,6 @@ from multiscale_map import (
     sample_array,
     ticks,
 )
-from twores_ex import act_conversion
 
 FWHM2SIGMA = 1 / np.sqrt(8 * np.log(2))
 

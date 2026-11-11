@@ -142,17 +142,17 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
 <ol class="steps">
   <li>
     <h3>Read and clean the TODs</h3>
-    <div class="tag">read_tods</div>
-    <p>Drop blacklisted TODs, deal the rest out to the MPI ranks, then subtract a common mode plus a polynomial from each detector. This is the step that removes the large scales from the M2 data.</p>
+    <div class="tag">minkasi.tods.io.read_tods</div>
+    <p>Drop blacklisted TODs, deal the rest out to the MPI ranks, and fit a common mode together with a quadratic polynomial per detector (<code>fit_cm_plus_poly</code>). Only the polynomial is subtracted; the common mode stays in the data. M2 loses its large scales later, through the noise model: the atmosphere is common to all detectors, so the SVD noise model gives large-scale modes almost no weight.</p>
   </li>
   <li>
     <h3>Build the map and the filters</h3>
-    <div class="tag">setup_wmap</div>
+    <div class="tag">minkasi.needlet.needlet.wavskymap_for_tods</div>
     <p>Pad the field by 25% on every side, so that wrap-around from the periodic filters lands away from the data, and make a square map with a highly composite size. Build the 10 needlet filters on that grid. Each band is then given the coarsest lattice that does not undersample it: a few points for the large scales, nearly the full grid for the smallest. Until recently the lattices were √2 too coarse; see the section on problems found in the original code, and the <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">investigation log</a>.</p>
   </li>
   <li>
     <h3>Pointing, first noise model, hits, mask</h3>
-    <p>Compute each TOD's pixel indices and a first noise model (detector SVD with smoothed spectra). Count hits per pixel and mask pixels below the hit threshold. The mask is applied inside every map-to-TOD and TOD-to-map call, so every operator that follows includes it.</p>
+    <p>Compute each TOD's pixel indices and a first noise model (detector SVD with smoothed spectra), and count hits per pixel. With <code>--min-hits N</code>, pixels below N hits are masked inside every map-to-TOD and TOD-to-map call. The baseline uses no mask (<code>--min-hits 0</code>): masking zeroes the model at low-hit pixels while their samples stay in the data, which biases the large scales at the footprint edge.</p>
   </li>
   <li>
     <h3>A cheap first map</h3>
@@ -180,8 +180,8 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
   </li>
   <li>
     <h3>Add ACT</h3>
-    <div class="tag">read_act → get_response_matrix_map</div>
-    <p>Regrid the ACT map and its inverse variance to the M2 pixels and convert μK<sub>CMB</sub> to M2 units. ACT sees the sky through its beam and a pixel average. Its term in the operator is F · adjoint( ivar · forward( Σ F<sub>j</sub> x<sub>j</sub> ) ), with its own right-hand side. It is probed like M2 but with no TODs, so it takes seconds.</p>
+    <div class="tag">minkasi.needlet.act: read_act, ActTerm</div>
+    <p>Put the ACT map and its inverse variance on the M2 grid, one 30″ ACT pixel per 10 × 10 block of fine pixels, each block taking the ACT pixel at its centre's sky position, and convert μK<sub>CMB</sub> to M2 units (K<sub>RJ</sub>). ACT sees the sky through its beam and a pixel average. Its term in the operator is F · adjoint( ivar · forward( Σ F<sub>j</sub> x<sub>j</sub> ) ), with its own right-hand side. It is probed like M2 but with no TODs, so it takes seconds.</p>
     <ul class="tight">
       <li>ACT enters only the bands its beam transmits (transfer ≥ 0.05): bands 0–3, with transfer 0.97, 0.86, 0.59 and 0.17.</li>
       <li><b>Normalization:</b> the ACT inverse variance must be divided by the 10 × 10 oversampling, or ACT is counted 100 times too strongly. This was a bug until recently.</li>
@@ -189,19 +189,19 @@ footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line);
     </ul>
   </li>
   <li>
-    <h3>The block solve</h3>
-    <div class="tag">block_solver → solve_bands</div>
-    <p>Add M2 and ACT: G<sub>i</sub> = G<sub>M2,i</sub> + G<sub>ACT,i</sub>, and likewise for the right-hand side. Then solve each band against itself and ignore the coupling between bands.</p>
+    <h3>Factorize the block preconditioner</h3>
+    <div class="tag">block_solver</div>
+    <p>Add M2 and ACT (and the prior, if used): G<sub>i</sub> = G<sub>M2,i</sub> + G<sub>ACT,i</sub>. The block solve inverts each band's G<sub>i</sub> on its own and ignores the coupling between bands. In the baseline it is used <em>only</em> as the preconditioner of step 8: it sets how fast CG converges, not the map.</p>
     <ul class="tight">
       <li>Add a diagonal shift: <code>1e-3 × mean(diag G)</code> as a zero-mean prior, plus enough to make G positive definite where truncation has made it indefinite.</li>
       <li>Factorize with sparse LU up to 20,000 lattice points. Above that, use Jacobi-preconditioned CG with a fixed number of iterations.</li>
       <li>Large bands are split over MPI ranks and small ones are assigned one per rank. The result equals the serial one.</li>
     </ul>
-    <div class="note"><b>On its own this is only a quick look.</b> On 40 TODs it recovers 93% of the CG source peak, but the extended structure correlates only 0.3–0.6 with the CG map, because the dropped cross-band blocks matter there.</div>
+    <div class="note"><b>Not used to make maps.</b> Without <code>--cg</code>, <code>solve_bands</code> applies the block solve to the right-hand side and returns that as the map. That was the original approach, and it is only a quick look: on 40 TODs it recovers 93% of the CG source peak, but the extended structure correlates only 0.3–0.6 with the CG map, because the dropped cross-band blocks matter there. It also ignores the prior.</div>
   </li>
   <li>
     <h3>Conjugate gradient on the full operator</h3>
-    <div class="tag">--direct --cg N</div>
+    <div class="tag">--direct --cg N · minkasi.needlet.joint.JointMapper</div>
     <p>Run CG on the whole system matrix, the <b>band-coupled operator</b>, with the block solve as a preconditioner. Stack the coefficients of all 10 bands into one vector. The operator is then a grid of blocks:</p>
     <div class="eq" style="white-space: pre;">        x₀    x₁    x₂   …   x₉
 out 0 [ G₀₀   G₀₁   G₀₂  …   G₀₉ ]
@@ -213,12 +213,13 @@ out 9 [ G₉₀   G₉₁   G₉₂  …   G₉₉ ]</div>
     <p>One application of the operator in CG does the following, and never forms the matrix:</p>
     <ol class="tight" style="margin: 10px 0 0; padding-left: 22px; max-width: 68ch;">
       <li>Sum all bands into one real map, Σ<sub>j</sub> F<sub>j</sub> x<sub>j</sub>.</li>
-      <li>Mask it, run it through the TODs (A, N⁻¹, Aᵀ, MPI-reduced) and mask again.</li>
+      <li>Run it through the TODs (A, N⁻¹, Aᵀ, MPI-reduced), with the mask on both sides if one is used.</li>
       <li>Filter the result into every band: output band <i>i</i> is F<sub>i</sub> times that map.</li>
       <li>Add the ACT term, F<sub>i</sub> adjoint(ivar · forward(the same summed map)), in bands 0–3. ACT couples bands in the same way.</li>
+      <li>With <code>--outside-prior</code>, add the prior term on its bands and region.</li>
     </ol>
     <p>Step 1 puts all bands in at once and step 3 reads them all out, and that is where the coupling comes from. The block solve of step 7 keeps only the diagonal blocks and inverts each one alone. CG applies the true operator, so the off-diagonal blocks and the ACT term are in the system it solves.</p>
-    <p>The preconditioner is the block solve with 20 inner iterations, a fixed, symmetric positive-definite operator. It changes how fast CG converges and not where it ends up: ACT is in the operator and the right-hand side as well as the preconditioner, and it is the operator that sets the solution. The output map is Σ F<sub>i</sub> x<sub>i</sub> times the mask.</p>
+    <p>The preconditioner is the block solve with 20 inner iterations, a fixed, symmetric positive-definite operator. It changes how fast CG converges and not where it ends up: ACT is in the operator and the right-hand side as well as the preconditioner, and it is the operator that sets the solution. The output map is Σ F<sub>i</sub> x<sub>i</sub> (times the mask, if one is used). The basis matters for speed: on the simulation, CG for the pixel map with a diagonal (Jacobi) preconditioner, the usual approach, heads for the same map but needed hundreds of iterations to get the large scales where the needlet CG is after 40.</p>
     <div class="pick"><p><b>Recommended (updated 10 Nov):</b> <code>--direct --cg 600 --lattice-tol 1e-3 --min-hits 0</code>, with ACT in K<sub>RJ</sub> (the default). Without the hits mask, the large scales stay close to the truth out to 600 iterations; see the <a href="#status">current status</a>.</p></div>
   </li>
 </ol>

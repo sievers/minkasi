@@ -214,3 +214,36 @@ def radec2pix_car(
         xpix = int((ra[i] - lims[0]) * cosdec / pixsize + 0.5)
         ypix = int((dec[i] - lims[2]) / pixsize + 0.5)
         ipix[i] = xpix * ny + ypix
+
+
+def sample_image(path: str, skymap) -> NDArray[np.floating]:
+    """
+    Sample a FITS image (celestial WCS, image in the primary HDU) at the pixel centres of a map, bilinearly.
+
+    Parameters
+    ----------
+    path : str
+        FITS file.
+    skymap : SkyMap
+        Map giving the pixelization; skymap.map[i, j] is FITS pixel (i, j) of its WCS.
+
+    Returns
+    -------
+    NDArray[np.floating]
+        Shape of skymap.map, 0 outside the image.
+    """
+    from astropy.io import fits
+    from scipy.ndimage import map_coordinates
+
+    with fits.open(path) as hdul:
+        data, src = hdul[0].data.astype(float), wcs.WCS(hdul[0].header).celestial
+    nx, ny = skymap.map.shape
+    ii, jj = np.meshgrid(np.arange(nx), np.arange(ny), indexing="ij")
+    ra, dec = skymap.wcs.wcs_pix2world(ii, jj, 0)
+    px, py = src.wcs_world2pix(ra, dec, 0)
+    # snap round-off onto whole pixels, so an image on the same grid is returned exactly (else the last row and
+    # column can land 1e-12 outside the image and get cval)
+    px, py = (
+        np.where(np.abs(p - np.round(p)) < 1e-6, np.round(p), p) for p in (px, py)
+    )
+    return map_coordinates(data, [py, px], order=1, cval=0.0)

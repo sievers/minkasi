@@ -176,3 +176,18 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
 - Result of the reruns: the fix explains the tilt. Joint vs ACT at ACT resolution, rms / ACT noise: 40 TODs 0.96 (tilt 4 uK; was 2.57, 82 uK),
   106 TODs 1.15 (tilt 11 uK, bowl +26 uK; was 3.29, 104 uK); simulation 0.97. Display maps rerendered; the 106-TOD map is Figure 10 /
   the mapmaking page's real map. Possible follow-up: the +26 uK bowl in the 106-TOD map (leftover M2 bowling?).
+
+## 2026-11-10 late: twores_ex.py refactored into minkasi (bit-identical)
+
+- `examples/twores_ex.py` is now 19 lines: `JointMapper(parse_args(__doc__)).run()` from `minkasi/needlet/joint.py`. Same options.
+- Moved: `pcg` (general CG; `run_pcg_wprior` now wraps it) -> `minkasi/mapmaking/pcg.py`; `read_tods` -> `minkasi/tods/io.py`;
+  `sample_sky` -> `minkasi.maps.utils.sample_image`; `setup_wmap` -> `minkasi.needlet.needlet.wavskymap_for_tods`, `cached` ->
+  `cached_responses`; ACT (`act_conversion`, `read_act`, `sim_act`, `edge_taper`, `ActTerm`) -> `minkasi/needlet/act.py`; `inject_sim` ->
+  `minkasi/needlet/sim.py`; diagnostics (`symmetry_check`, `coefficient_support`, `ritz_analysis`, `residual_diagnostics`, `pixel_solve`)
+  -> `minkasi/needlet/diagnostics.py`. pcg callbacks now get `(i, x, info)` with `info["relres"]`.
+- Verified: old vs new on 4 debug configurations (baseline CG; mask+prior+mean+restrict+ritz+resdiag; sim+pixel Jacobi; block solve):
+  all outputs identical (max difference 0). tests/test_needlet.py, test_cmb.py pass. Other scripts now import from minkasi.
+- Next (user): the same for the other analysis scripts (multiscale_map, sim_multiscale, act_consistency, sim_compare, band_error,
+  transfer_overlap, make_sim_sky, tod_splits, summary_figs).
+- Queued after the M2-only 106-TOD run (all106_nomask/m2only300, for the bowling): sim pixj/pixn unmasked (`sim/run_pix_nomask.sh`,
+  summary `sim/summary_pix_nomask.txt`), using the refactored script.

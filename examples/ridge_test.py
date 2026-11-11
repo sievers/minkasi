@@ -13,12 +13,14 @@ import os
 
 import minkasi.minkasi_all as minkasi
 import numpy as np
+from minkasi.mapmaking.pcg import pcg
 from minkasi.maps.mapset import Mapset
 from minkasi.needlet.needlet import band2map, map2band, wav2map_real
+from minkasi.needlet.needlet import cached_responses as cached
+from minkasi.needlet.needlet import wavskymap_for_tods as setup_wmap
+from minkasi.tods.io import read_tods
 from scipy.linalg import eigh
 from scipy.ndimage import gaussian_filter
-
-from twores_ex import cached, pcg, read_tods, setup_wmap
 
 
 class BlockSolver:
@@ -256,9 +258,9 @@ def main(args: argparse.Namespace):
             z.maps[0].map[:] = s.solve(r.maps[0].map, 1e-3)
             return z
 
-        def report(i, x, relres):
+        def report(i, x, info):
             if (i + 1) in args.cg_report:
-                say(f"  iter {i + 1}: |r|/|b| = {relres:.2e}")
+                say(f"  iter {i + 1}: |r|/|b| = {info['relres']:.2e}")
                 maps2[f"block-CG {i + 1}"] = real(x)
 
         pcg(todvec.dot, rhs, x0, block_precon, max(args.cg_report), 0.0, report)
