@@ -191,3 +191,15 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
   transfer_overlap, make_sim_sky, tod_splits, summary_figs).
 - Queued after the M2-only 106-TOD run (all106_nomask/m2only300, for the bowling): sim pixj/pixn unmasked (`sim/run_pix_nomask.sh`,
   summary `sim/summary_pix_nomask.txt`), using the refactored script.
+
+## 2026-11-10 night: running
+
+- Bowl: Figure 11 / `examples/bowl_profiles.py`. Real joint keeps ~10% of M2's bowl (-15 to -20 uK vs ACT); the simulation shows the joint
+  keeps the cluster and losing cluster signal has the opposite sign. User: no scan-synchronous templates (they act as high-pass filters).
+- Queue on cores 0-15: `sim/run_pix_nomask.sh` (pixj/pixn unmasked -> `sim/summary_pix_nomask.txt`), then `jack40/run_m2only.sh`
+  (M2-only per jackknife half -> `jack40/summary_m2only.txt`; then run bowl profiles per half).
+- A399-401 on cores 16-23 (`a399_401/run.sh`): 304 TODs from /mnt/welch/MUSTANG/M2-TODs/bridge, ACT f090 from /mnt/welch/ACT/bridge
+  (native 30" maps; ivar is (3,3,..), now handled), 8 ranks x 38 TODs (16 ranks would need ~220 GB: the responses of the 1260^2 map take
+  ~13.5 GB per rank, measured in a 4-TOD smoke test). Saves at 40/100/200/400/600; memory log `run600/mem.txt`; then act_consistency and a
+  70' multiscale map (`run600/A399_401_multiscale.png`). A401 is the decrement at the top of the field, A399 at the bottom left (outside M2).
+- Display note: the multiscale maps put RA increasing to the right (ACT cutout orientation); labels are right, convention is flipped.
