@@ -173,3 +173,6 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
 - Running (detached, `run_wcs.sh`): `lat40/nomask600_wcs` then `all106_nomask/run600_wcs`, each followed by `act_consistency.py`
   (`consistency.txt`) and a multiscale map (written to reports/figs/summary/best_real_multiscale.png and best_real106_multiscale.png;
   rerender without the --title argument, which got underscores). Expect the consistency rms near 1 if the fix explains the tilt.
+- Result of the reruns: the fix explains the tilt. Joint vs ACT at ACT resolution, rms / ACT noise: 40 TODs 0.96 (tilt 4 uK; was 2.57, 82 uK),
+  106 TODs 1.15 (tilt 11 uK, bowl +26 uK; was 3.29, 104 uK); simulation 0.97. Display maps rerendered; the 106-TOD map is Figure 10 /
+  the mapmaking page's real map. Possible follow-up: the +26 uK bowl in the 106-TOD map (leftover M2 bowling?).

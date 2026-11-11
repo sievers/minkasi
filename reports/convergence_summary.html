@@ -380,11 +380,22 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <figcaption><strong>Figure 9. For comparison, the two masked solves</strong> (needlet CG without and with the outside prior), shown the same way as Figure 8. The patches at the footprint edge in the first row's residual are what the mask causes.</figcaption>
 </figure>
 <figure>
-<img src="figs/summary/best_real_multiscale.png" alt="Real data: MOOJ1142 M2 plus ACT two-resolution map from the unmasked solve">
-<figcaption><strong>Figure 10. Real data, 40 TODs, no mask, no prior, 600 iterations (K<sub>RJ</sub>).</strong> Same display as Figure 8, with the colour scale set by the map itself. The ACT map is the coadd of the 8 DR6 f090 splits, and the thin line marks where the joint map starts to show (hits ≥ 120). The joint map's offset from ACT inside the M2 region (−7 µK) is subtracted. The 106-TOD map is next.</figcaption>
+<img src="figs/summary/best_real106_multiscale.png" alt="Real data: MOOJ1142 M2 (all TODs) plus ACT two-resolution map, unmasked solve with ACT correctly oriented">
+<figcaption><strong>Figure 10. Real data, all 106 TODs, no mask, no prior, 600 iterations (K<sub>RJ</sub>), with ACT correctly oriented.</strong> Same display as Figure 8, with the colour scale set by the map itself. The ACT map is the coadd of the 8 DR6 f090 splits, and the thin line marks where the joint map starts to show (hits ≥ 120). The joint map's offset from ACT inside the M2 region (+2 µK) is subtracted. Seen at ACT resolution, it agrees with ACT to 1.15× ACT's noise.</figcaption>
 </figure>
 <div class="prose">
-<div class="callout"><p><strong>Update, 10 Nov evening: the tilt was a bug, now fixed (<code>809620f</code>).</strong> <code>read_act</code> copied the ACT pixels onto the fine grid by array index. pixell returns the ACT cutout with RA increasing along the array, while the fine grid has RA decreasing, so ACT entered every real-data solve <em>mirrored in RA</em>. The evidence: the joint map followed ACT's gradient in Dec (+35 against +41 µK) but had the opposite gradient in RA (−43 against +38 µK). The solve's own ACT map correlated with the real ACT map mirrored in RA (+0.63) and not with ACT as it is (−0.35). ACT is now taken at each block centre's sky position, and matches ACT read independently at a correlation of 0.999. The simulations were not affected: their ACT is built from the sky directly on the fine grid. Every real-data result with ACT made before the fix, including the masked and unmasked 40-TOD and 106-TOD maps and the jackknife below, used mirrored ACT. The real maps are being rerun.</p></div>
+<div class="callout"><p><strong>Update, 10 Nov evening: the tilt was a bug, now fixed (<code>809620f</code>).</strong> <code>read_act</code> copied the ACT pixels onto the fine grid by array index. pixell returns the ACT cutout with RA increasing along the array, while the fine grid has RA decreasing, so ACT entered every real-data solve <em>mirrored in RA</em>. The evidence: the joint map followed ACT's gradient in Dec (+35 against +41 µK) but had the opposite gradient in RA (−43 against +38 µK). The solve's own ACT map correlated with the real ACT map mirrored in RA (+0.63) and not with ACT as it is (−0.35). ACT is now taken at each block centre's sky position, and matches ACT read independently at a correlation of 0.999. The simulations were not affected: their ACT is built from the sky directly on the fine grid. Every real-data result with ACT made before the fix, including the masked and unmasked 40-TOD and 106-TOD maps and the jackknife below, used mirrored ACT.</p>
+<p><strong>After the fix</strong>, the real maps agree with ACT to within ACT's noise:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Real map, no mask, 600 iterations</th><th>rms / ACT noise</th><th>Tilt at the edge</th><th>Bowl (with the tilt)</th></tr></thead>
+<tbody>
+<tr><td>40 TODs, ACT mirrored</td><td class="num">2.57</td><td class="num">82 µK</td><td class="num">+12 µK</td></tr>
+<tr><td><strong>40 TODs, fixed</strong></td><td class="num">0.96</td><td class="num">4 µK</td><td class="num">+10 µK</td></tr>
+<tr><td>106 TODs, ACT mirrored</td><td class="num">3.29</td><td class="num">104 µK</td><td class="num">+27 µK</td></tr>
+<tr><td><strong>106 TODs, fixed</strong></td><td class="num">1.15</td><td class="num">11 µK</td><td class="num">+26 µK</td></tr>
+<tr><td>simulation, 40 TODs (for comparison)</td><td class="num">0.97</td><td class="num">3 µK</td><td class="num">−5 µK</td></tr>
+</tbody></table></div>
+<p>The 40-TOD map is now as consistent with ACT as the simulation. The 106-TOD map is slightly above 1, mostly a small bowl of +26 µK at the region's edge. That may be leftover M2 bowling, at the 1.1× level.</p></div>
 <h3>The real map tilts against ACT (before the fix)</h3>
 <p>Seen at ACT resolution, the real joint map differs from ACT inside the M2 region by 2.6× ACT's noise. The simulation gives 1.0. The difference is a tilt of about 81 µK at the region's edge, high on the left. Removing a plane leaves ACT noise. What the checks show:</p>
 <ul>
