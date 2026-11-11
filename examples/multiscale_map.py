@@ -52,6 +52,8 @@ def read_act_coadd(
         ivar = enmap.read_map(path, box=box)
         m = enmap.read_map(path.replace("_ivar", "_map"), box=box)
         m = m[0] if m.ndim == 3 else m
+        while ivar.ndim > 2:  # (T, Q, U) or (3, 3) covariance diagonal: keep TT
+            ivar = ivar[0]
         num, den = num + ivar * m, den + ivar
     coadd = np.divide(num, den, out=np.zeros(den.shape), where=den > 0) * conv
     return enmap.ndmap(coadd, den.wcs), enmap.ndmap(den / conv**2, den.wcs)

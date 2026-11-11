@@ -89,9 +89,15 @@ def read_act(
     wdata : NDArray[np.floating]
         Sum over splits of ivar * map on the wmap pixelization, shape (nx, ny), constant on each block.
     """
-    ra, dec = np.mean(lims[:2]), np.mean(lims[2:])
-    rad = 0.5 * utils.degree
-    box = np.array([np.array([dec, ra]) - rad, np.array([dec, ra]) + rad])
+    # the field limits plus a margin of a few ACT pixels (the grid of the full map is kept, so the pixels picked do
+    # not depend on the box)
+    pad = 0.05 * utils.degree
+    box = np.array(
+        [
+            [min(lims[2:]) - pad, min(lims[:2]) - pad],
+            [max(lims[2:]) + pad, max(lims[:2]) + pad],
+        ]
+    )
     nx, ny = wmap.real_map.map.shape
     # block centres on the fine grid; map[i, j] is FITS pixel (i, j), i along RA
     bi = np.arange(-(-nx // fac)) * fac + (fac - 1) / 2
@@ -105,6 +111,8 @@ def read_act(
         act_map = enmap.read_map(path.replace("_ivar", "_map"), box=box) * conv
         if act_map.ndim == 3:
             act_map = act_map[0]  # temperature
+        while ivar_map.ndim > 2:  # (T, Q, U) or (3, 3) covariance diagonal: keep TT
+            ivar_map = ivar_map[0]
         py, px = enmap.sky2pix(ivar_map.shape, ivar_map.wcs, [bdec, bra])
         pick = [np.round(py).astype(int), np.round(px).astype(int)]  # nearest ACT pixel
         inside = (
