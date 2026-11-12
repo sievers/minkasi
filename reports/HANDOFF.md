@@ -254,6 +254,14 @@ method ranks the splits the same as the ACT method but reads 30-50 uK larger.
 - Each cell's inner - annulus (cluster + bowl, over the four-cell common footprint): 2019 lo -50, 2019 hi +14, 2021 lo -92,
   2021 hi -92 uK. The elevation result rests on the 2019 high cell, which shows no central dip.
 - Period term: at matched elevation, 2021 is deeper than 2019 in both cells, the same sign as MOOJ1142's late-vs-early term.
-- The difference maps are saddle-shaped (+-150 uK), not round bowls, so the inner mean summarises non-radial structure.
+- "Bowling" covers round bowls and saddles (believed to share a source). MS0735's is mostly saddle-shaped (+-150 uK in the
+  difference maps), and the inner-mean metric only measures the round part; a quadrupole measure is still needed.
+- Roll hypothesis: bowling grows with elevation (less atmosphere), and the parallactic-angle rate grows with it. MOOJ1142 goes
+  from 2 deg/hr at 35 deg to 28 deg/hr at 66 deg; MS0735 is 13.5-20 deg/hr at all its elevations (as fast as MOOJ1142 at 58-62 deg),
+  which fits its bowling at every elevation and the missing elevation trend in 2021. The competing elevation effect, azimuth
+  speed/acceleration ~ 1/cos(el), is the same for both clusters at the same elevation; at 41 deg MS0735 rolls 4x faster.
+  Pointing already follows the rotation (per-detector, per-sample DX/DY), so roll would act through something fixed to the
+  array or the az/el frame (common mode, noise model, atmosphere gradients). Test: MOOJ1142 rising-only against setting-only
+  maps at matched elevation (same rate, mirrored parallactic angle) should show the saddle orientation flip.
 - Summary page with figures: https://claude.ai/artifact/XNH7G8tBU85dh3YWWd9X3t (`/mnt/welch/USERS/jorlo/needlets/bowl_summary/`).
 - Next: odd/even null for a noise level; per-session depths; PWV or opacity per TOD; an azimuth split for MS0735.
