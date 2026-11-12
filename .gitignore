@@ -15,3 +15,6 @@ tsBowl_fitter.py
 old_map_maker.py
 scratch/
 
+*.pk
+.coverage
+.ipynb_checkpoints/
