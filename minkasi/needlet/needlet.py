@@ -1778,6 +1778,7 @@ def save_responses(prefix: str, resp: NDArray) -> None:
     resp : NDArray[object]
         Sparse matrix per filter, None for those not computed.
     """
+    os.makedirs(os.path.dirname(prefix) or ".", exist_ok=True)
     for i, r in enumerate(resp):
         if r is not None:
             sparse.save_npz(f"{prefix}_{i}.npz", r)
