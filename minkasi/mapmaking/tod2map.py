@@ -235,7 +235,7 @@ def tod2mapbowl(vecs: NDArray[np.floating], mat: NDArray[np.floating]):
     # Return tod should have shape ndet x ndata
     params = np.zeros((vecs.shape[0], vecs.shape[-1]))
     for i in range(vecs.shape[0]):
-        params[i] = np.dot(vecs[i, ...].T, mat[i, ...])
+        params[i] = np.dot(vecs[i,...].T, mat[i,...])
 
 
 @nb.njit(parallel=True)

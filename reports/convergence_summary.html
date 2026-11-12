@@ -1,0 +1,445 @@
+<title>Needlet Convergence Status</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Layout: a single reading column (about 70ch) with wide figures; status chips encode verdicts. */
+:root {
+  --bg: #f6f7f8;
+  --surface: #ffffff;
+  --fg: #1c2329;
+  --muted: #5b6670;
+  --rule: #d9dee3;
+  --accent: #1f6f8b;
+  --ok: #2e7d4f;
+  --ok-bg: #e3f2e8;
+  --warn: #9a6a00;
+  --warn-bg: #fbf0d6;
+  --no: #6b7480;
+  --no-bg: #eceff2;
+  --bad: #a23b3b;
+  --bad-bg: #f7e3e3;
+  --code-bg: #eef1f4;
+  --serif: "IBM Plex Serif", Georgia, serif;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171b; --surface: #1a2026; --fg: #e3e8ec; --muted: #9aa6b0; --rule: #2c353d;
+    --accent: #6cb8d3; --ok: #7fcf9c; --ok-bg: #1d3326; --warn: #e6bd5c; --warn-bg: #352b14;
+    --no: #a7b0b9; --no-bg: #252c33; --bad: #e98f8f; --bad-bg: #3a2020; --code-bg: #222a31;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171b; --surface: #1a2026; --fg: #e3e8ec; --muted: #9aa6b0; --rule: #2c353d;
+  --accent: #6cb8d3; --ok: #7fcf9c; --ok-bg: #1d3326; --warn: #e6bd5c; --warn-bg: #352b14;
+  --no: #a7b0b9; --no-bg: #252c33; --bad: #e98f8f; --bad-bg: #3a2020; --code-bg: #222a31;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; line-height: 1.6; }
+.page { max-width: 980px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.prose { max-width: 70ch; }
+header { display: grid; gap: 8px; padding-bottom: 24px; border-bottom: 1px solid var(--rule); margin-bottom: 32px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--serif); font-weight: 600; font-size: 2.1rem; line-height: 1.2; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--serif); font-weight: 600; font-size: 1.45rem; margin: 48px 0 12px; text-wrap: balance; }
+h3 { font-size: 1.05rem; font-weight: 600; margin: 28px 0 8px; }
+p { margin: 0 0 14px; }
+a { color: var(--accent); }
+code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.lede { font-size: 1.1rem; color: var(--fg); }
+.meta { color: var(--muted); font-size: 0.92rem; }
+.callout { background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--accent); padding: 16px 20px; margin: 20px 0; border-radius: 6px; }
+.callout p:last-child { margin-bottom: 0; }
+figure { margin: 22px 0 28px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; }
+figure img { display: block; width: 100%; height: auto; border-radius: 4px; background: #fff; }
+figcaption { font-size: 0.9rem; color: var(--muted); margin-top: 10px; max-width: 80ch; }
+.tablewrap { overflow-x: auto; margin: 16px 0 24px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: none; }
+td.num { font-family: var(--mono); white-space: nowrap; }
+.chip { display: inline-block; font-family: var(--mono); font-size: 0.75rem; font-weight: 500; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.ok { color: var(--ok); background: var(--ok-bg); }
+.chip.warn { color: var(--warn); background: var(--warn-bg); }
+.chip.no { color: var(--no); background: var(--no-bg); }
+.chip.bad { color: var(--bad); background: var(--bad-bg); }
+ul, ol { padding-left: 1.3em; margin: 0 0 14px; }
+li { margin-bottom: 6px; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.9rem; margin-top: 6px; }
+nav.toc a { text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { text-decoration: underline; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.two > * { min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 18px; }
+.card h3 { margin-top: 0; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">MOOJ1142 · M2 + ACT needlet mapmaking · status 10 Nov 2026</div>
+  <h1>Large-scale convergence inside the M2 footprint</h1>
+  <p class="meta">Branch <code>needlet</code>. Companion pages: <a href="https://claude.ai/artifact/83yLdSf6RiKEEh5Z6yDwkU">how the needlet mapmaker works</a> and the <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">detailed investigation log</a>. Code changes are listed against the starting commit <code>3c435a3</code> in <code>reports/code_changes.md</code>.</p>
+  <nav class="toc" aria-label="Sections">
+    <a href="#goal">1. The problem</a><a href="#causes">2. Causes examined</a><a href="#ruled-out">3. Ruled out</a>
+    <a href="#found">4. Found along the way</a><a href="#transfer">5. Transfer functions</a><a href="#sim">6. Simulation</a><a href="#now">7. Current picture</a><a href="#best">8. Best map</a><a href="#a399">9. A399-401</a>
+  </nav>
+</header>
+
+<section id="goal" class="prose">
+<h2>1. The problem</h2>
+<p class="lede">With M2 alone, conjugate gradient (CG) converges to machine precision. With ACT in the operator, the residual stops falling at a few times 10<sup>−4</sup>, and the largest scales of the map keep moving for hundreds of iterations.</p>
+<p>The goal is a combined map that has settled inside the M2 footprint, especially on scales of a few arcminutes and larger. Outside the footprint we use the ACT map as it is, so convergence there does not matter. The underlying science problem is the one that started this work. M2 alone loses the large scales (the "bowl"), and in the earlier ACT + M2 attempts the ACT beam caused trouble at the M2 map edge.</p>
+<div class="callout">
+<p><strong>In short:</strong> the residual floor comes from a handful of poorly determined modes. They live in a ring at the edge of the footprint, on scales where M2 and ACT hand over to each other (needlet bands 1–2, a few arcminutes). The simulation shows that the full-length solves start to fit noise in these modes. The in-footprint map is best at about iteration 40–200, and continuing to iterate makes the largest scales worse, mostly near the edge. An outside-footprint prior stops that drift. <strong>Latest:</strong> removing the M2 hits mask removes most of the drift with no prior at all (section 8).</p>
+</div>
+</section>
+
+<section id="causes">
+<h2>2. Causes examined</h2>
+<p class="prose">The 40-TOD tests use 600 CG iterations unless noted. "Floor" means the level where the CG residual defined below stops falling.</p>
+<div class="callout prose" id="residual">
+<p><strong>What "residual" means here.</strong> CG solves the linear system <em>H x = b</em> for the needlet coefficients <em>x</em>: every band, at every lattice position of the padded map, inside and outside the footprint.</p>
+<ul>
+<li><strong>Operator:</strong> (<em>H x</em>)<sub>i</sub> = F<sub>i</sub> M A<sup>T</sup>N<sup>−1</sup>A M (Σ<sub>j</sub> F<sub>j</sub> x<sub>j</sub>) + F<sub>i</sub> B<sup>T</sup>W B (Σ<sub>j</sub> F<sub>j</sub> x<sub>j</sub>). The first term is M2: F<sub>i</sub> is band i's needlet filter, M the hits mask, A the pointing and N the SVD noise model. The second term is ACT, used only in the ACT bands: B is the ACT beam and pixel, W the ACT inverse variance. The prior term is added when one is used.</li>
+<li><strong>Right-hand side:</strong> <em>b</em> = F<sub>i</sub> M A<sup>T</sup>N<sup>−1</sup>d + F<sub>i</sub> B<sup>T</sup>W m<sub>ACT</sub>, the same weighting applied to the M2 TODs <em>d</em> and the ACT map.</li>
+<li><strong>Residual:</strong> <em>r<sub>k</sub> = b − H x<sub>k</sub></em> after k iterations. The curves plot ‖r<sub>k</sub>‖ / ‖b‖, a plain sum of squares over all coefficients. It is not preconditioned and not restricted to the footprint. With <code>--pixel-cg</code> the unknowns are the real-space pixels instead, with the same definition.</li>
+<li><strong>What it does and does not measure:</strong> <em>r<sub>k</sub> = H (x<sub>exact</sub> − x<sub>k</sub>)</em>, so an error along a direction where H has eigenvalue λ shows up in r only as λ times that error. Poorly determined directions (small λ) can carry a large map error while hardly showing in the residual, and well-measured directions dominate it. A small residual is therefore not a small map error, which is why section 6 compares the maps with the simulated truth directly.</li>
+</ul>
+</div>
+<figure>
+<img src="figs/summary/residuals.png" alt="Three panels of CG residual against iteration: the fixes, the ACT weight scan and the simulation runs">
+<figcaption><strong>Figure 1. CG residual histories.</strong> Left: the code fixes. The lattice fix lowered the late residual (3.8e-4 to 1.6e-4) and the unit fix left it unchanged. Without ACT the solve converges to 1e-12. Middle: scaling the ACT weight down by a factor of 10<sup>6</sup> still leaves a floor, while zero ACT weight converges. Right: the simulation solves. The M2-only curve reaches 1e-15 at iteration 190 and then rises through round-off; it had converged.</figcaption>
+</figure>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Candidate cause</th><th>Test</th><th>Result</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>Operator or preconditioner not symmetric</td><td>Random-vector symmetry checks on the M2 term, the ACT term and the preconditioner</td><td>Asymmetry about 1e-16</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>Ridge shift in the block preconditioner</td><td>Shift 1e-5 to 1e-1</td><td>Same floor</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>ACT's hard cutoff at band 3</td><td>Change the ACT band set, add ACT to band 2</td><td>Same or slower</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>Preconditioner varies between iterations</td><td>Flexible (Polak–Ribière) CG</td><td>Same floor</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>Recursive residual drifts from the true residual</td><td>Recompute the true residual</td><td>They agree</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>Band lattices undersampled</td><td>Nyquist from each filter's support</td><td>ACT-only floor 9.3e-4 → 6e-7; joint floor lower but still there</td><td><span class="chip ok">real bug, fixed</span></td></tr>
+<tr><td>ACT unit conversion</td><td>K<sub>RJ</sub> instead of Jy/beam</td><td>Residual curve unchanged; large scales settle faster</td><td><span class="chip ok">real bug, fixed</span> <span class="chip no">not the floor</span></td></tr>
+<tr><td>ACT weight too strong</td><td>Scale ACT weight 1 → 10<sup>−6</sup></td><td>Floor stays (3.5e-5 even at 10<sup>−6</sup>); zero converges</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>Redundant (overcomplete) needlet coefficients</td><td>Solve for the pixel map instead (<code>--pixel-cg</code>)</td><td>Pixel CG stalls too (Jacobi worse)</td><td><span class="chip no">ruled out as the sole cause</span></td></tr>
+<tr><td>Coefficients outside the footprint</td><td>Drop them (<code>--restrict</code>)</td><td>Worse: new, slower edge modes</td><td><span class="chip no">ruled out</span></td></tr>
+<tr><td>Poorly constrained edge modes</td><td>Lanczos/Ritz analysis of the preconditioned operator</td><td>A few eigenvalues of 2e-4 to 6e-4, living just outside the footprint edge</td><td><span class="chip warn">identified, main suspect</span></td></tr>
+<tr><td>Nothing constrains the outside of the footprint</td><td>Prior ε|m|² outside (<code>--outside-prior</code>)</td><td>Converges fast; in the simulation it is the closest to the truth at the largest scales</td><td><span class="chip warn">works, still being judged</span></td></tr>
+<tr><td>M2 polynomial filter not in the noise model</td><td>Overlap measurement; Q N<sup>−1</sup> Q deprojection</td><td>Information changes only 1–4% in bands 0–2; the noise model already down-weights those modes</td><td><span class="chip no">ruled out, Q removed</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>The slow modes</h3>
+<p class="prose">On the small test problem (one TOD, 180 × 180 pixels), the Lanczos data from CG give the spectrum of the preconditioned operator. Without ACT, its few tiny eigenvalues are exact null modes that the right-hand side never excites. With ACT, they become small but nonzero (1.7e-4 to 6e-4), and they are excited. Each is a pattern of needlet coefficients sitting in a ring just outside the hit footprint. Only about 0% of its power falls inside the footprint, yet the solution weights it by 1/λ, so together these modes carry 9–13% of the map inside the footprint.</p>
+<figure>
+<img src="figs/summary/ritz_modes.png" alt="Ritz value spectra without and with ACT, and four maps of the slowest modes showing rings outside the footprint">
+<figcaption><strong>Figure 2. Spectrum and slowest modes, small problem (old ACT units).</strong> Left: Ritz values without ACT (blue, a few exact nulls near 1e-15 lie off the plot) and with ACT (orange, a few small but nonzero values). Right: the four slowest modes with ACT, with the M2 footprint drawn in black. They are oscillations at about 7–9 cycles per map just outside the footprint.</figcaption>
+</figure>
+</section>
+
+<section id="ruled-out" class="prose">
+<h2>3. Ruled out</h2>
+<ul>
+<li><strong>Numerical faults in CG:</strong> asymmetry, a nonlinear preconditioner, drift between the recursive and true residuals, and the ridge shift.</li>
+<li><strong>The ACT band set:</strong> neither the hard cutoff at band 3 nor adding ACT to band 2 helps.</li>
+<li><strong>The units, as the cause of the floor.</strong> The residual curves with old and new units are essentially the same (1.6e-4 and 1.5e-4 at iteration 600). The data enter only the right-hand side, and CG converges on a positive-definite system however inconsistent the data are. A 3.5× weight change also cannot account for a floor that survives a 10<sup>6</sup> weight reduction.</li>
+<li><strong>ACT being too heavily weighted.</strong> Any nonzero ACT weight leaves a floor.</li>
+<li><strong>The needlet basis on its own.</strong> Pixel-space CG also stalls, so the floor belongs to the problem, not to the coefficient representation.</li>
+<li><strong>Dropping coefficients outside the footprint.</strong> It makes things worse.</li>
+<li><strong>The lattice bug, as the whole story.</strong> It was real and is fixed, but the joint floor remains.</li>
+<li><strong>The M2 polynomial filter missing from the noise model.</strong> Putting it in (Q N<sup>−1</sup> Q) changed M2's information by only 1–4%, so the option was removed again (section 4).</li>
+</ul>
+</section>
+
+<section id="found">
+<h2>4. Found along the way</h2>
+<div class="two">
+<div class="card">
+<h3>Lattice undersampling <span class="chip ok">fixed · 5009a1d</span></h3>
+<p><code>get_downsamps</code> computed each band's limit using the needlet box size L = n·pix·√2, but compared it with the map side n·pix. Every band's lattice was therefore √2 too coarse, and the top of each band aliased. The fix takes Nyquist from the filter support (<code>--lattice-tol 1e-3</code>), and a test now checks it.</p>
+</div>
+<div class="card">
+<h3>ACT units <span class="chip ok">fixed · 6c6b240</span></h3>
+<p>The M2 TODs are in K<sub>RJ</sub>; WITCH confirms this, since its beam kernel sums to 1 and its prefactor goes from y to K<sub>RJ</sub>. ACT was being converted to Jy/beam: 4.37e-7 per µK<sub>CMB</sub> instead of 8.15e-7. ACT was therefore 1.86× too faint in amplitude and 3.5× too heavily weighted. The default is now <code>--m2-unit K_RJ</code>.</p>
+<img src="figs/summary/units_fix.png" alt="Bar charts: large-scale change between iterations before and after the unit fix, and the two conversion factors" style="width:100%;border-radius:4px;background:#fff">
+<p class="meta"><strong>Figure 3.</strong> Left: change of the 32–64 px band between saved iterations, 40 TODs, before and after the unit fix. Right: the two conversion factors.</p>
+</div>
+<div class="card">
+<h3>Earlier fixes</h3>
+<p>MPI reduce chunked wavelet maps by nx·ny, so only band 0 was reduced and the source lost about 15× in amplitude (<code>d6904a0</code>). ACT inverse variance was counted 100× over the fine pixels (<code>1abee2d</code>). Overlapping bands were double counted, and the truncated probed matrix was indefinite (<code>dcf2377</code>).</p>
+</div>
+<div class="card">
+<h3>Map orientation in the scripts <span class="chip ok">fixed · 9c5ad71</span></h3>
+<p>FITS maps from minkasi are the transposes of the <code>.npy</code> arrays. Two diagnostic scripts read the hits and ACT maps untransposed, which put 6.3% of footprint pixels in the wrong place. The library was not affected, and the corrected numbers moved by at most 0.02.</p>
+</div>
+<div class="card">
+<h3>ACT is not masked to the M2 hits</h3>
+<p><code>coarse2fine</code> only upsamples, so the ACT inverse variance covers the whole map. An earlier claim that it was masked was wrong. The outside of the footprint is therefore free only in the bands without ACT.</p>
+</div>
+<div class="card">
+<h3>M2 noise model and the polynomial <span class="chip no">tested, no effect, removed · 72ae36f</span></h3>
+<p><code>fit_cm_plus_poly</code> fits the common mode and a per-detector quadratic together, but subtracts only the quadratic; the common mode stays in the data. The SVD noise model never sees the subtracted polynomial, so the model and data could disagree at large scales. Tested with an option <code>--deproject-poly</code>: N<sup>−1</sup> → Q N<sup>−1</sup> Q, where Q projects Legendre orders 0–2 out of every detector, so the model matches the filtered data exactly. A first version also projected out the common mode. That was a mistake, because the common mode is still in the data, and it was corrected.</p>
+<p><strong>Result:</strong> Q changes M2's information per mode by 1%, 2% and 4% in bands 0, 1 and 2 (section 5). The SVD noise model already gives those modes almost no weight, which shows the noise model handles this correctly by itself. Q was an extra step with no effect, and it has been removed (added in <code>9f6332a</code> and <code>f42a467</code>, removed in <code>72ae36f</code>). The simulation runs with Q were stopped before they finished and are not needed.</p>
+</div>
+</div>
+</section>
+
+<section id="transfer">
+<h2>5. Transfer functions and information per mode</h2>
+<div class="prose">
+<p>Question: how well do the M2 and ACT transfer functions overlap, and does the noise model already tell the solver to trust ACT, not M2, on large scales? Script: <code>examples/transfer_overlap.py</code>, 40 TODs, 16 random probes, inside the hits ≥ 20 footprint. It measures four things for each Fourier mode, averaged in ℓ:</p>
+<ul>
+<li><strong>M2 filter transfer:</strong> the data filter, i.e. bin(fit_cm_plus_poly(A s)) against bin(A s). This is purely the polynomial subtraction.</li>
+<li><strong>M2 information:</strong> the Fourier diagonal of AᵀN<sup>−1</sup>A with the real SVD noise model. This is what the solver believes M2 knows.</li>
+<li><strong>ACT transfer:</strong> beam × ACT pixel.</li>
+<li><strong>ACT information:</strong> the ACT term exactly as <code>twores_ex.py</code> builds it, in K<sub>RJ</sub><sup>−2</sup>.</li>
+</ul>
+</div>
+<figure>
+<img src="figs/summary/tf40.png" alt="Transfer functions, information per mode for M2 and ACT, and the M2 share of the information with the needlet bands shaded">
+<figcaption><strong>Figure 4. Transfer functions and information per mode, 40 TODs.</strong> Top: transfer functions. Middle: information per mode. Bottom: M2's share of the total information, with the needlet bands shaded. The two experiments cross at ℓ ≈ 5000 (about 2.5′ half-wavelength) in band 2. There is no hole in the total information; ACT's falls off about as fast as M2's rises.</figcaption>
+</figure>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Band</th><th>Half-wavelength</th><th>M2 polynomial transfer</th><th>ACT beam × pixel</th><th>M2 info</th><th>ACT info</th><th>M2 share</th><th>M2 info with Q</th></tr></thead>
+<tbody>
+<tr><td>0</td><td class="num">10.6′</td><td class="num">0.55</td><td class="num">0.87</td><td class="num">6.5e4</td><td class="num">2.5e7</td><td class="num">0.3%</td><td class="num">−1%</td></tr>
+<tr><td>1</td><td class="num">4.6′</td><td class="num">0.72</td><td class="num">0.75</td><td class="num">7.7e5</td><td class="num">1.9e7</td><td class="num">3.8%</td><td class="num">−2%</td></tr>
+<tr><td>2</td><td class="num">2.5′</td><td class="num">0.93</td><td class="num">0.50</td><td class="num">5.7e6</td><td class="num">9.7e6</td><td class="num">37%</td><td class="num">−4%</td></tr>
+<tr><td>3</td><td class="num">1.3′</td><td class="num">0.96</td><td class="num">0.15</td><td class="num">1.7e7</td><td class="num">1.4e6</td><td class="num">92%</td><td class="num">−2%</td></tr>
+<tr><td>4+</td><td class="num">&lt; 0.7′</td><td class="num">≥ 0.995</td><td class="num">≈ 0</td><td class="num">≈ 3e7</td><td class="num">≈ 0</td><td class="num">&gt; 99.8%</td><td class="num">≈ 0</td></tr>
+</tbody>
+</table>
+</div>
+<div class="prose">
+<h3>What this shows</h3>
+<ol>
+<li><strong>The noise model already says "don't trust M2 on large scales".</strong> The common mode stays in the data, so the SVD noise model sees the atmosphere and down-weights it. M2's information per mode is about 500× lower in band 0 than at small scales. M2 holds 0.3% of the information in band 0 and 4% in band 1, with no manual band cut.</li>
+<li><strong>The handover is in band 2</strong>, where M2 holds 37% and ACT 63%. This is the same band, and the same edge region, where the slow modes live.</li>
+<li><strong>The polynomial does not matter.</strong> Projecting it out of the noise model (Q, see section 4) changes M2's information by only 1–4% in bands 0–2. The first version, which wrongly also projected out the common mode, changed it by 2–6%. The noise model already does the down-weighting, so Q was removed.</li>
+<li><strong>The noise down-weighting is why M2 alone loses the large scales.</strong> M2's data carry almost no information there, so the M2-only map cannot recover them (the bowl, transfer 0.27 in section 6). That is what ACT is for, and the joint solves recover them.</li>
+<li><strong>A correction to an earlier extrapolation:</strong> from the 2-TOD debug run I estimated M2's share at about 33% in band 1. The measured value with 40 TODs is 3.8%.</li>
+</ol>
+<p class="meta">Caveats: the ACT transfer in band 0 (0.87) is lowered by masking to the footprint, since the 2.1′ beam spreads signal outside it. The ACT term uses white noise from the inverse-variance map, without the CMB weighting or ACT's own large-scale noise.</p>
+</div>
+</section>
+
+<section id="sim">
+<h2>6. Simulation with a known sky</h2>
+<div class="prose">
+<p>Sky: a WITCH model of MOOJ1142 (gNFW, subcluster and point source, M2 beam, K<sub>RJ</sub>) plus a lensed CMB realisation, made by <code>examples/make_sim_sky.py</code>. It is injected into the raw TODs before <code>fit_cm_plus_poly</code>. M2 noise is the real data with its sign flipped on every other TOD; ACT is the beam-smoothed, pixel-averaged sky plus white noise from its inverse variance. 40 TODs, corrected lattice and units. The true decrement is −6.49e-4 K<sub>RJ</sub>. "Interior" means more than 20 px inside the footprint edge.</p>
+</div>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Run</th><th>Residual</th><th>Decrement</th><th>Error / truth, 16–32 px</th><th>Error / truth, 32–64 px</th><th>Transfer, 32–64 px</th></tr></thead>
+<tbody>
+<tr><td><code>coef</code> needlet CG, iteration 40</td><td class="num">–</td><td class="num">−6.42e-4</td><td class="num">0.17</td><td class="num">0.14</td><td class="num">1.07</td></tr>
+<tr><td><code>coef</code> needlet CG, iteration 600</td><td class="num">2.3e-4</td><td class="num">−6.43e-4</td><td class="num">0.26</td><td class="num">0.32</td><td class="num">1.15</td></tr>
+<tr><td><code>pixn</code> pixel CG, needlet preconditioner, 600</td><td class="num">4.6e-4</td><td class="num">−6.44e-4</td><td class="num">0.26</td><td class="num">0.31</td><td class="num">1.20</td></tr>
+<tr><td><code>pixj</code> pixel CG, Jacobi, 600</td><td class="num">2.6e-3</td><td class="num">−6.43e-4</td><td class="num">0.18</td><td class="num">0.16</td><td class="num">1.09</td></tr>
+<tr><td><code>prior</code> outside-footprint prior, 600</td><td class="num">3.2e-4</td><td class="num">−6.42e-4</td><td class="num">0.15</td><td class="num">0.12</td><td class="num">1.08</td></tr>
+<tr><td><code>m2only</code> no ACT, 300</td><td class="num">converged</td><td class="num">−3.51e-4</td><td class="num">0.69</td><td class="num">1.34</td><td class="num">0.27</td></tr>
+</tbody>
+</table>
+</div>
+<figure>
+<img src="figs/summary/sim_bands.png" alt="Interior error against iteration for the two largest scales, and the transfer at the largest scale, for each simulation run">
+<figcaption><strong>Figure 5. Accuracy against iteration, interior of the footprint.</strong> The needlet and pixel solves with a good preconditioner are at their best early, and then their large-scale error grows as they converge. The Jacobi solve converges more slowly and follows the same path later. The prior run stays near its early accuracy. M2 alone recovers only 27% of the largest scale.</figcaption>
+</figure>
+<figure>
+<img src="figs/summary/sim_drift.gif" alt="Animation over CG iterations of the large-scale band of the truth, the needlet solve, the prior solve and the M2-only solve, with differences from the truth">
+<figcaption><strong>Figure 6. Large-scale band (Gaussian band-pass 16–64 px), K<sub>RJ</sub> × 10<sup>6</sup>, iterations 40, 200, 400 and 600.</strong> Top: truth and maps. Bottom: map minus truth. The needlet solve's error grows in patches at the footprint edge, the prior solve stays clean, and M2 alone shows the classic bowl. Every joint solve gets the central decrement right to within 1%.</figcaption>
+</figure>
+<div class="prose">
+<h3>Reading the simulation</h3>
+<ul>
+<li><strong>The joint map is already good.</strong> ACT fixes the bowl: all joint solves recover the decrement to about 1% and the largest scale with transfer 1.05–1.2, where M2 alone gives 0.27. What remains is the red and blue patches at the footprint edge in Figure 6. Those patches are what the residual floor and the large-scale drift are about.</li>
+<li><strong>Continuing to iterate is not making the map better.</strong> The extra iterations mostly fit the slow edge modes, and in this simulation the fitted amplitude is noise. That makes the unregularised least-squares solution worse at large scales than an early iterate. The residual floor is CG slowly working its way into these noise-dominated directions.</li>
+<li><strong>A small prior outside the footprint is the most accurate option tested.</strong> It is also the fastest to converge. Earlier on the toy problem it shifted the map by about 10% relative to the no-prior solution, and the simulation says that shift moves it toward the truth.</li>
+<li><strong>Not yet tested:</strong> a second noise or CMB realisation, so these numbers carry one realisation's scatter.</li>
+</ul>
+<h3>How the prior works</h3>
+<p>Options <code>--outside-prior 1e-2 --prior-non-act</code> add a quadratic penalty to the least-squares objective. It pulls the real-space map outside the footprint toward zero, but only through the bands that ACT does not constrain:</p>
+<ul>
+<li><strong>Penalty:</strong> ε ‖P<sub>out</sub> Σ<sub>j∉ACT</sub> F<sub>j</sub> x<sub>j</sub>‖². P<sub>out</sub> is 1 outside the footprint (hits &lt; 20) and 0 inside. The sum runs over the non-ACT bands, which are 4–9 here, since ACT is used in bands 0–3.</li>
+<li><strong>Effect on the operator:</strong> for each non-ACT band i it adds F<sub>i</sub> ε P<sub>out</sub> Σ<sub>j∉ACT</sub> F<sub>j</sub> x<sub>j</sub> to (H x)<sub>i</sub>, and adds nothing to b, so the mean of the prior is zero. The ACT bands are left alone, because ACT already measures them outside the footprint; its inverse variance is not masked.</li>
+<li><strong>Strength:</strong> ε = c × (median M2 weight per lattice point inside the footprint in the finest band) / (median prior weight per point outside), with c = 10<sup>−2</sup>. So outside the footprint, a pixel in the non-ACT bands is held about as firmly as 1% of a typical M2 pixel's weight.</li>
+<li><strong>Preconditioner:</strong> the prior's blocks are probed like the M2 and ACT blocks and added to the block preconditioner.</li>
+</ul>
+<p>It is a Tikhonov (ridge) regulariser on the unmeasured part of the solution. Without it, the fine-band needlets outside the footprint are fixed only by how they leak into the footprint edge, which is the weakly determined direction CG keeps working on. A zero-mean prior is not physical outside the footprint, but the ACT bands carry the sky there, and what it suppresses is finer than ACT can see.</p>
+<h3>Which bands carry the error</h3>
+<p>Script <code>examples/band_error.py</code> splits the in-footprint error (map minus truth) into needlet bands, F<sub>i</sub><sup>2</sup>(m − truth). The saved maps are zero outside the footprint, so only the inside is used. I had guessed that the edge patches sat in the fine bands 4+, the ones the prior acts on. They do not.</p>
+<figure>
+<img src="figs/summary/band_error.png" alt="Map minus truth split into needlet bands 0 to 7 for the needlet solve at iterations 40 and 600 and the prior solve at 600">
+<figcaption><strong>Figure 7. Map minus truth inside the footprint, split by needlet band.</strong> Rows: needlet solve at iteration 40, needlet solve at 600, prior solve at 600. Each column has one colour scale. The error that grows with iteration is in bands 0–2, the ACT bands, and the prior removes it. Bands 3 and up are the same in all three rows; they are M2 noise, which only more data reduces.</figcaption>
+</figure>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Error / truth rms, interior</th><th>Band 0</th><th>Band 1</th><th>Band 2</th><th>Band 3</th><th>Band 4</th><th>Band 5</th></tr></thead>
+<tbody>
+<tr><td>needlet CG, iteration 40</td><td class="num">0.19</td><td class="num">0.17</td><td class="num">0.26</td><td class="num">0.52</td><td class="num">0.87</td><td class="num">2.65</td></tr>
+<tr><td>needlet CG, iteration 600</td><td class="num">0.34</td><td class="num">0.36</td><td class="num">0.49</td><td class="num">0.55</td><td class="num">0.87</td><td class="num">2.65</td></tr>
+<tr><td>prior, iteration 600</td><td class="num">0.12</td><td class="num">0.15</td><td class="num">0.24</td><td class="num">0.52</td><td class="num">0.86</td><td class="num">2.65</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><strong>The drift is in bands 0–2.</strong> From iteration 40 to 600 their interior error roughly doubles; nothing changes in bands 3 and up. In the edge strip, bands 1–3 carry 77–84% of the 16–64 px error, and band 4 only 6–12%.</li>
+<li><strong>The prior fixes bands 0–2, although it acts only on bands 4–9 outside the footprint.</strong> At iteration 600 it is better than the needlet solve was at iteration 40 (0.12 against 0.19 in band 0). So the coupling between the fine bands outside and the large scales inside goes through the operator, not through the bands overlapping. My guess is the hits mask M in the M2 term: cutting a fine-scale needlet at the footprint edge gives it some large-scale content. That has not been tested.</li>
+<li><strong>Bands 5 and up</strong> are M2-noise dominated (error several times the signal or more), as expected for 40 TODs. Their signal is mostly beam-suppressed.</li>
+</ul>
+<h3>A signal-based prior strength</h3>
+<p>For a zero-mean Gaussian prior on the bands it acts on (4–9), the natural strength is ε = 1 / (sky variance per pixel of the sum of those bands). From the simulated sky components:</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Sky part, bands 4–9</th><th>rms per pixel (K<sub>RJ</sub>)</th><th>ε = 1 / variance</th><th>Relative to ε used</th></tr></thead>
+<tbody>
+<tr><td>Cluster (whole map)</td><td class="num">1.0e-5</td><td class="num">9.8e9</td><td class="num">4.6e4</td></tr>
+<tr><td>Point source (whole map)</td><td class="num">4.5e-6</td><td class="num">4.9e10</td><td class="num">2.3e5</td></tr>
+<tr><td>CMB (whole map)</td><td class="num">1.7e-7</td><td class="num">3.6e13</td><td class="num">1.7e8</td></tr>
+<tr><td>All together (whole map)</td><td class="num">1.1e-5</td><td class="num">8.2e9</td><td class="num">3.9e4</td></tr>
+<tr><td>Truth in the 20 px strip just outside the footprint</td><td class="num">1.2e-6</td><td class="num">7.0e11</td><td class="num">3.3e6</td></tr>
+<tr><td>Used: c = 10<sup>−2</sup> of the M2 pixel weight</td><td class="num">(M2 noise 2.2e-4 per pixel)</td><td class="num">2.1e5</td><td class="num">1</td></tr>
+</tbody>
+</table>
+</div>
+<p>On these scales the sky outside the footprint is 20–200 times smaller than the M2 noise per pixel, and the primary CMB is damped away. A physically motivated zero-mean prior would therefore be 10<sup>4</sup>–10<sup>6</sup> times stronger than the one used, and would essentially fix those coefficients at zero. Pulling toward zero is about right for these bands; what is left there is cluster substructure and point sources, and the cluster part is from this simulation's model. Caveats: the variance per pixel treats the fine part as white, and the cluster and the source are not Gaussian or stationary.</p>
+</div>
+</section>
+
+<section id="now" class="prose">
+<h2>7. Current picture and next steps</h2>
+<p>The working explanation: M2 and ACT hand over in band 2. At the footprint edge, neither experiment pins down needlets that hang half outside the footprint. That leaves a few weakly determined, noise-dominated modes. CG spends hundreds of iterations on them, which shows up as the residual floor. Fitting them makes the large scales near the edge worse, not better. This is closely related to the original "ACT beam causes trouble at the M2 edge" problem.</p>
+<p>This is a spatial problem, not a spectral one. The noise model already does the scale weighting between M2 and ACT correctly. What no weighting can fix is that, near the edge, the needlets at band 1–2 scales extend into a region where M2 has no data and ACT measures those scales only weakly (beam transfer about 0.5). Those combinations are then fixed only by noise, unless a prior or an early stop decides them.</p>
+<h3>Options to decide on</h3>
+<ul>
+<li>Adopt the outside-footprint prior, judged by the simulation, and choose its strength (c = 1e-2 used here).</li>
+<li>Or stop CG early with a criterion measured inside the footprint, though that is a less principled form of regularisation.</li>
+<li>Repeat the simulation with another seed, and with 106 TODs, before settling.</li>
+<li>Make <code>--lattice-tol</code> the default, or build the needlet with L = n·pix.</li>
+<li>Housekeeping: the response caches do not record their settings, and <code>reports/needlet.html</code> still has pre-fix numbers.</li>
+</ul>
+<p class="meta">Data are under <code>/mnt/welch/USERS/jorlo/needlets/</code>: <code>lat40/</code> holds the 40-TOD real-data runs, <code>sim/</code> the simulation runs and <code>summary.txt</code>, <code>overlap/</code> the transfer measurements, and <code>ritz/</code> the small-problem spectra. Figures come from <code>examples/summary_figs.py</code>, <code>examples/plot_residual_curves.py</code> and <code>examples/transfer_overlap.py</code>.</p>
+</section>
+
+<section id="best">
+<h2>8. Best map so far: no hits mask</h2>
+<div class="prose">
+<p>By default <code>twores_ex.py</code> masks pixels with fewer than 20 hits: the M2 model is zero there and the binned data are zeroed. The TOD samples that land on those pixels are still in the data, though, with sky in them that the model cannot explain. The noise model treats that sky as noise, and the SVD noise model correlates samples across detectors and time, so it carries the unexplained signal into the pixels just inside the footprint edge. Running with <code>--min-hits 0</code> removes the cut, so every sample is modelled and low-hit pixels are simply noisy. Same simulation and 40 TODs as section 6, judged in the same hits ≥ 20 footprint:</p>
+</div>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Interior error / truth</th><th>Band 0</th><th>Band 1</th><th>Band 2</th><th>Largest scale (32–64 px)</th><th>Its transfer</th><th>Display residual rms, M2 part</th></tr></thead>
+<tbody>
+<tr><td>masked, iteration 600</td><td class="num">0.34</td><td class="num">0.36</td><td class="num">0.49</td><td class="num">0.32</td><td class="num">1.15</td><td class="num">11.1 µK</td></tr>
+<tr><td>masked + outside prior, 600</td><td class="num">0.12</td><td class="num">0.15</td><td class="num">0.24</td><td class="num">0.12</td><td class="num">1.08</td><td class="num">9.7 µK</td></tr>
+<tr><td><strong>no mask, no prior, 40</strong></td><td class="num">0.09</td><td class="num">0.07</td><td class="num">0.18</td><td class="num">0.09</td><td class="num">1.04</td><td class="num">–</td></tr>
+<tr><td><strong>no mask, no prior, 600</strong></td><td class="num">0.16</td><td class="num">0.10</td><td class="num">0.28</td><td class="num">0.10</td><td class="num">0.98</td><td class="num">9.9 µK</td></tr>
+<tr><td><strong>no mask + outside prior (c = 10<sup>−2</sup>), 600</strong></td><td class="num">0.08</td><td class="num">0.09</td><td class="num">0.18</td><td class="num">0.09</td><td class="num">1.05</td><td class="num">–</td></tr>
+<tr><td>masked + signal-strength prior (c = 400), 600</td><td class="num">0.11</td><td class="num">0.10</td><td class="num">0.19</td><td class="num">0.09</td><td class="num">1.04</td><td class="num">–</td></tr>
+<tr><td>masked + prior on band 4 only, 600</td><td class="num">0.32</td><td class="num">0.31</td><td class="num">0.42</td><td class="num">0.25</td><td class="num">1.14</td><td class="num">–</td></tr>
+</tbody>
+</table>
+</div>
+<div class="prose">
+<p>Without the mask, the solve matches or beats the prior at the largest scales, with no prior at all, and the edge patches are mostly gone. It still drifts a little in bands 0 and 2 between iterations 40 and 600.</p>
+<ul>
+<li><strong>No mask plus the weak prior is the most accurate combination</strong> (0.08, 0.09 and 0.18 in bands 0–2, largest scale 0.09), and it stays at that level from iteration 40 to 600. Without the mask the prior is a refinement, mainly in bands 0 and 2, not a fix.</li>
+<li><strong>A signal-strength prior</strong> (ε ≈ 8.5e9, the inverse sky variance of bands 4–9) gives almost the same accuracy even with the mask. Its CG residual stays at 7e-3, though: the stiff prior makes the system badly conditioned, so the residual is no guide to the map there.</li>
+<li><strong>A prior on band 4 alone does almost nothing</strong> (errors like the masked solve with no prior). The prior's benefit comes from the finest bands, 5–9, outside the footprint. That fits the mask explanation: a hard cut at the edge couples very fine-scale coefficients outside the footprint to the large scales inside.</li>
+<li>All runs recover the decrement to within 1% (−6.42e-4 against −6.49e-4).</li>
+</ul>
+<div class="callout"><p><strong>Decision (10 Nov):</strong> the baseline is no mask and no prior. M2 and ACT are combined only through their noise models. The outside-footprint prior acts only on coefficients with no data at all, so it does not override the noise. But without the mask it improves the map only slightly (largest scale 0.10 → 0.09), which is not worth an extra assumption in the system. <code>--outside-prior</code> stays available as a diagnostic.</p></div>
+<p>Running now: the real-data map with no mask, first with 40 TODs and then with all TODs.</p>
+<h3>Display maps</h3>
+<p>The figures below are for viewing only. They come from <code>examples/multiscale_map.py</code> (real data) and <code>examples/sim_multiscale.py</code> (simulation):</p>
+<ul>
+<li><strong>Base grid:</strong> 30″ ACT pixels. Each one containing M2 data (hits ≥ 20) is split into 8 × 8 sub-pixels of 3.75″.</li>
+<li><strong>What a sub-pixel shows:</strong> the joint map, where it has at least 120 hits, feathered into the ACT value over the next 300 hits. Sub-pixels with fewer than 120 hits show their ACT pixel's value.</li>
+<li><strong>Smoothing that follows the hits:</strong> the joint map is smoothed to 10″ FWHM where it has at least 3000 hits. Below that, the FWHM grows as 10″ × √(3000 / hits), up to 30″ (<code>--smooth-ref-hits 3000</code>). The M2 noise after smoothing goes as 1 / (FWHM √hits), so this keeps the displayed noise about the same everywhere instead of letting it grow toward the edge. For 40 TODs the FWHM is about 16″ at the 90th-percentile hits and 30″ at the median. With all TODs the noise is about 1.6 times lower, so a smaller reference will do.</li>
+<li><strong>Display only:</strong> the threshold affects only the picture. The solve still uses every sample, which is what removes the edge bias, while the picture no longer shows the noisy low-hit pixels.</li>
+<li><strong>Elsewhere:</strong> unsplit pixels show the ACT map.</li>
+</ul>
+<div class="callout">
+<p><strong>Why low-hit pixels speckle.</strong> On the scales a few sub-pixels across, ACT contributes nothing: those are very high ℓ, where its beam transfer is 0.004 or less in band 4 and about 0 above (Figure 4). So at those scales the joint map is pure M2, and where M2 has few hits it is pure M2 noise. Its rms grows as 1/√hits. With 40 TODs it is large even at full weight: 32 µK at 10″ smoothing for 420–1000 hits, against a positive colour range of only 78 µK set by the CMB, so noise peaks saturate. The joint solve is behaving correctly here: there is no information on those scales at those pixels, and the noise shows it. The display threshold (<code>--show-hits</code>) hides those pixels by showing the ACT value instead, which on those scales just means showing nothing. The hits-dependent smoothing deals with the rest: it smooths more where there are fewer hits, and keeps the large scales of the joint map.</p>
+</div>
+</div>
+<figure>
+<img src="figs/summary/best_sim_multiscale.png" alt="Simulation with no mask: truth, simulated data and residual as two-resolution maps">
+<figcaption><strong>Figure 8. Best configuration on the simulation: no mask, no prior, 600 iterations.</strong> 18′ field. 30″ ACT pixels, split into 8 × 8 sub-pixels (3.75″) where M2 has data (hits ≥ 20). The thin line marks where the joint map starts to show (hits ≥ 120); outside it, the ACT values are shown. The M2 part is smoothed to 10″ above 3000 hits and up to 30″ below, shown above 120 hits and feathered into ACT over 300. The positive end of the colour scale is fixed at +150 µK, about the real map's CMB range, because this simulated patch has little CMB. Truth: the simulated sky, and in the ACT pixels the sky as a noiseless ACT sees it (ACT beam, pixel average). Data: the joint map, and in the ACT pixels a simulated ACT map with noise from the real ACT inverse variance. The residual's M2 part is smoothed to 30″. Its rms is 9.9 µK in the M2 part and 17.5 µK in the ACT pixels, which is ACT noise.</figcaption>
+</figure>
+<figure>
+<img src="figs/summary/sim_multiscale.png" alt="Simulation: masked needlet solve and masked solve with the outside prior, truth, data and residual">
+<figcaption><strong>Figure 9. For comparison, the two masked solves</strong> (needlet CG without and with the outside prior), shown the same way as Figure 8. The patches at the footprint edge in the first row's residual are what the mask causes.</figcaption>
+</figure>
+<figure>
+<img src="figs/summary/best_real106_multiscale.png" alt="Real data: MOOJ1142 M2 (all TODs) plus ACT two-resolution map, unmasked solve with ACT correctly oriented">
+<figcaption><strong>Figure 10. Real data, all 106 TODs, no mask, no prior, 600 iterations (K<sub>RJ</sub>), with ACT correctly oriented.</strong> Same display as Figure 8, with the colour scale set by the map itself. The ACT map is the coadd of the 8 DR6 f090 splits, and the thin line marks where the joint map starts to show (hits ≥ 120). The joint map's offset from ACT inside the M2 region (+2 µK) is subtracted. Seen at ACT resolution, it agrees with ACT to 1.15× ACT's noise.</figcaption>
+</figure>
+<div class="prose">
+<div class="callout"><p><strong>Update, 10 Nov evening: the tilt was a bug, now fixed (<code>809620f</code>).</strong> <code>read_act</code> copied the ACT pixels onto the fine grid by array index. pixell returns the ACT cutout with RA increasing along the array, while the fine grid has RA decreasing, so ACT entered every real-data solve <em>mirrored in RA</em>. The evidence: the joint map followed ACT's gradient in Dec (+35 against +41 µK) but had the opposite gradient in RA (−43 against +38 µK). The solve's own ACT map correlated with the real ACT map mirrored in RA (+0.63) and not with ACT as it is (−0.35). ACT is now taken at each block centre's sky position, and matches ACT read independently at a correlation of 0.999. The simulations were not affected: their ACT is built from the sky directly on the fine grid. Every real-data result with ACT made before the fix, including the masked and unmasked 40-TOD and 106-TOD maps and the jackknife below, used mirrored ACT.</p>
+<p><strong>After the fix</strong>, the real maps agree with ACT to within ACT's noise:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Real map, no mask, 600 iterations</th><th>rms / ACT noise</th><th>Tilt at the edge</th><th>Bowl (with the tilt)</th></tr></thead>
+<tbody>
+<tr><td>40 TODs, ACT mirrored</td><td class="num">2.57</td><td class="num">82 µK</td><td class="num">+12 µK</td></tr>
+<tr><td><strong>40 TODs, fixed</strong></td><td class="num">0.96</td><td class="num">4 µK</td><td class="num">+10 µK</td></tr>
+<tr><td>106 TODs, ACT mirrored</td><td class="num">3.29</td><td class="num">104 µK</td><td class="num">+27 µK</td></tr>
+<tr><td><strong>106 TODs, fixed</strong></td><td class="num">1.15</td><td class="num">11 µK</td><td class="num">+26 µK</td></tr>
+<tr><td>simulation, 40 TODs (for comparison)</td><td class="num">0.97</td><td class="num">3 µK</td><td class="num">−5 µK</td></tr>
+</tbody></table></div>
+<p>The 40-TOD map is now as consistent with ACT as the simulation. The 106-TOD map is slightly above 1, mostly a small bowl of +26 µK at the region's edge. That may be leftover M2 bowling, at the 1.1× level.</p></div>
+<h3>The remaining bowl</h3>
+<figure>
+<img src="figs/summary/bowl_profiles.png" alt="Radial profiles around the cluster of ACT, the joint map and the M2-only map, and their differences from ACT">
+<figcaption><strong>Figure 11. Radial profiles around the cluster</strong> (<code>examples/bowl_profiles.py</code>). Left and middle columns: maps at ACT resolution (ACT beam, 30″ pixels), with each map's tilt over the M2 region removed and zero at the region's outer edge. Top row: real data, 106 TODs, no mask, with ACT, the joint map and an M2-only map (<code>--act-ivar-scale 0</code>), and their differences from ACT. Bottom row: the 40-TOD simulation, with the truth in place of ACT; the simulated M2-only run used the hits mask. Right column: the cluster profile itself at 20″, real joint map, and simulated joint map against the truth.</figcaption>
+</figure>
+<div class="prose">
+<ul>
+<li><strong>M2 alone has the classic bowl.</strong> It sits about 200 µK below ACT over the inner 2′ and returns to zero only at about 5′, well beyond the cluster decrement, which in ACT is gone by 2.5′. Its large scales are otherwise barely constrained: it differs from ACT by a 2 mK tilt.</li>
+<li><strong>The joint map keeps about a tenth of it:</strong> 15–20 µK below ACT between 0.5′ and 3′, back to zero by 4.5′. ACT's noise in a 2′ annulus is about 4 µK, so this is a 4–5σ effect. A tenth is about what M2's weight on those scales passes through (4% of the information in band 1, 37% in band 2).</li>
+<li><strong>The method keeps the cluster and does not make a bowl.</strong> In the simulation, the joint map minus the truth is flat at about +7 µK out to 4′, and at 20″ its cluster profile lies on the truth's (−460 against −474 µK in the central bin).</li>
+<li><strong>We are not subtracting the cluster.</strong> Losing cluster signal looks like the simulated M2-only map: it recovers only part of the extended decrement, so it sits <em>above</em> the truth (+98 µK at the centre, zero by 4′). The real maps go the other way: the joint map sits <em>below</em> ACT (−15 to −18 µK) and M2 alone far below it (−180 µK). That is extra negative signal from M2, not missing cluster signal.</li>
+<li><strong>So the bowl is in the real M2 data</strong>, adds up coherently on the sky, and is not sky signal, since ACT measures these scales to a few µK.</li>
+</ul>
+<p>Candidates are M2 systematics that the sign-flipped simulated noise cancels, such as scan-synchronous or ground pickup. Next: M2-only maps of jackknife halves (time, elevation) to see whether the bowl changes. Scan-synchronous templates are not planned: in past attempts they amounted to high-pass filtering the data.</p>
+</div>
+<h3>The real map tilts against ACT (before the fix)</h3>
+<p>Seen at ACT resolution, the real joint map differs from ACT inside the M2 region by 2.6× ACT's noise. The simulation gives 1.0. The difference is a tilt of about 81 µK at the region's edge, high on the left. Removing a plane leaves ACT noise. What the checks show:</p>
+<ul>
+<li><strong>Not the mask:</strong> 2.66× masked, 2.57× unmasked, same tilt.</li>
+<li><strong>Not convergence:</strong> the tilt is 81 µK at iteration 40 and stays there to 600.</li>
+<li><strong>Not visible in ACT's own checks:</strong> the same tilt appears against ACT pa5 and pa6 separately (pa5 − pa6 tilt 2 µK), and a half-split ACT null is white noise at its stated level, averaging down to 2 µK over 4′. Ground pickup common to all ACT data would not show in these.</li>
+<li><strong>Not in the simulation:</strong> the simulated M2 noise is the real data with alternate TODs sign-flipped, and the simulated map has no tilt against the truth.</li>
+</ul>
+<p>So the tilt is in the real M2 data and adds up coherently on the sky. Possible causes are pickup tied to azimuth or elevation, which every TOD sees the same way because each one tracks the source, or an M2/ACT calibration or transfer difference. The planned test is a jackknife of the M2 TODs by observing session and by elevation. A shared M2 systematic should show the same tilt in every half; a time-varying one should not.</p>
+</div>
+</section>
+
+<section id="a399">
+<h2>9. A399-401: first joint map (Trillium, 11 Nov)</h2>
+<div class="prose">
+<p>All 304 MUSTANG-2 TODs of the A399-401 bridge field plus the ACT DR6 f090 coadd, with the baseline settings (<code>--direct --cg 600 --lattice-tol 1e-3 --min-hits 0</code>, no prior), the preconditioner window at <code>--radius 14</code>. The map is 1260 × 1260 pixels of 3″, against 480 × 480 for MOOJ1142, so it was run on Trillium: 38 ranks × 8 TODs on 6 nodes (<code>examples/slurm/a399_401.sbatch</code>; memory and timing in <code>reports/A399_401_HPC.md</code>). The run took 1.5 h from a cached response, at 8.3 s per CG iteration.</p>
+<ul>
+<li><strong>Agrees with ACT.</strong> Seen at ACT resolution over 1254 ACT pixels inside the M2 region, the joint map minus ACT is 1.01× ACT's noise (13.5 µK per pixel) after an offset. The tilt at the edge is 3 µK and there is no bowl. MOOJ1142 with 106 TODs gave 1.15× with a +26 µK bowl.</li>
+<li><strong>Not fully converged at small scales.</strong> The residual is 1.3 × 10<sup>−3</sup> at iteration 600 and still falling slowly (MOOJ1142: about 4 × 10<sup>−4</sup>). Between iterations 400 and 600 the largest scales (30 px Gaussian) no longer change, but scales from the beam to 30″ still move by about 30% of their rms. A longer run (about 1500 iterations, 3.5 h) is the next step.</li>
+</ul>
+</div>
+<figure>
+<img src="figs/summary/a399_401_multiscale.png" alt="A399-401 two-resolution map: ACT f090 with the M2 + ACT joint map inside the M2 footprint">
+<figcaption><strong>Figure 12. A399-401, M2 + ACT, 600 iterations (K<sub>RJ</sub>).</strong> 70′ field, displayed as in Figure 10: 30″ ACT pixels, split into 8 × 8 where M2 has data, the M2 part smoothed to 10″ above 3000 hits and up to 30″ below, shown above 120 hits (thin line) and feathered into ACT over 300. The joint map's offset from ACT in the M2 region (−2.3 µK) is subtracted. The A401 decrement is at the top of the M2 footprint; A399 is outside it, at the bottom left. RA increases to the right here (the ACT cutout's orientation); the labels are correct.</figcaption>
+</figure>
+<figure>
+<img src="figs/summary/a399_401_fig1.png" alt="A399-401 joint 90 GHz map in the layout of Hincks et al. 2022 Figure 1, with the ACT+Planck y-map contours">
+<figcaption><strong>Figure 13. The same 90 GHz map in the layout of Hincks et al. (2022), Figure 1 right</strong> (<code>examples/a399_401_fig1.py</code>). 88′ field, RA increasing to the left, K<sub>RJ</sub> with the colour scale of Figures 10 and 12. Green: the paper's ACT + Planck y-map, smoothed to 1.65′, at 3, 5, …, 15σ (σ = 4.0 × 10<sup>−6</sup> per pixel after smoothing, robust estimate). Dashed: R500c of A399 and A401 (1.45 and 1.53 Mpc, their Table 4). Circles: ACT sources with S/N ≥ 5 at 90 (red), 150 (blue) and 220 GHz (green), sized by the beam FWHM. Dotted: where the joint map is shown; outside it, ACT f090. Right: the boxed 34′ region in ACT f090 alone (top) and in the joint map (bottom), same pixels and colour scale; the line marks where the joint map is shown.</figcaption>
+</figure>
+</section>
+
+</div>

@@ -469,3 +469,67 @@ def cut_blacklist(tod_names: Iterable[str], blacklist: Iterable[str]) -> List[st
     uncut = list(tods.values())
     uncut.sort()
     return uncut
+
+
+def read_tods(
+    idir: str,
+    ntods: int,
+    name: str | None = None,
+    total: int | None = None,
+    raw: bool = False,
+    tod_list: str | None = None,
+) -> TodVec:
+    """
+    Read, truncate, downsample and polynomial-subtract MUSTANG-2 TODs, splitting the files between MPI ranks.
+
+    Parameters
+    ----------
+    idir : str
+        Directory holding Sig*.fits.
+    ntods : int
+        Maximum number of TODs to read on this rank.
+    name : str | None, default: None
+        Source name; if given, the TODs blacklisted for it in minkasi.get_bad_tods are skipped.
+    total : int | None, default: None
+        If given, only the first `total` TODs (after the blacklist) are used, in all ranks together.
+    raw : bool, default: False
+        Skip fit_cm_plus_poly (the polynomial subtraction), e.g. to inject a simulation first
+        (minkasi.needlet.sim.inject_sim applies it).
+    tod_list : str | None, default: None
+        Text file with one TOD path per line; if given, these TODs are used instead of the directory,
+        blacklist and `total`.
+
+    Returns
+    -------
+    todvec : TodVec
+        The TODs of this rank.
+    """
+    import glob
+    import os
+    import time
+
+    from ..parallel import myrank, nproc
+    from ..tools.presets_by_source import get_bad_tods
+    from .processing import downsample_tod, fit_cm_plus_poly, truncate_tod
+
+    if tod_list is not None:
+        with open(tod_list) as f:
+            tod_names = [line.strip() for line in f if line.strip()][:total]
+    else:
+        tod_names = sorted(glob.glob(os.path.join(idir, "Sig*.fits")))
+        if name is not None:
+            tod_names = cut_blacklist(tod_names, get_bad_tods(name)[0])
+        tod_names = tod_names[:total]
+    tod_names = tod_names[myrank::nproc][:ntods]
+    todvec = TodVec()
+    for fname in tod_names:
+        t1 = time.time()
+        dat = read_tod_from_fits(fname)
+        truncate_tod(dat)  # chop samples from the end to make a happy length
+        downsample_tod(dat)  # sometimes we have faster sampled data than we need
+        truncate_tod(dat)
+        if not raw:
+            dat["dat_calib"] = fit_cm_plus_poly(dat["dat_calib"])
+        todvec.add_tod(Tod(dat))
+        print(f"read {fname} in {time.time() - t1:.1f} s")
+    return todvec

@@ -5,7 +5,12 @@ from ..parallel import have_mpi
 from .polmap import PolMap
 from .skymap import SkyMap
 
-MapType = Union[SkyMap, PolMap]
+if TYPE_CHECKING:
+    from ..needlet.needlet import WavSkyMap
+
+import numpy as np
+
+MapType = Union[SkyMap, PolMap, "WavSkyMap"]
 
 if TYPE_CHECKING:
     from .twores import SkyMapTwoRes
@@ -230,6 +235,38 @@ class Mapset(_MapsetBase):
             for map in self.maps:
                 map.mpi_reduce()
 
+class PriorMapset(Mapset):
+    """
+    Class to store and operate on WavSkyMaps. WavSkyMaps can be stored in Mapset but this
+    class is needed to apply priors.
+    
+    Attributes
+    ----------
+    nmap : int
+        Number of maps in the set.
+    maps : list[WavSkyMap]
+        
+    """
+    priormaps: List[MapType]
+
+
+    def apply_prior(self, x: Mapset, Ax: Mapset):
+        """
+        Apply prior to all maps in mapset.
+        Requires that the apply_priors method be available from each map.
+    
+        Parameters
+        ----------
+        x : WavSkyMap
+            WavSkyMap of the conjugate vector p
+        Ax : WavSkyMap
+            WavSkyMap of the result of tods.dot(p)
+        """
+        for i in range(self.nmap):
+            if not (self.maps[i] is None):
+                temp_x, temp_Ax = x.maps[i].map, Ax.maps[i].map
+                self.maps[i].apply_prior(x.maps[i], Ax.maps[i])
+                
 
 class MapsetTwoRes(_MapsetBase):
     """

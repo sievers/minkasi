@@ -1,6 +1,8 @@
 import sys
 import time
-from typing import TYPE_CHECKING, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, cast
+
+import numpy as np
 
 from ..parallel import myrank
 
@@ -17,6 +19,90 @@ else:
 @runtime_checkable
 class HasPrior(Protocol):
     def apply_prior(self, x, Ax): ...
+
+
+def pcg(
+    apply: Callable[[Any], Any],
+    b: Any,
+    x0: Any,
+    precon: Callable[[Any], Any] | Any | None = None,
+    maxiter: int = 25,
+    tol: float = 0.0,
+    callback: Callable[[int, Any, dict], None] | None = None,
+    flexible: bool = False,
+    lanczos: dict | None = None,
+) -> Any:
+    """
+    Preconditioned conjugate gradient for A x = b with a general operator, on any vector type with
+    copy, axpy and dot (e.g. Mapset).
+
+    Parameters
+    ----------
+    apply : Callable
+        The operator A, returning a new vector.
+    b : Mapset
+        Right hand side.
+    x0 : Mapset
+        Starting guess.
+    precon : Callable | Mapset | None, default: None
+        Preconditioner, a symmetric positive definite approximation of A^-1: a callable returning a new
+        vector, or a vector that multiplies the residual elementwise (e.g. 1 / hits). None for no
+        preconditioning.
+    maxiter : int, default: 25
+        Maximum number of iterations.
+    tol : float, default: 0
+        Stop when |r| / |b| is below this.
+    callback : Callable | None, default: None
+        Called as callback(i, x, info) after every iteration i (from 0), info holding "relres"
+        (|r| / |b|), "zr" (z . r) and "alpha".
+    flexible : bool, default: False
+        Use the Polak-Ribiere form of beta, which tolerates a preconditioner that is not exactly a
+        fixed linear operator (e.g. one with inner iterations).
+    lanczos : dict | None, default: None
+        If given, filled with the CG coefficients "alpha" and "beta", "zr0" and the normalised
+        preconditioned residuals "q" (the arrays of the first map), from which the Lanczos matrix of
+        the preconditioned operator can be built (see minkasi.needlet.diagnostics.ritz_analysis).
+
+    Returns
+    -------
+    x : Mapset
+        The solution after the last iteration.
+    """
+    if precon is None:
+        pre = lambda r: r.copy()
+    elif callable(precon):
+        pre = precon
+    else:
+        pre = lambda r: precon * r
+    bnorm = np.sqrt(b.dot(b))
+    x, r = x0.copy(), b.copy()
+    r.axpy(apply(x), -1)
+    z = pre(r)
+    p, zr = z.copy(), r.dot(z)
+    for i in range(maxiter):
+        if lanczos is not None:
+            lanczos.setdefault("q", []).append(z.maps[0].map / np.sqrt(zr))
+            lanczos.setdefault("zr0", zr)
+        ap = apply(p)
+        alpha = zr / p.dot(ap)
+        x.axpy(p, alpha)
+        r_old = r.copy() if flexible else None
+        r.axpy(ap, -alpha)
+        z = pre(r)
+        zr_new = r.dot(z)
+        beta = (zr_new - z.dot(r_old)) / zr if flexible else zr_new / zr
+        p_new = z.copy()
+        p_new.axpy(p, beta)
+        p, zr = p_new, zr_new
+        if lanczos is not None:
+            lanczos.setdefault("alpha", []).append(alpha)
+            lanczos.setdefault("beta", []).append(beta)
+        relres = np.sqrt(r.dot(r)) / bnorm
+        if callback is not None:
+            callback(i, x, {"relres": relres, "zr": zr, "alpha": alpha})
+        if relres < tol:
+            break
+    return x
 
 
 def run_pcg_wprior(
@@ -53,6 +139,10 @@ def run_pcg_wprior(
     For non-zero p, it is assumed you have done this already and that:
     b=A^T N^-1 d + Q^-1 p.
     So to have a prior apply a Q^-1 x to Ax every time we call Ax.
+
+    This is pcg with the operator tods.dot (plus the prior). Note that the prior is now also applied to
+    the starting guess when the initial residual is formed (before, only tods.dot was), which only
+    matters for a nonzero x0 with a prior.
 
     Parameters
     ----------
@@ -98,85 +188,22 @@ def run_pcg_wprior(
         x: best guess for x after the conversion criteria has been reached (either max iter or
         Ax = b close enough to 0
     """
-    t1 = time.time()
-    Ax = tods.dot(x0, mask=mask)
 
-    # compute the remainder r_0
-    try:
-        r = b.copy()
-        r.axpy(Ax, -1)
-    except:
-        r = b - Ax
-    if precon is not None:
-        z = precon * r
-        # key = tods.tods[0].info["fname"]
-    else:
-        z = r.copy()
-
-    # Initial p_0 = z_0 = M*r_0
-    p = z.copy()
-    # k = 0.0
-
-    # compute z*r, which is used for computing alpha
-    zr = r.dot(z)
-    # make a copy of our initial guess
-    x = x0.copy()
-    t2 = time.time()
-    t3 = 0
-    alpha = 0
-    nsamp = tods.get_nsamp()
-    tloop = time.time()
-    for i in range(maxiter):
-        if myrank == 0:
-            if i > 0:
-                print(i, zr, alpha, t2 - t1, t3 - t2, t3 - t1, nsamp / (t2 - t1) / 1e6)
-            else:
-                print(i, zr, t2 - t1)
-            sys.stdout.flush()
-        t1 = time.time()
-
-        # Compute pAp
-        Ap = tods.dot(p, mask=mask)
+    def apply(x):
+        ax = tods.dot(x, mask=mask)
         if prior is not None:
-            prior.apply_prior(p, Ap)
-        t2 = time.time()
-        pAp = p.dot(Ap)
+            prior.apply_prior(x, ax)
+        return ax
 
-        # Compute alpha_k
-        alpha = zr / pAp
+    nsamp = tods.get_nsamp()
+    clock = {"start": time.time(), "last": time.time()}
 
-        # Update guess using alpha
-        x_new = x.copy()
-        x_new.axpy(p, alpha)
-
-        # Write down next remainder r_k+1
-        r_new = r.copy()
-        r_new.axpy(Ap, -alpha)
-
-        # Apply preconditioner
-        if not (precon is None):
-            z_new = precon * r_new
-        else:
-            z_new = r_new.copy()
-
-        # compute new z_k+1
-        zr_new = r_new.dot(z_new)
-
-        # compute beta_k, which is used to compute p_k+1
-        beta = zr_new / zr
-
-        # compute new p_k+1
-        p_new = z_new.copy()
-        p_new.axpy(p, beta)
-
-        # Update values
-        p = p_new
-        z = z_new
-        r = r_new
-        zr = zr_new
-        x = x_new
-        t3 = time.time()
-
+    def report(i, x, info):
+        if myrank == 0:
+            dt = time.time() - clock["last"]
+            print(i, info["zr"], info["alpha"], dt, nsamp / dt / 1e6)
+            sys.stdout.flush()
+        clock["last"] = time.time()
         if i in save_iters and myrank == 0:
             x.maps[save_ind].write(outroot + "_" + str(i) + save_tail)
         if i in plot_iters and myrank == 0:
@@ -188,7 +215,8 @@ def run_pcg_wprior(
             else:
                 print("Warning: Can't plot as PolMap has no plot function implemented")
 
-    tave = (time.time() - tloop) / maxiter
+    x = pcg(apply, b, x0, precon, maxiter, callback=report)
+    tave = (time.time() - clock["start"]) / maxiter
     print(
         "average time per iteration was ",
         tave,
@@ -196,7 +224,6 @@ def run_pcg_wprior(
         nsamp / tave / 1e6,
         " Msamp/s",
     )
-
     return x
 
 
