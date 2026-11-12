@@ -1,8 +1,12 @@
+import itertools
+import json
+import os
 import time
 from functools import reduce
 from typing import (
     Callable,
     Optional,
+    Sequence,
     Union,
 )
 
@@ -12,18 +16,23 @@ import scipy.integrate as integrate
 from astropy import wcs
 from astropy.io import fits
 from numpy.typing import NDArray
+from scipy import sparse
 from scipy.interpolate import interp1d
 from scipy.linalg import norm
+from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, cg, eigsh, splu
 
 from ..mapmaking.map2tod import map2tod
 from ..mapmaking.tod2map import (
     tod2map_cached,
     tod2map_simple,
 )
+from ..maps.mapset import Mapset
 from ..maps.skymap import SkyMap
+from ..parallel import MPI, comm, have_mpi, myrank, nproc
 from ..tods import Tod, TodVec
 
 # TODO: This function should probably go elsewhere
+MAX_DIRECT = 20000  # largest lattice factorized directly by block_solver
 
 
 def factors(n):
@@ -55,6 +64,65 @@ def highly_composite_size(n, slack=0.15):
     """
     cands = [m for m in range(int(n), int(np.ceil(n * (1 + slack))) + 1) if m % 2 == 0]
     return max(cands, key=lambda m: (len(factors(m)), -m))
+
+
+def cached_min_eigenvalue(G, key: str, store: dict) -> float:
+    """
+    min_eigenvalue of G, looked up in `store` under `key` unless G changed since it was stored.
+
+    Parameters
+    ----------
+    G : scipy.sparse matrix
+        Symmetric matrix.
+    key : str
+        Name of the matrix in the store, e.g. its band.
+    store : dict
+        Maps key to (fingerprint of G, smallest eigenvalue). Updated in place when computed.
+
+    Returns
+    -------
+    float
+        (Estimate of) the smallest eigenvalue.
+    """
+    fingerprint = f"{G.shape[0]}:{G.nnz}:{G.data.sum():.12e}"
+    if key not in store or store[key][0] != fingerprint:
+        store[key] = (fingerprint, float(min_eigenvalue(G)))
+    return store[key][1]
+
+
+def min_eigenvalue(G, dense_below=2500):
+    """
+    Smallest eigenvalue of a symmetric sparse matrix. Exact (dense) for small matrices,
+    otherwise a loosely converged Lanczos estimate, which is enough to decide on a diagonal shift.
+
+    Parameters
+    ----------
+    G : scipy.sparse matrix
+        Symmetric matrix.
+    dense_below : int, default: 2500
+        Size up to which the dense eigensolver is used.
+
+    Returns
+    -------
+    float
+        (Estimate of) the smallest eigenvalue.
+    """
+    if G.shape[0] <= dense_below:
+        return np.linalg.eigvalsh(G.toarray())[0]
+    try:
+        return eigsh(
+            G,
+            k=1,
+            which="SA",
+            tol=1e-2,
+            maxiter=500,
+            v0=np.random.default_rng(0).normal(
+                size=G.shape[0]
+            ),  # same shift on all MPI ranks
+            return_eigenvectors=False,
+        )[0]
+    except ArpackNoConvergence as e:
+        return e.eigenvalues.min() if len(e.eigenvalues) else -abs(G.diagonal()).max()
 
 
 def gaussian_beam_ft(shape, fwhm_pix):
@@ -124,6 +192,31 @@ def block_average(imap, fac):
     )
     out[:nxb, :nyb] = np.repeat(np.repeat(blocks, fac, axis=0), fac, axis=1)
     return out
+
+
+def color_groups(n, width):
+    """
+    Split a periodic lattice of n points into groups (colors) such that any two points of
+    one group are at least width apart, including across the wrap, using as few groups as possible.
+    The lattice is cut into floor(n / width) blocks of near equal length and the
+    k-th group takes the k-th point of every block that has one.
+
+    Parameters
+    ----------
+    n : int
+        Number of lattice points.
+    width : int
+        Minimum separation within a group.
+
+    Returns
+    -------
+    groups : list[NDArray[int]]
+        Indices of each group. Every point is in exactly one group.
+    """
+    nblock = max(n // width, 1)
+    edges = np.linspace(0, n, nblock + 1).astype(int)
+    lens = np.diff(edges)
+    return [edges[:-1][lens > k] + k for k in range(lens.max())]
 
 
 def band2map(band, filt):
@@ -983,6 +1076,379 @@ class WavSkyMap(SkyMap):
             return list(range(i + 1))
         return list(range(self.needlet.nfilt)) if nfilts is None else list(nfilts)
 
+    def check_response_matrix(self, filt_num: int, down_samp=None):
+        """
+        Get the dense response matrix of needlet filt_num: row i is the band map of a unit
+        impulse at retained pixel i, flattened. Used to check we haven't over downsampled;
+        the SVD of this should not fall off a cliff in the last couple of modes.
+
+        Parameters
+        ---------
+        filt_num : int
+            The needlet to compute the repsponse matrix for.
+        down_samp : None | NDArray[int]
+            Downsample factor per filter. If None the most aggressive (from get_downsamps) is used.
+
+        Returns
+        -------
+        to_ret : NDArray[np.floating]
+            Response matrix of shape (nx_red * ny_red, nx * ny).
+        """
+        if down_samp is None:
+            self.get_downsamps()
+        else:
+            self.set_downsamps(down_samp)
+        nx_space, ny_space = self.nx_space[filt_num], self.ny_space[filt_num]
+        filt = self.needlet.filters[filt_num]
+        to_ret = np.zeros((len(nx_space) * len(ny_space), self.nx * self.ny))
+        for idx, (x, y) in enumerate(itertools.product(nx_space, ny_space)):
+            temp = np.zeros((self.nx, self.ny))
+            temp[x, y] = 1
+            to_ret[idx] = map2band(band2map(temp, filt), filt).ravel()
+        return to_ret
+
+    def probe_band(self, apply, nfilt, radius=None, threshold=0.0, exact_below=5000):
+        """
+        Compute G = K^T O K for the lattice of band nfilt, where K maps lattice coefficients
+        to the band-limited real space map and O is the operator `apply`.
+        Rows are computed by probing: impulses spaced further apart than the window
+        are summed into one map and passed through `apply` together, so only
+        a few applications are needed instead of one per pixel. With radius=None every
+        pixel is probed separately and the result is exact.
+
+        Parameters
+        ----------
+        apply : Callable
+            Operator taking and returning a real space map of shape (nx, ny).
+        nfilt : int
+            Filter to compute.
+        radius : float | None, default: None
+            Half width of kept window, in full resolution pixels. None keeps everything (exact).
+        threshold : float, default: 0
+            Entries below threshold * max|G| are dropped.
+        exact_below : int, default: 5000
+            Bands with at most this many lattice points are computed exactly whatever the radius.
+            Truncating G makes it indefinite (the kernels of the large scale filters have long
+            tails), which is only acceptable if the number of points makes exactness too slow.
+
+        Returns
+        -------
+        G : scipy.sparse.csr_matrix
+            Symmetric matrix of shape (nx_red * ny_red, nx_red * ny_red).
+        """
+        filt = self.needlet.filters[nfilt]
+        xs, ys = self.nx_space[nfilt], self.ny_space[nfilt]
+        nxr, nyr = len(xs), len(ys)
+        down = self.downsamps[nfilt]
+        if radius is None or nxr * nyr <= exact_below:
+            rx, ry = nxr, nyr
+        else:
+            rx = ry = int(np.ceil(radius / down))
+        full_x, full_y = 2 * rx + 1 >= nxr, 2 * ry + 1 >= nyr
+        offx = np.arange(nxr) if full_x else np.arange(-rx, rx + 1)
+        offy = np.arange(nyr) if full_y else np.arange(-ry, ry + 1)
+        rows, cols, vals = [], [], []
+        for ax, ay in itertools.product(
+            color_groups(nxr, 2 * rx + 1), color_groups(nyr, 2 * ry + 1)
+        ):
+            delta = np.zeros((self.nx, self.ny))
+            delta[np.ix_(xs[ax], ys[ay])] = 1
+            z = map2band(apply(band2map(delta, filt)), filt)
+            for a, b in itertools.product(ax, ay):
+                ix = offx if full_x else (a + offx) % nxr
+                iy = offy if full_y else (b + offy) % nyr
+                vals.append(z[np.ix_(xs[ix], ys[iy])].ravel())
+                cols.append((ix[:, None] * nyr + iy[None, :]).ravel())
+                rows.append(np.full(vals[-1].size, a * nyr + b))
+        vals = np.concatenate(vals)
+        keep = np.abs(vals) > threshold * np.abs(vals).max()
+        G = sparse.coo_matrix(
+            (vals[keep], (np.concatenate(rows)[keep], np.concatenate(cols)[keep])),
+            shape=(nxr * nyr, nxr * nyr),
+        ).tocsr()
+        return ((G + G.T) / 2).tocsr()
+
+    def get_response_matrix(
+        self,
+        todvec: "TodVec",
+        max_res: Optional[np.floating] = None,
+        nfilts: Optional[list[int]] = None,
+        downsamps: Optional[list[int]] = None,
+        radius: Optional[float] = None,
+        threshold: float = 0.0,
+        exact_below: int = 5000,
+    ):
+        """
+        Computes A^T N^-1 A (ANA) for a set of tods in the WavSkyMap basis, one filter
+        (diagonal block) at a time, on the downsampled lattice of each filter.
+        ANA can be inverted to directly solve for the map, however is expensive to compute.
+        In general ANA only needs to be computed for the overlap scales, and other methods
+        (e.g. pcg) can be used for the very high/very low resolution scales.
+
+        Parameters:
+        -----------
+        todvec : TodVec
+            TODs over which to compute ANA
+        max_res : np.floating, default : None
+            Maximum resolution, in arcseconds, at which to compute ANA.
+            Wavelets with maximum extent less than max_res are skipped.
+        nfilts : list[int], default : None
+            Explicitly specify which wavelets to compute.
+            Exclusive with max_res.
+        downsamps : list[int], default : None
+            Explicitly set downsamp rates. If None, good downsamps are computed.
+        radius : float | Sequence[float], default : None
+            Half width in pixels beyond which ANA is neglected (one value per filter if a sequence). This makes the computation much
+            faster (one TOD pass per ~(2*radius/downsamp)^2 pixels rather than one per pixel)
+            and the output sparse. None computes everything exactly.
+        threshold : float, default : 0
+            Relative size below which entries are dropped.
+        exact_below : int, default : 5000
+            Filters with at most this many lattice points are computed exactly. See probe_band.
+
+        Returns
+        ------
+        to_ret : NDArray[object]
+            Sparse ANA of each computed filter, None for filters not computed.
+        """
+        if downsamps is None:
+            self.get_downsamps()
+        else:
+            self.set_downsamps(downsamps)
+        mapset = Mapset()
+        mapset.add_map(self.real_map.copy())
+
+        mask = 1.0 if self.mask is None else self.mask  # as in map2tod and tod2map
+
+        def apply(imap):
+            mapset.maps[0].map[:] = imap * mask
+            return todvec.dot(mapset, cache_maps=False).maps[0].map * mask
+
+        to_ret = np.full(self.needlet.nfilt, None, dtype=object)
+        for nfilt in self.select_filters(max_res, nfilts):
+            to_ret[nfilt] = self.probe_band(
+                apply,
+                nfilt,
+                radius[nfilt] if np.ndim(radius) else radius,
+                threshold,
+                exact_below,
+            )
+        return to_ret
+
+    def get_response_matrix_map(
+        self,
+        imap,
+        max_res: Optional[np.floating] = None,
+        nfilts: Optional[list[int]] = None,
+        radius: Optional[float] = None,
+        threshold: float = 0.0,
+        exact_below: int = 5000,
+        forward=None,
+        adjoint=None,
+    ):
+        """
+        Computes K^T O K, the map space analogue of get_response_matrix, where O is a map space
+        inverse covariance (precision) matrix, using the downsamps currently set on this map
+        (computed if not set).
+
+        Parameters:
+        -----------
+        imap : NDArray[np.floating] | scipy.sparse matrix
+            Inverse covariance of the map. Either a (nx*ny, nx*ny) matrix or
+            an array with nx*ny/(nx, ny) entries, taken to be the diagonal.
+        max_res, nfilts, radius, threshold, exact_below :
+            See get_response_matrix.
+        forward : Callable | None, default: None
+            If given, the map is observed through this linear operator (e.g. beam and pixel
+            window, see apply_beam and block_average), so the result is K^T F^T O F K.
+        adjoint : Callable | None, default: None
+            Adjoint of forward, taken to be forward itself (symmetric) if None.
+
+        Returns
+        ------
+        to_ret : NDArray[object]
+            Sparse response of each computed filter, None for filters not computed.
+        """
+        if self.downsamps is None:
+            self.get_downsamps()
+        if getattr(imap, "ndim", 2) == 2 and imap.shape == (self.nx, self.ny):
+            imap = imap.ravel()
+        if getattr(imap, "ndim", 2) == 1:
+            diag = imap.reshape(self.nx, self.ny)
+            apply = lambda m: diag * m
+        else:
+            apply = lambda m: (imap @ m.ravel()).reshape(self.nx, self.ny)
+        if forward is not None:
+            op, adj = apply, adjoint or forward
+            apply = lambda m: adj(op(forward(m)))
+        to_ret = np.full(self.needlet.nfilt, None, dtype=object)
+        for nfilt in self.select_filters(max_res, nfilts):
+            to_ret[nfilt] = self.probe_band(
+                apply,
+                nfilt,
+                radius[nfilt] if np.ndim(radius) else radius,
+                threshold,
+                exact_below,
+            )
+        return to_ret
+
+    def block_solver(
+        self, responses, ridge=1e-3, inner=None, lmin_cache=None, distribute=True
+    ):
+        """
+        Factorize the diagonal (same filter) blocks of the wavelet space precision matrix once
+        and return a function that applies their approximate inverse, see solve_bands.
+
+        With MPI the work is shared between the ranks, which must all call this and the returned
+        function together: every band of at most MAX_DIRECT (20000) lattice points is factorized and solved by
+        one rank (the largest first, on the least loaded rank), and the rows of the larger bands
+        are split over all ranks, which run the same Jacobi CG in lockstep. The result is the same
+        on every rank and equal to the serial one up to rounding.
+
+        Parameters
+        ----------
+        responses : Sequence[NDArray[object]]
+            Response matrices to sum, see solve_bands.
+        ridge : float, default: 1e-3
+            Diagonal regularization relative to the mean diagonal of G, see solve_bands.
+        inner : int | None, default: None
+            Lattices of more than MAX_DIRECT (20000) points are solved by Jacobi preconditioned CG. If None
+            it runs to convergence, else for exactly this many iterations, which makes the
+            result a fixed symmetric linear operator that can serve as a CG preconditioner.
+        lmin_cache : str | None, default: None
+            JSON file holding the smallest eigenvalue of each summed G_i, which takes minutes for
+            the large bands. Entries are used only if G_i is unchanged (size, nonzeros and sum of
+            entries), and new ones are written by MPI rank 0.
+        distribute : bool, default: True
+            Share the work between the MPI ranks. False makes every rank do everything.
+
+        Returns
+        -------
+        solve : Callable[[NDArray[np.floating]], NDArray[np.floating]]
+            Maps a wavelet space rhs of shape (nfilt, nx, ny) to the wavelet map F_i Z c_i.
+        """
+        size, rank = (nproc, myrank) if distribute and have_mpi else (1, 0)
+        gather = comm.allgather if size > 1 else (lambda x: [x])
+        mats = {
+            i: [r[i] for r in responses if r[i] is not None]
+            for i in range(self.needlet.nfilt)
+        }
+        mats = {i: m for i, m in mats.items() if m}
+        small = sorted(
+            (i for i, m in mats.items() if m[0].shape[0] <= MAX_DIRECT),
+            key=lambda i: -mats[i][0].shape[0],
+        )
+        owner, load = {}, np.zeros(size)
+        for i in small:  # factorization cost grows with the lattice size
+            owner[i] = int(np.argmin(load))
+            load[owner[i]] += mats[i][0].shape[0]
+        store = {}
+        if lmin_cache and os.path.exists(lmin_cache):
+            with open(lmin_cache) as f:
+                store = json.load(f)
+        solvers = {}
+        for i, m in mats.items():
+            if i in owner and owner[i] != rank:
+                continue
+            if len({g.shape for g in m}) > 1:
+                raise ValueError(
+                    f"band {i}: response matrices of different sizes {[g.shape for g in m]}, "
+                    "e.g. a stale cache from another map size"
+                )
+            G = reduce(lambda a, b: a + b, m).tocsr()
+            lmin = cached_min_eigenvalue(G, str(i), store)
+            shift = ridge * G.diagonal().mean() + max(
+                0, -1.1 * lmin
+            )  # truncation can make G indefinite
+            G = G + shift * sparse.identity(G.shape[0], format="csr")
+            if i in owner:
+                solvers[i] = splu(G.tocsc()).solve
+                continue
+            # direct solves fill in too much for large lattices: Jacobi CG, rows split over ranks
+            dinv = sparse.diags(1 / G.diagonal())
+            if size > 1:
+                edges = np.linspace(0, G.shape[0], size + 1).astype(int)
+                local = G[edges[rank] : edges[rank + 1]]
+                G = LinearOperator(
+                    G.shape,
+                    lambda x, local=local: np.concatenate(gather(local @ x.ravel())),
+                    dtype=local.dtype,
+                )
+            solvers[i] = lambda b, G=G, dinv=dinv, i=i: self._jacobi_cg(
+                G, b, dinv, i, inner
+            )
+
+        if size > 1:
+            for part in gather(store):
+                store.update(part)
+        if lmin_cache and myrank == 0:
+            with open(lmin_cache, "w") as f:
+                json.dump(store, f)
+
+        def solve(rhs):
+            wmap = np.zeros((self.needlet.nfilt, self.nx, self.ny))
+            for i, solver in solvers.items():
+                filt = self.needlet.filters[i]
+                xs, ys = self.nx_space[i], self.ny_space[i]
+                b = map2band(rhs[i], filt)[np.ix_(xs, ys)].ravel()
+                coeffs = np.zeros((self.nx, self.ny))
+                coeffs[np.ix_(xs, ys)] = solver(b).reshape(len(xs), len(ys))
+                wmap[i] = band2map(coeffs, filt)
+            if size > 1 and small:  # each of these bands was solved by its owner only
+                part = np.ascontiguousarray(wmap[small])
+                comm.Allreduce(MPI.IN_PLACE, part)
+                wmap[small] = part
+            return wmap
+
+        return solve
+
+    @staticmethod
+    def _jacobi_cg(G, b, dinv, i, inner):
+        """Jacobi preconditioned CG solve of G c = b, to convergence or for `inner` iterations."""
+        if inner is None:
+            c, info = cg(G, b, rtol=1e-8, maxiter=2000, M=dinv)
+            if info:
+                print(f"filter {i}: cg did not converge ({info})")
+        else:
+            c = cg(G, b, rtol=0, atol=0, maxiter=inner, M=dinv)[0]
+        return c
+
+    def solve_bands(self, rhs, responses, ridge=1e-3):
+        """
+        Approximate ML solution using only the diagonal (same filter) blocks of the
+        wavelet space precision matrix. The filters satisfy sum_i F_i^2 = 1, so the
+        contribution of filter i is F_i^2 G_i^-1 F_i^2 r, with G_i the sum of the supplied response
+        matrices and r the real space rhs; for white noise this reduces to r. (Using F_i G_i^-1 F_i r instead
+        counts the overlap between neighbouring filters twice and has sharp edges in k space.)
+        Filters for which no response is available contribute nothing.
+
+        This is not the solution of the full system: the rhs of a band has components in modes G_i
+        cannot constrain, which the ridge and shift then amplify or damp, so the amplitude of the fine
+        bands is set by the regularization. Use block_solver as the preconditioner of CG on the
+        full operator instead.
+
+        Parameters
+        ----------
+        rhs : NDArray[np.floating]
+            Wavelet space A^T N^-1 d of shape (nfilt, nx, ny).
+        responses : Sequence[NDArray[object]]
+            Response matrices (e.g. from get_response_matrix and get_response_matrix_map)
+            to sum, each an object array with sparse matrices or None for each filter.
+        ridge : float, default: 1e-3
+            Diagonal regularization added to G, relative to its mean diagonal. It acts as a zero
+            mean prior that keeps modes the data cannot constrain (e.g. beyond the ACT beam, or
+            outside the M2 footprint) from amplifying noise.
+            If G is indefinite (e.g. truncated response matrices) it is also shifted by its most
+            negative eigenvalue.
+
+        Returns
+        -------
+        wmap : NDArray[np.floating]
+            Wavelet map of shape (nfilt, nx, ny), F_i Z c_i for lattice coefficients c_i.
+            Use wav2map_real to get the real space map.
+        """
+        return self.block_solver(responses, ridge)(rhs)
+
     def get_wav_beam(self, fwhm_pix: float):
         """
         Get wavelet basis version of beam.
@@ -1237,3 +1703,58 @@ def wavskymap_for_tods(
     return WavSkyMap(need, lims, ps, nx=n, ny=n)
 
 
+def save_responses(prefix: str, resp: NDArray) -> None:
+    """
+    Save a list of per filter sparse matrices as {prefix}_{filter}.npz.
+
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the files.
+    resp : NDArray[object]
+        Sparse matrix per filter, None for those not computed.
+    """
+    os.makedirs(os.path.dirname(prefix) or ".", exist_ok=True)
+    for i, r in enumerate(resp):
+        if r is not None:
+            sparse.save_npz(f"{prefix}_{i}.npz", r)
+
+
+def cached_responses(
+    prefix: str, compute, redo: bool, nfilt: int, bands: Sequence[int]
+) -> NDArray:
+    """
+    Load the response matrices of the requested bands from the cache at prefix, and compute and save only those
+    that are missing. The cache does not record how the matrices were made (TODs, radius, units, ...): use a new
+    directory or redo when these change.
+
+    Parameters
+    ----------
+    prefix : str
+        Path prefix of the cache.
+    compute : Callable[[list[int]], NDArray]
+        Function taking a list of bands and returning the response matrices (see WavSkyMap.get_response_matrix).
+    redo : bool
+        Ignore any existing cache.
+    nfilt : int
+        Number of filters.
+    bands : Sequence[int]
+        Bands needed.
+
+    Returns
+    -------
+    resp : NDArray[object]
+        Sparse matrix per filter, None for the bands not requested.
+    """
+    have = [i for i in bands if not redo and os.path.exists(f"{prefix}_{i}.npz")]
+    missing = [i for i in bands if i not in have]
+    resp = np.full(nfilt, None, dtype=object)
+    for i in have:
+        resp[i] = sparse.load_npz(f"{prefix}_{i}.npz")
+    if missing:
+        new = compute(missing)
+        for i in missing:
+            resp[i] = new[i]
+        if myrank == 0:
+            save_responses(prefix, new)
+    return resp
