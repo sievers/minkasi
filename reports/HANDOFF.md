@@ -205,3 +205,25 @@ figures in `reports/figs/summary/` (made by `examples/summary_figs.py`, `plot_re
   `reports/A399_401_HPC.md` (new `--dry-run` prints the per-band sizes and memory per rank before probing).
   A401 is the decrement at the top of the field, A399 at the bottom left (outside M2).
 - Display note: the multiscale maps put RA increasing to the right (ACT cutout orientation); labels are right, convention is flipped.
+
+## 2026-11-11/12: bowl jackknife (MOOJ1142, M2-only, 300 CG, unmasked)
+
+Bowl = mean of (M2 only - ACT) inside 1.5', tilt removed, zero in the 3-4' annulus, common centre (`jack106/bowl_cells.py`).
+Runner: `jack106/run_split.sh <tag> <lists...>`; lists in `jack106/lists/` (per-TOD elevation in `elev_deg.txt`).
+
+| split | TODs | mean elev | bowl (uK) |
+|---|---|---|---|
+| all | 106 | 54 | -101 |
+| time1 / time2 (2018-23B_02 / 23B_03-08) | 53 / 53 | 51 / 58 | -11 / -103 |
+| elev_lo / elev_hi | 53 / 53 | 47 / 62 | -11 / -152 |
+| time1 x elev lo, hi | 33, 20 | 45, 62 | +42, -73 |
+| time2 x elev lo, hi | 20, 33 | 50, 62 | -84, -117 |
+| 23B only, lo / hi at median | 38 / 39 | 50 / 64 | -50 / -148 |
+| 18B alone / elevation-matched other sessions | 20 / 20 | 46 / 48 | -42 / -49 |
+
+- Conclusion: the bowl follows elevation, not observing period. Within 23B alone the high half is ~100 uK deeper; 2018 and an
+  elevation-matched set from 2020/23B agree (-42 vs -49). The time split was elevation (23B_08, 24 TODs, mostly high).
+  Split-to-split noise is roughly +-40 uK (not measured properly).
+- The large-scale tilt does depend on period: 2018 alone has |tilt| ~600 uK, every set with 2020/23B data 2400-3200 uK, also at
+  matched elevation. Separate effect; removed by the plane fit here and down-weighted by ACT in the joint map.
+- Elevation within a night also tracks hour (MOOJ1142 rises through the 10pm-4am window), so elevation and hour are not separated.
