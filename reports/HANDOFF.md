@@ -220,10 +220,40 @@ Runner: `jack106/run_split.sh <tag> <lists...>`; lists in `jack106/lists/` (per-
 | time2 x elev lo, hi | 20, 33 | 50, 62 | -84, -117 |
 | 23B only, lo / hi at median | 38 / 39 | 50 / 64 | -50 / -148 |
 | 18B alone / elevation-matched other sessions | 20 / 20 | 46 / 48 | -42 / -49 |
+| elevation bands el_a / el_b / el_c (<48, 48-58, >58 deg) | 21 / 40 / 45 | 40 / 52 / 63 | +27 / -59 / -151 |
+| el_b split by period (time1 / time2 sessions) | 20 / 20 | 52 / 53 | +8 / -115 |
 
-- Conclusion: the bowl follows elevation, not observing period. Within 23B alone the high half is ~100 uK deeper; 2018 and an
-  elevation-matched set from 2020/23B agree (-42 vs -49). The time split was elevation (23B_08, 24 TODs, mostly high).
-  Split-to-split noise is roughly +-40 uK (not measured properly).
-- The large-scale tilt does depend on period: 2018 alone has |tilt| ~600 uK, every set with 2020/23B data 2400-3200 uK, also at
-  matched elevation. Separate effect; removed by the plane fit here and down-weighted by ACT in the joint map.
+- Conclusion (corrected 2026-11-12): both elevation and observing period matter. An earlier version of this note said "elevation,
+  not period"; that left out the el_b split. At matched elevation (52 deg) the 23B_03-08 TODs are 123 uK deeper than the
+  2018-23B_02 TODs. Within each period, high elevation is deeper: by 115 uK (time1, 45 -> 62 deg), 33 uK (time2, 50 -> 62 deg)
+  and 98 uK (23B only, 50 -> 64 deg).
+- The 18B_04 / elevation-matched agreement (-42 vs -49) is not a clean period test: 10 of the 20 "matched" TODs come from
+  23B_01-02, which are still in the early period.
+- Elevation and session are confounded: 17 of the 39 TODs in 23B hi come from 23B_08. Split-to-split noise is roughly +-40 uK
+  (not measured properly).
+- The large-scale tilt depends on period: 2018 alone has |tilt| ~600 uK; every set with 2020/23B data has 2400-3600 uK, also at
+  matched elevation. It is removed by the plane fit here and down-weighted by ACT in the joint map. The same period split
+  separates the bowl at matched elevation, so the tilt and the bowl may share a cause.
 - Elevation within a night also tracks hour (MOOJ1142 rises through the 10pm-4am window), so elevation and hour are not separated.
+
+## 2026-11-12: bowl jackknife (MS0735, M2-only, no ACT)
+
+MS0735 (Dec +74, max elevation 54 deg from the GBT) is outside the ACT footprint, so splits are compared with each other:
+reproject B onto A, smooth B - A to 2.1', remove its plane over the common footprint (hits >= 120 in both), zero the profile in
+3-4', and take the inner 1.5' mean (`jack_ms0735/diff_profiles.py`; runner `jack_ms0735/run.sh <lists...>`). On MOOJ1142 this
+method ranks the splits the same as the ACT method but reads 30-50 uK larger.
+
+| pair (B - A) | elev B vs A | bowl difference (uK) |
+|---|---|---|
+| elev_hi - elev_lo (median 46.3 deg) | 50.6 vs 41.4 | +41 |
+| 2019 hi - lo (split at 2019 median) | 51.2 vs 41.5 | +64 |
+| 2021 hi - lo (split at 2021 median) | 49.7 vs 41.5 | +5 |
+| low cells, 2021 - 2019 | 41.5 vs 41.5 | -43 |
+| high cells, 2021 - 2019 | 49.7 vs 51.2 | -96 |
+
+- Each cell's inner - annulus (cluster + bowl, over the four-cell common footprint): 2019 lo -50, 2019 hi +14, 2021 lo -92,
+  2021 hi -92 uK. The elevation result rests on the 2019 high cell, which shows no central dip.
+- Period term: at matched elevation, 2021 is deeper than 2019 in both cells, the same sign as MOOJ1142's late-vs-early term.
+- The difference maps are saddle-shaped (+-150 uK), not round bowls, so the inner mean summarises non-radial structure.
+- Summary page with figures: https://claude.ai/artifact/XNH7G8tBU85dh3YWWd9X3t (`/mnt/welch/USERS/jorlo/needlets/bowl_summary/`).
+- Next: odd/even null for a noise level; per-session depths; PWV or opacity per TOD; an azimuth split for MS0735.
