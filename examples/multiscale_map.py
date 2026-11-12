@@ -454,7 +454,7 @@ def main(args: argparse.Namespace):
     with fits.open(args.joint) as hdul:
         hw = WCS(hdul[0].header).celestial
         ny, nx = hdul[0].data.squeeze().shape
-    ra, dec = hw.wcs_pix2world((nx - 1) / 2, (ny - 1) / 2, 0)
+    ra, dec = args.center or hw.wcs_pix2world((nx - 1) / 2, (ny - 1) / 2, 0)
     conv = act_conversion(args.freq, unit="K_RJ")
     act = read_act_coadd(args.act_glob, float(ra), float(dec), args.size, conv)[0]
     wcs, shape, act_up = fine_grid(act, args.factor)
@@ -490,6 +490,14 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--size", type=float, default=18.0, help="Side of the map, arcmin"
+    )
+    parser.add_argument(
+        "--center",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("RA", "DEC"),
+        help="Centre of the map in degrees (default the joint map's centre)",
     )
     parser.add_argument(
         "--factor",

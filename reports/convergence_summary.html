@@ -86,7 +86,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <p class="meta">Branch <code>needlet</code>. Companion pages: <a href="https://claude.ai/artifact/83yLdSf6RiKEEh5Z6yDwkU">how the needlet mapmaker works</a> and the <a href="https://claude.ai/artifact/8XxEaS5g2cTvvs8tgzTGRt">detailed investigation log</a>. Code changes are listed against the starting commit <code>3c435a3</code> in <code>reports/code_changes.md</code>.</p>
   <nav class="toc" aria-label="Sections">
     <a href="#goal">1. The problem</a><a href="#causes">2. Causes examined</a><a href="#ruled-out">3. Ruled out</a>
-    <a href="#found">4. Found along the way</a><a href="#transfer">5. Transfer functions</a><a href="#sim">6. Simulation</a><a href="#now">7. Current picture</a><a href="#best">8. Best map</a>
+    <a href="#found">4. Found along the way</a><a href="#transfer">5. Transfer functions</a><a href="#sim">6. Simulation</a><a href="#now">7. Current picture</a><a href="#best">8. Best map</a><a href="#a399">9. A399-401</a>
   </nav>
 </header>
 
@@ -422,4 +422,24 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <p>So the tilt is in the real M2 data and adds up coherently on the sky. Possible causes are pickup tied to azimuth or elevation, which every TOD sees the same way because each one tracks the source, or an M2/ACT calibration or transfer difference. The planned test is a jackknife of the M2 TODs by observing session and by elevation. A shared M2 systematic should show the same tilt in every half; a time-varying one should not.</p>
 </div>
 </section>
+
+<section id="a399">
+<h2>9. A399-401: first joint map (Trillium, 11 Nov)</h2>
+<div class="prose">
+<p>All 304 MUSTANG-2 TODs of the A399-401 bridge field plus the ACT DR6 f090 coadd, with the baseline settings (<code>--direct --cg 600 --lattice-tol 1e-3 --min-hits 0</code>, no prior), the preconditioner window at <code>--radius 14</code>. The map is 1260 × 1260 pixels of 3″, against 480 × 480 for MOOJ1142, so it was run on Trillium: 38 ranks × 8 TODs on 6 nodes (<code>examples/slurm/a399_401.sbatch</code>; memory and timing in <code>reports/A399_401_HPC.md</code>). The run took 1.5 h from a cached response, at 8.3 s per CG iteration.</p>
+<ul>
+<li><strong>Agrees with ACT.</strong> Seen at ACT resolution over 1254 ACT pixels inside the M2 region, the joint map minus ACT is 1.01× ACT's noise (13.5 µK per pixel) after an offset. The tilt at the edge is 3 µK and there is no bowl. MOOJ1142 with 106 TODs gave 1.15× with a +26 µK bowl.</li>
+<li><strong>Not fully converged at small scales.</strong> The residual is 1.3 × 10<sup>−3</sup> at iteration 600 and still falling slowly (MOOJ1142: about 4 × 10<sup>−4</sup>). Between iterations 400 and 600 the largest scales (30 px Gaussian) no longer change, but scales from the beam to 30″ still move by about 30% of their rms. A longer run (about 1500 iterations, 3.5 h) is the next step.</li>
+</ul>
+</div>
+<figure>
+<img src="figs/summary/a399_401_multiscale.png" alt="A399-401 two-resolution map: ACT f090 with the M2 + ACT joint map inside the M2 footprint">
+<figcaption><strong>Figure 12. A399-401, M2 + ACT, 600 iterations (K<sub>RJ</sub>).</strong> 70′ field, displayed as in Figure 10: 30″ ACT pixels, split into 8 × 8 where M2 has data, the M2 part smoothed to 10″ above 3000 hits and up to 30″ below, shown above 120 hits (thin line) and feathered into ACT over 300. The joint map's offset from ACT in the M2 region (−2.3 µK) is subtracted. The A401 decrement is at the top of the M2 footprint; A399 is outside it, at the bottom left. RA increases to the right here (the ACT cutout's orientation); the labels are correct.</figcaption>
+</figure>
+<figure>
+<img src="figs/summary/a399_401_fig1.png" alt="A399-401 joint 90 GHz map in the layout of Hincks et al. 2022 Figure 1, with the ACT+Planck y-map contours">
+<figcaption><strong>Figure 13. The same 90 GHz map in the layout of Hincks et al. (2022), Figure 1 right</strong> (<code>examples/a399_401_fig1.py</code>). 88′ field, RA increasing to the left, K<sub>RJ</sub> with the colour scale of Figures 10 and 12. Green: the paper's ACT + Planck y-map, smoothed to 1.65′, at 3, 5, …, 15σ (σ = 4.0 × 10<sup>−6</sup> per pixel after smoothing, robust estimate). Dashed: R500c of A399 and A401 (1.45 and 1.53 Mpc, their Table 4). Circles: ACT sources with S/N ≥ 5 at 90 (red), 150 (blue) and 220 GHz (green), sized by the beam FWHM. Dotted: where the joint map is shown; outside it, ACT f090. Right: the boxed 34′ region in ACT f090 alone (top) and in the joint map (bottom), same pixels and colour scale; the line marks where the joint map is shown.</figcaption>
+</figure>
+</section>
+
 </div>
