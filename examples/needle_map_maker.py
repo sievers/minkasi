@@ -9,23 +9,31 @@ from astropy import units as u
 from astropy.io import fits
 
 import minkasi.minkasi_all as minkasi
+from minkasi.maps.skymap import SkyMap
 from minkasi.needlet.needlet import WavSkyMap
-from minkasi.needlet.needlet import needlet, cosmo_box
+from minkasi.needlet.needlet import Needlet, cosmo_box
 from minkasi.needlet.needlet import wav2map_real, map2wav_real
+from minkasi.maps.mapset import PriorMapset, Mapset
 
 #%load_ext autoreload
 #%autoreload 2
 
-dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
-tod_names=glob.glob(dir+'Sig*.fits')
-n_tods = 2
+#find tod files we want to map
+#idir = "/scratch/r/rbond/jorlo/M2-TODs/RXJ1347/" #CHANGE ME
+idir = "/mnt/welch/MUSTANG/M2-TODs/RXJ1347/"
+#idir = "/scratch/r/rbond/jorlo/M2-TODs/A399-401/"
+tod_names=glob.glob(idir+'Sig*.fits')
+
+
+n_tods = 999999
 
 tod_names = tod_names[:n_tods]
 tod_names=tod_names[minkasi.myrank::minkasi.nproc]
 
 todvec=minkasi.TodVec()
 
-flatten = True
+flatten = False
+
 
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
@@ -59,12 +67,37 @@ minkasi.barrier()
 lims=todvec.lims()
 pixsize=2.0/3600*np.pi/180
 
-wmap = WavSkyMap(np.zeros(1), lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
-need = needlet(np.arange(10), lightcone=wmap, L=300)
+template_map = SkyMap(lims, pixsize, square = True, multiple=2).map #Really shitty way to get the right map geometry for making filters
+need = Needlet(np.arange(10), lightcone=template_map, L=10*60*np.sqrt(2), pixsize = pixsize * (3600 * 180) / np.pi)
 fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
 need.get_needlet_filters_2d(fourier_radii)
-
+'''
 wmap = WavSkyMap(need.filters, lims, pixsize, square = True, multiple=2)
+
+delta_x, delta_y = wmap.lims[1]-wmap.lims[0], wmap.lims[3]-wmap.lims[2]
+
+new_lims = wmap.lims
+new_lims[0] -= 0.5 * delta_x
+new_lims[1] += 0.5 * delta_x
+new_lims[2] -= 0.5 * delta_y
+new_lims[3] += 0.5 * delta_y
+
+lims = new_lims
+
+wmap = WavSkyMap(np.zeros(1), new_lims, pixsize, square = True, multiple=2).map
+need = needlet(np.arange(10), lightcone=wmap, L=10*np.sqrt(2)*60, pixsize = pixsize*(3600*180)/np.pi)
+fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
+need.get_needlet_filters_2d(fourier_radii)
+'''
+
+map_size = pixsize * template_map.shape[-1] * ( 180 * 60 ) / np.pi #in arcmin
+fourier_radii_phys = fourier_radii * 2 * np.pi / map_size #Units inverse arcmin
+
+cut_arcmin = 2 #put a prior on scales larger than this
+fourier_prior = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)), 1e12, 0)
+#flags = np.where((fourier_radii_phys <= (2 * np.pi / cut_arcmin)))[0]
+
+wmap = WavSkyMap(need, lims, pixsize, square = True, multiple=2)
 
 for tod in todvec.tods:
     ipix=wmap.get_pix(tod)
@@ -73,8 +106,30 @@ for tod in todvec.tods:
 
 hits=minkasi.make_hits(todvec,wmap)
 
-mapset=minkasi.Mapset()
+mapset=Mapset()
 mapset.add_map(wmap)
+
+prior = wmap.copy()
+#prior.map[0] = prior_map
+#prior.map[0][:] = 1e3
+#prior.map[1][:] = 1e-3
+#for i in range(len(prior.map)):
+    #prior.map[i] = prior_map*need.filters[i]
+
+real_prior = np.fft.fftshift(np.fft.ifftn(fourier_prior).real)
+
+prior.map = map2wav_real(real_prior, need.filters)
+
+k_arr_phys = need.k_arr* 2*np.pi / map_size
+
+for i in range(len(prior.map)):
+    if np.max(k_arr_phys[np.where(need.bands[i] > 0)]) >= (2 * np.pi / cut_arcmin): #0 out prior map below the cut scale
+        prior.map[i][:] = 0
+
+prior_mapset = PriorMapset()
+
+prior_mapset.add_map(prior)
+
 
 #make A^T N^1 d.  TODs need to understand what to do with maps
 #but maps don't necessarily need to understand what to do with TODs,
@@ -84,30 +139,34 @@ mapset.add_map(wmap)
 rhs=mapset.copy()
 todvec.make_rhs(rhs)
 
-if minkasi.myrank==0:
-    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needle_rhs.fits')
+#if minkasi.myrank==0:
+#    rhs.maps[0].write('/scratch/r/rbond/jorlo/MS0735/needlets/needle_rhs.fits')
 #this is our starting guess.  Default to starting at 0,
 #but you could start with a better guess if you have one.
 x0=rhs.copy()
 x0.clear()
 
-#preconditioner is 1/ hit count map.  helps a lot for
+#preconditioner is 1/ hit count map.  helps a lot for 
 #convergence.
-precon=mapset.copy()
-tmp=hits.map.copy()
-ii=tmp>0
-tmp[ii]=1.0/tmp[ii]
+#precon=mapset.copy()
+#tmp=hits.map.copy()
+#ii=tmp>0
+#tmp[ii]=1.0/tmp[ii]
 #precon.maps[0].map[:]=numpy.sqrt(tmp)
-tmp = map2wav_real(tmp, need.filters)
-precon.maps[0].wmap[:]=tmp[:]
+#precon.maps[0].map[:]=tmp[:]
 
-save_iters=[1,2,3,5,10,15,20,25,30,35,40,45,50, 100, 150, 200, 250, 300, 350, 400, 450, 499]
-outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
+#outroot = '/scratch/r/rbond/jorlo/MS0735/needlets/needle'
+#outroot = '/scratch/r/rbond/jorlo/A399-401'
+outroot = "/mnt/welch/USERS/jorlo/needlets/RXJ1347"
 
+save_iters = [1,5,10,15,20,25, 50, 100, 150,200,250,300,350,400,450, 499]
 #run PCG!
-mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50, save_iters=save_iters, outroot = outroot)
+mapset_out=minkasi.run_pcg_wprior(rhs,x0,todvec,maxiter=50, save_iters=save_iters, outroot = outroot)#, prior = prior_mapset)
+
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/MS0735/MS0735_needle.fits') #and write out the map as a FITS file
+    mapset_out.maps[0].write(outroot+"_need.fits")
+
+    #mapset_out.maps[0].write('/scratch/r/rbond/jorlo/A399-401/A399-401_needle.fits') #and write out the map as a FITS file
 else:
     print('not writing map on process ',minkasi.myrank)
 
@@ -117,23 +176,25 @@ else:
 #mapset_out2.maps[0].write('second_map.fits')
 
 '''
-npix = 100
-imap = np.zeros((npix, npix))
-dx, idy = np.random.randint(0, npix, 2)
-imap[idx][idy] = 1
+toc = time.time()
+for i in range(len(need.filters)):
+    print(i, end = '\r')
+    need_lims = need.get_need_lims(i, real_space = True)
+    if need_lims[0] > 180 or need_lims[1] < 60: continue #If small end of filter is larger than M2 recoverable (~3arcmin) or large end is smaller than ACT beamsize (1 arcsec), don't bother 
+    svd = wmap.get_svd(i, down_samp = 10)
+    temp_map = wmap.copy()
 
-need = needlet(np.arange(10), lightcone=imap, L=300)
-fourier_radii = need.lightcone_box.get_grid_dimless_2d(return_grid=True)
-need.get_needlet_filters_2d(fourier_radii)
-inter_map = map2wav_real(imap, need.filters)
-omap = wav2map_real(inter_map, need.filters)
-
-wmap_sq = inter_map**2
-print(np.sum(wmap_sq))
-
-omap_sq = omap**2
-print(np.sum(omap_sq))
+    smat = np.diag(svd.S)
+    for j, S in enumerate(svd.S): #parallelize here
+        if S > 1e-6:
+            wmapset = Mapset()
+            temp_map.clear()
+            cur = np.dot(svd.U[...,j], np.dot(smat[j], svd.Vh[...,j]))
+            temp_map.map[i] = np.reshape(cur, [306, 306])
+            wmapset.add_map(temp_map)
+            todvec.dot(wmapset)
+            #RN this doesn't do anything with the dot product
+tic = time.time()
 '''
-
 
 

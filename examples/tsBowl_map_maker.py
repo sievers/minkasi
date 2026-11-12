@@ -8,7 +8,7 @@ import os
 from astropy.coordinates import Angle
 from astropy import units as u
 
-dir = '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/'
+dir = '/mnt/welch/MUSTANG/M2-TODs/MS0735/mustang2'
 tod_names=glob.glob(dir+'Sig*.fits')
 
 bad_tod, addtag = pbs.get_bad_tods("MS0735", ndo=False, odo=False)
@@ -25,7 +25,7 @@ flatten = True
 
 #loop over each file, and read it.
 for i, fname in enumerate(tod_names):
-    if fname == '/scratch/r/rbond/jorlo/MS0735//TS_EaCMS0f0_51_5_Oct_2021/Signal_TOD-AGBT21A_123_03-s20.fits': continue
+    if 'Signal_TOD-AGBT21A_123_03-s20.fits' in fname : continue
 
 
     t1=time.time()
@@ -115,9 +115,9 @@ plot_iters=[1,2,3,5,10,15,20,25,30,35,40,45,49]
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=200)
 if minkasi.myrank==0:
     if len(mapset.maps)==1:
-        mapset_out.maps[0].write('/scratch/r/rbond/jorlo/{}_noBowl_map_precon_mpi_py3.fits'.format(flatten)) #and write out the map as a FITS file
+        mapset_out.maps[0].write('/mnt/welch/USERS/jorlo/Reductions/MS0735/bowling/{}_noBowl_map_precon_mpi_py3.fits'.format(flatten)) #and write out the map as a FITS file
     else:
-        mapset_out.maps[0].write('/scratch/r/rbond/jorlo/{}_tsBowl_map_precon_mpi_py3.fits'.format(flatten))
+        mapset_out.maps[0].write('/mnt/welch/USERS/jorlo/Reductions/MS0735/bowling/{}_tsBowl_map_precon_mpi_py3.fits'.format(flatten))
 else:
     print('not writing map on process ',minkasi.myrank)
 
@@ -209,7 +209,7 @@ precon.maps[0].map[:]=tmp[:]
 mapset_out=minkasi.run_pcg(rhs,x0,todvec,precon,maxiter=50)
 
 if minkasi.myrank==0:
-    mapset_out.maps[0].write('/scratch/r/rbond/jorlo/{}_sub_tsBowl_map_precon_mpi_py3.fits'.format(flatten)) #and write out the map as a FITS file
+    mapset_out.maps[0].write('/mnt/welch/USERS/jorlo/Reductions/MS0735/bowling/{}_sub_tsBowl_map_precon_mpi_py3.fits'.format(flatten)) #and write out the map as a FITS file
 
 
 else:
