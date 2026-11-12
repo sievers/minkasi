@@ -1,4 +1,3 @@
-import sys
 import time
 from functools import reduce
 from typing import (
@@ -23,13 +22,6 @@ from ..mapmaking.tod2map import (
 )
 from ..maps.skymap import SkyMap
 from ..tods import Tod, TodVec
-from ..tools.py_fft import irfftn, rfftn
-
-if sys.version_info >= (3, 11):
-    pass
-else:
-    pass
-
 
 # TODO: This function should probably go elsewhere
 
@@ -745,7 +737,6 @@ class WavSkyMap(SkyMap):
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
-        n_filt: Optional[list[int]] = None,
     ):
         """
         Project a wavelet map into a tod, adding or replacing the map contents.
@@ -763,12 +754,10 @@ class WavSkyMap(SkyMap):
             If False replace dat with it.
         do_omp : bool, default: False
             Use omp to parallelize
-        n_filt :  None | list[int], default: None
-            Filters on which to perform map2tod. If none, then done over all
         """
         ipix = self.get_pix(tod)
         self.real_map.map = np.squeeze(
-            wav2map_real(self.map, self.needlet.filters, n_filt=n_filt), axis=0
+            wav2map_real(self.map, self.needlet.filters), axis=0
         )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
         if self.mask is not None:
             self.real_map.map = self.real_map.map * self.mask
@@ -780,7 +769,6 @@ class WavSkyMap(SkyMap):
         dat: NDArray[np.floating],
         do_add: bool = True,
         do_omp: bool = True,
-        n_filt: Optional[list[int]] = None,
     ):
         """
         Project a tod into the wmap. Frist projects tod onto real space map, then converts that to wmap.
@@ -797,9 +785,6 @@ class WavSkyMap(SkyMap):
             If False replace this map with it.
         do_omp : bool, default: True
             Use omp to parallelize.
-        n_filt : None | list[int], default: None
-            Filters on which to perform map2tod. If none, then done over all
-
         """
         if dat is None:
             dat = tod.get_data()
@@ -817,13 +802,13 @@ class WavSkyMap(SkyMap):
             self.real_map.map *= self.mask
         if not do_add:
             self.map = np.squeeze(
-                map2wav_real(self.real_map.map, self.needlet.filters, n_filt=n_filt),
+                map2wav_real(self.real_map.map, self.needlet.filters),
                 axis=0,
             )  # Right now let's restrict ourself to 1 freqency input maps, so we need to squeeze down the dummy axis added by map2wav_real
 
         else:
             self.map += np.squeeze(
-                map2wav_real(self.real_map.map, self.needlet.filters, n_filt=n_filt),
+                map2wav_real(self.real_map.map, self.needlet.filters),
                 axis=0,
             )
 
@@ -852,12 +837,10 @@ class WavSkyMap(SkyMap):
 
     def apply_prior(self, p: "WavSkyMap", Ap: "WavSkyMap"):
         """
-        Apply prior to the wavelet map. In the ML framework, adding a prior equates to:
-        chi^2 -> chi^2 + m^TQ^-1m
-        for m the map, Q the prior map. Per Jon, the modified the map equation to:
-        (A^T N^-1 A - Q^-1)m = A^T N^-1d
-        Note (A^T N^-1 A)m is the output of tods.dot(p). This function then simply performs
-        (A^T N^-1 A)m - Q^-1m, although the signage is confusing.
+        Apply the prior to the wavelet map. A Gaussian prior adds m^T Q^-1 m to chi^2, so the map
+        equation becomes (A^T N^-1 A + Q^-1) m = A^T N^-1 d (+ Q^-1 m0 for a nonzero prior mean).
+        tods.dot(p) gives (A^T N^-1 A) p; this adds Q^-1 p to it, with Q^-1 stored (diagonal, per
+        coefficient) in this map.
 
         Parameters
         ----------
@@ -868,7 +851,7 @@ class WavSkyMap(SkyMap):
 
         Returns
         -------
-        Modifies Ap in place by Q^-1 m
+        Adds Q^-1 p to Ap in place.
         """
         Ap.map = Ap.map + self.map * p.map
 
@@ -1122,7 +1105,6 @@ class cosmo_box:
 def map2wav_real(
     imaps: NDArray[np.floating],
     filters: NDArray[np.floating],
-    n_filt: Optional[NDArray[np.floating]] = None,
     print_time: Optional[bool] = False,
 ) -> NDArray[np.floating]:
     """
@@ -1134,9 +1116,6 @@ def map2wav_real(
         Input map of the sky
     filters : NDArray[np.floating]
         Feedlet basis filters, also called the filter windows
-    n_filt : NDArray[np.floating] | None, default: None
-        Which filters to perform the coeficient evaluation for.
-        By default does all filters
     print_time : bool, default: False
         If true, prints the time taken to perform map2wav
     Returns
@@ -1154,10 +1133,7 @@ def map2wav_real(
 
     wmap = []
 
-    if n_filt is None:
-        n_filt = range(len(imaps))
-
-    for i in n_filt:
+    for i in range(len(imaps)):
         lightcone_ft = np.fft.fftn(np.fft.fftshift(imaps[i]))
 
         filtered_slice_real = []
@@ -1177,7 +1153,6 @@ def map2wav_real(
 def wav2map_real(
     wav_mapset: NDArray[np.floating],
     filters: NDArray[np.floating],
-    n_filt: Optional[NDArray[np.floating]] = None,
     print_time: Optional[bool] = False,
 ) -> NDArray[np.floating]:
     """
@@ -1189,9 +1164,6 @@ def wav2map_real(
         Input multimap of wavelet coefficients with shape [nfilt, nx, ny]
     filters : NDArray[np.floating]
         Feedlet basis filters, also called the filter windows
-    n_filt : NDArray[np.floating] | None, default: None
-        Which filters to perform the coeficient evaluation for.
-        By default does all filters
     print_time : bool, default: False
         If true, prints the time taken to perform map2wav
     Returns
@@ -1208,9 +1180,7 @@ def wav2map_real(
         return
 
     sky_map = []
-    if n_filt is None:
-        n_filt = range(len(wav_mapset))  # If not provided with filts to do, then do all
-    for nu in n_filt:
+    for nu in range(len(wav_mapset)):
         fourier_boxes = []
         for b in wav_mapset[nu]:
             fourier_boxes.append(np.fft.fftn(np.fft.fftshift(b)))
@@ -1221,40 +1191,6 @@ def wav2map_real(
         back_transform = np.fft.fftshift(
             np.real(np.fft.ifftn(np.fft.fftshift(back_transform)))
         )
-        sky_map.append(back_transform)
-    tic = time.time()
-    if print_time:
-        print("wav2map took ", tic - toc)
-    return np.array(sky_map)
-
-
-def wav2map(
-    wav_mapset: NDArray[np.floating],
-    filters: NDArray[np.floating],
-    n_filt: Optional[NDArray[np.floating]] = None,
-    print_time: Optional[bool] = False,
-) -> NDArray[np.floating]:
-    # Reimplementation of wav2map_real using Jons ffts. Weirdly doesn't seem faster?
-    toc = time.time()
-    if len(wav_mapset.shape) == 3:
-        wav_mapset = np.expand_dims(wav_mapset, axis=0)
-
-    elif len(wav_mapset.shape) != 4:
-        print("Error: input wave mapset must have dim = 3 or 4")
-        return
-
-    sky_map = []
-    if n_filt is None:
-        n_filt = range(len(wav_mapset))  # If not provided with filts to do, then do all
-    for nu in n_filt:
-        fourier_boxes = []
-        for b in wav_mapset[nu]:
-            b = np.hstack([b, np.fliplr(b[:, 1:-1])])
-            fourier_boxes.append(rfftn(np.fft.fftshift(b)))
-        back_transform = np.zeros_like(fourier_boxes[0])
-        for i in range(wav_mapset.shape[1]):
-            back_transform += np.fft.fftshift(fourier_boxes[i]) * filters[i]
-        back_transform = np.fft.fftshift(irfftn(np.fft.fftshift(back_transform)))
         sky_map.append(back_transform)
     tic = time.time()
     if print_time:
