@@ -1084,9 +1084,12 @@ class WavSkyMap(SkyMap):
         if max_res is not None:
             if nfilts is not None:
                 raise ValueError("Cannot specify max_res and nfilts")
-            i = 0
-            while self.needlet.get_need_lims(i, real_space=True)[0] > max_res:
-                i += 1  # not the fastest way to do this but it's only done once
+            i = 0  # up to the first band that resolves max_res, or all bands if none does
+            while (
+                i < self.needlet.nfilt - 1
+                and self.needlet.get_need_lims(i, real_space=True)[0] > max_res
+            ):
+                i += 1
             return list(range(i + 1))
         return list(range(self.needlet.nfilt)) if nfilts is None else list(nfilts)
 
