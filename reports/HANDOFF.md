@@ -263,5 +263,10 @@ method ranks the splits the same as the ACT method but reads 30-50 uK larger.
   Pointing already follows the rotation (per-detector, per-sample DX/DY), so roll would act through something fixed to the
   array or the az/el frame (common mode, noise model, atmosphere gradients). Test: MOOJ1142 rising-only against setting-only
   maps at matched elevation (same rate, mirrored parallactic angle) should show the saddle orientation flip.
+- Cell - full 199-TOD map (same method; full map CG residual 1.3e-4): 2019 lo +9, 2019 hi +67, 2021 lo -38, 2021 hi -32,
+  elev lo -20, elev hi +21 uK (`jack_ms0735/cells_minus_all.{txt,png}`). The TOD-weighted mean is +4 and the pairwise
+  differences reproduce to 3-6 uK. 2019 lo matches the average; both 2021 cells are ~35 uK deeper (a uniform campaign offset);
+  2019 hi is the outlier and the only saddle, and carries the whole MS0735 elevation trend. Next: split 2019 hi by session
+  (19A_02 has 26 of its 53 TODs).
 - Summary page with figures: https://claude.ai/artifact/XNH7G8tBU85dh3YWWd9X3t (`/mnt/welch/USERS/jorlo/needlets/bowl_summary/`).
 - Next: odd/even null for a noise level; per-session depths; PWV or opacity per TOD; an azimuth split for MS0735.
