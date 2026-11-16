@@ -157,22 +157,7 @@ class SkyMap:
             self.nx = lens[lens >= self.nx].min()
             self.ny = lens[lens >= self.ny].min()
             self.primes = primes[:]
-        """        
-        if square:
-            if nx != ny:
-                nmax = max(nx, ny)
-                ratio_x = nmax / nx
-                ratio_y = nmax / ny
 
-                self.lims[0] = self.lims[1] - ratio_x * (
-                    self.lims[1] - self.lims[0]
-                )  # note we are adjusting lims in place here
-                self.lims[3] = self.lims[2] + ratio_y * (
-                    self.lims[3] - self.lims[2]
-                )  # Resize x and y lims by ratio of nx/ny to nmax
-
-                nx, ny = self.get_npix(pad)
-        """
         if multiple:
             assert type(multiple) == int
 
