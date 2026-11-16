@@ -7,7 +7,7 @@ the block solve as preconditioner (--cg N), or by the block solve alone. The pip
 minkasi.needlet.joint.JointMapper; see --help for the options.
 
 Baseline (106 TODs, 16 ranks):
-  mpirun -n 16 python twores_ex.py --ntods 7 --direct --cg 600 --cg-tol 0 --lattice-tol 1e-3 --min-hits 0 \
+  mpirun -n 16 python twores_ex.py --ntods 7 --direct --cg 600 --cg-tol 0 --lattice-tol 1e-3 \
       --cache <dir> --outroot <dir>/MOOJ1142
 Outputs: <outroot>_final.fits (the map), _hits.fits, _act.fits (ACT as it enters the solve), _cg<N>.npy.
 """
