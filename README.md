@@ -183,18 +183,20 @@ from minkasi import minkasi_all as minkasi
 `m = sum_i F_i x_i`; the pipeline is `minkasi.needlet.joint.JointMapper`. It solves
 `(A^T N^-1 A + ACT term) x = A^T N^-1 d + ACT rhs` by CG on the full, band-coupled operator, preconditioned by
 the block solve (the probed diagonal blocks `G_i` of each band). M2 and ACT are combined only through their noise
-models: no masks, band cuts or priors are needed.
+models: no masks or priors are needed. The one cut is that ACT enters only the bands its beam transmits
+(beam transfer of at least `--act-min-transfer`, default 0.05), since deconvolving the others only amplifies noise.
 
 ```
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 mpirun -n 16 python examples/twores_ex.py \
-    --ntods 7 --direct --cg 600 --cg-tol 0 --lattice-tol 1e-3 --min-hits 0 --cache <dir> --outroot <dir>/MOOJ1142
+    --ntods 7 --direct --cg 600 --cg-tol 0 --lattice-tol 1e-3 --cache <dir> --outroot <dir>/MOOJ1142
 ```
 
 - `--ntods` is TODs per rank (`--ntods-total` caps the total, `--tod-list` takes an explicit list).
 - `--cg N` iterations of CG; `--cg-save` writes the coefficients at chosen iterations. The residual is over all
   needlet coefficients, not a map error.
 - `--direct` without `--cg` applies the block solve once (ignores cross-band coupling): a quick look only.
-- `--min-hits 0` (no hits mask) is the baseline; a mask makes large-scale modes drift at its edge.
+- No hits mask by default (`--min-hits 0`). `--min-hits N` masks pixels with fewer than N hits, but large-scale
+  modes then drift at the mask edge.
 - The response matrices are cached in `--cache`; the cache does not record the TODs, radius or units, so use a new
   directory per configuration. Every MPI rank holds all the matrices: `--dry-run` prints each band's size and the
   memory per rank before anything is probed.
