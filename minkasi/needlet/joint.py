@@ -817,8 +817,8 @@ def parse_args(
     a(
         "--min-hits",
         type=float,
-        default=20,
-        help="Mask pixels with fewer hits from mapmaking (0 = no mask)",
+        default=0,
+        help="Mask pixels with fewer hits from mapmaking (0 = no mask, the baseline)",
     )
     a("--max-res", type=float, default=5.0, help="Arcsec; smallest scale for ANA")
     a("--radius", type=float, default=30.0, help="Pixels; ANA window, <0 for exact")
