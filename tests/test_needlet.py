@@ -1,16 +1,27 @@
+import json
+import os
+import shutil
+import subprocess
+import sys
 
 import minkasi.minkasi_all as minkasi
 import numpy as np
 import pytest
+from minkasi.maps.mapset import Mapset
 from minkasi.maps.skymap import SkyMap
+from minkasi.needlet import needlet
 from minkasi.needlet.needlet import (
     Needlet,
     WavSkyMap,
+    apply_beam,
     band2map,
+    color_groups,
+    gaussian_beam_ft,
     map2band,
     map2wav_real,
     wav2map_real,
 )
+from scipy import sparse
 
 PIXSIZE = 30.0 / 3600 * np.pi / 180  # radians
 
@@ -78,6 +89,119 @@ def test_band_helpers_match_full_transforms(wmap):
     assert back.shape == m.shape
 
 
+def brute_force(wmap, todvec, nfilt):
+    """Reference ANA: one TOD pass per retained pixel through the original full transforms."""
+    mapset = Mapset()
+    mapset.add_map(wmap.real_map.copy())
+    xs, ys = wmap.nx_space[nfilt], wmap.ny_space[nfilt]
+    out = np.zeros((len(xs) * len(ys),) * 2)
+    for r, (x, y) in enumerate((x, y) for x in xs for y in ys):
+        imp = np.zeros((wmap.needlet.nfilt, wmap.nx, wmap.ny))
+        imp[nfilt, x, y] = 1
+        mapset.maps[0].map[:] = wav2map_real(imp[None], wmap.needlet.filters)
+        acc = todvec.dot(mapset, cache_maps=False).maps[0].map
+        z = map2wav_real(acc, wmap.needlet.filters)[0, nfilt]
+        out[r] = z[np.ix_(xs, ys)].ravel()
+    return out
+
+
+def test_exact_response_matches_brute_force(wmap, todvec):
+    down = np.array([1] * (wmap.needlet.nfilt - 1) + [2])
+    resp = wmap.get_response_matrix(todvec, nfilts=[1, 3], downsamps=down)
+    for i in (1, 3):
+        ref = brute_force(wmap, todvec, i)
+        assert np.allclose(
+            resp[i].toarray(), ref, rtol=1e-6, atol=1e-8 * np.abs(ref).max()
+        )
+    assert resp[0] is None
+
+
+def test_probed_response_close_to_exact(wmap, todvec):
+    down = np.ones(wmap.needlet.nfilt, dtype=int)
+    exact = wmap.get_response_matrix(todvec, nfilts=[2], downsamps=down)[2].toarray()
+    approx = wmap.get_response_matrix(
+        todvec, nfilts=[2], downsamps=down, radius=wmap.nx // 3, exact_below=0
+    )[2].toarray()
+    assert np.abs(approx - exact).max() < 0.05 * np.abs(exact).max()
+
+
+def test_map_response_diagonal_and_matrix_agree(wmap):
+    rng = np.random.default_rng(2)
+    ivar = rng.uniform(1, 2, size=(wmap.nx, wmap.ny))
+    down = np.ones(wmap.needlet.nfilt, dtype=int)
+    wmap.set_downsamps(down)
+    a = wmap.get_response_matrix_map(ivar, nfilts=[2])[2]
+    b = wmap.get_response_matrix_map(sparse.diags(ivar.ravel()), nfilts=[2])[2]
+    assert np.allclose(a.toarray(), b.toarray())
+    assert np.allclose(a.toarray(), a.toarray().T)
+
+
+def test_solve_bands_white_noise_is_identity(wmap):
+    """With unit precision the filters partition unity, so the solve must return the rhs map."""
+    wmap.set_downsamps(np.ones(wmap.needlet.nfilt, dtype=int))
+    rng = np.random.default_rng(3)
+    d = np.fft.irfft2(
+        np.fft.rfft2(rng.normal(size=(wmap.nx, wmap.ny)))
+        * (
+            np.hypot(
+                *np.meshgrid(
+                    np.fft.fftfreq(wmap.nx), np.fft.rfftfreq(wmap.ny), indexing="ij"
+                )
+            )
+            < 0.15
+        ),
+        s=(wmap.nx, wmap.ny),
+    )  # band limited so no mode is lost below the highest filter
+    resp = wmap.get_response_matrix_map(np.ones((wmap.nx, wmap.ny)))
+    rhs = map2wav_real(d, wmap.needlet.filters)[0]
+    out = wav2map_real(wmap.solve_bands(rhs, [resp], ridge=1e-6), wmap.needlet.filters)[
+        0
+    ]
+    assert np.abs(out - d).max() < 0.02 * np.abs(d).max()
+
+
+def test_solve_bands_handles_indefinite_precision(wmap):
+    """A truncated, indefinite G must still give a finite solution of similar size."""
+    wmap.set_downsamps(np.full(wmap.needlet.nfilt, 2))
+    resp = wmap.get_response_matrix_map(np.ones((wmap.nx, wmap.ny)), nfilts=[2])
+    G = resp[2].tolil()
+    G.setdiag(G.diagonal() * 0.3)  # breaks positive definiteness
+    rhs = np.random.default_rng(4).normal(size=(wmap.needlet.nfilt, wmap.nx, wmap.ny))
+    out = wmap.solve_bands(rhs, [np.array([None, None, G.tocsr(), None], dtype=object)])
+    assert np.isfinite(out).all()
+    assert np.abs(out).max() < 100 * np.abs(rhs).max()
+
+
+def test_map_response_with_beam_matches_dense(wmap):
+    """Beam-observed map response equals K^T B D B K computed row by row."""
+    rng = np.random.default_rng(5)
+    ivar = rng.uniform(1, 2, size=(wmap.nx, wmap.ny))
+    beam = gaussian_beam_ft((wmap.nx, wmap.ny), 6.0)
+    wmap.set_downsamps(np.full(wmap.needlet.nfilt, 2))
+    got = wmap.get_response_matrix_map(
+        ivar, nfilts=[2], forward=lambda m: apply_beam(m, beam)
+    )[2].toarray()
+    filt = wmap.needlet.filters[2]
+    xs, ys = wmap.nx_space[2], wmap.ny_space[2]
+    for r in (0, 100, len(got) - 1):
+        delta = np.zeros((wmap.nx, wmap.ny))
+        delta[xs[r // len(ys)], ys[r % len(ys)]] = 1
+        z = map2band(
+            apply_beam(ivar * apply_beam(band2map(delta, filt), beam), beam), filt
+        )
+        assert np.allclose(got[r], z[np.ix_(xs, ys)].ravel(), atol=1e-10)
+    assert np.allclose(got, got.T)
+
+
+@pytest.mark.parametrize("n,width", [(55, 21), (110, 7), (484, 3), (10, 40)])
+def test_color_groups_tile_and_separate(n, width):
+    groups = color_groups(n, width)
+    assert sorted(np.concatenate(groups)) == list(range(n))
+    for g in groups:
+        gaps = np.diff(np.concatenate([g, [g[0] + n]]))
+        assert len(g) == 1 or gaps.min() >= width
+
+
 def test_mpi_reduce_chunks_whole_wavelet_map(monkeypatch):
     """The chunked MPI reduction must cover all bands of a (nfilt, nx, ny) map, not only nx * ny."""
     from minkasi.maps import skymap
@@ -93,6 +217,34 @@ def test_mpi_reduce_chunks_whole_wavelet_map(monkeypatch):
     smap.map = np.ones((3, *smap.map.shape[-2:]))
     smap.mpi_reduce(chunksize=smap.map.shape[-1] * smap.map.shape[-2] / 2)
     assert np.all(smap.map == 2)
+
+
+def test_cached_min_eigenvalue(monkeypatch):
+    """The smallest eigenvalue is computed once per matrix and again only if the matrix changes."""
+    calls = []
+    real = needlet.min_eigenvalue
+    monkeypatch.setattr(needlet, "min_eigenvalue", lambda G: calls.append(1) or real(G))
+    G = sparse.diags([1.0, 2.0, 3.0]).tocsr()
+    store = {}
+    first = needlet.cached_min_eigenvalue(G, "0", store)
+    assert needlet.cached_min_eigenvalue(G, "0", json.loads(json.dumps(store))) == first
+    assert len(calls) == 1
+    assert needlet.cached_min_eigenvalue(2 * G, "0", store) == pytest.approx(2 * first)
+    assert len(calls) == 2
+
+
+@pytest.mark.skipif(shutil.which("mpirun") is None, reason="needs mpirun")
+def test_block_solver_shared_over_mpi_ranks_matches_serial():
+    """block_solver with its work split over 3 MPI ranks must equal the serial solve."""
+    script = os.path.join(os.path.dirname(__file__), "check_block_solver_mpi.py")
+    run = subprocess.run(
+        ["mpirun", "-n", "3", "--bind-to", "none", sys.executable, script, "--debug"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "OMP_NUM_THREADS": "1"},
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
 
 
 def test_downsamps_from_filter_support_satisfy_nyquist(wmap):
