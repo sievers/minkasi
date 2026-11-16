@@ -168,34 +168,6 @@ def sim_act(
     )
 
 
-def edge_taper(shape: tuple[int, int], width: int) -> NDArray[np.floating]:
-    """
-    Window that is 1 in the interior and falls to 0 at the edges with a cosine ramp.
-
-    Parameters
-    ----------
-    shape : tuple[int, int]
-        Shape of the map.
-    width : int
-        Ramp width in pixels. 0 gives no taper.
-
-    Returns
-    -------
-    NDArray[np.floating]
-        2D window of the given shape.
-    """
-    if width <= 0:
-        return np.ones(shape)
-
-    def ramp(n):
-        r = np.ones(n)
-        edge = 0.5 * (1 - np.cos(np.pi * (np.arange(width) + 0.5) / width))
-        r[:width], r[-width:] = edge, edge[::-1]
-        return r
-
-    return ramp(shape[0])[:, None] * ramp(shape[1])[None, :]
-
-
 class ActTerm:
     """
     The ACT term of the needlet operator, F_i B^T s W s B (sum_j F_j x_j) on the ACT bands, with B the ACT beam and
