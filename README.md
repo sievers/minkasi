@@ -177,3 +177,26 @@ from minkasi import minkasi_all as minkasi
  ```
  git checkout v1.1.1
  ```
+## Needlet mapmaking (MUSTANG-2 TODs + ACT maps)
+
+`examples/twores_ex.py` makes a joint map from MUSTANG-2 TODs and ACT maps in a needlet basis,
+`m = sum_i F_i x_i`; the pipeline is `minkasi.needlet.joint.JointMapper`. It solves
+`(A^T N^-1 A + ACT term) x = A^T N^-1 d + ACT rhs` by CG on the full, band-coupled operator, preconditioned by
+the block solve (the probed diagonal blocks `G_i` of each band). M2 and ACT are combined only through their noise
+models: no masks, band cuts or priors are needed.
+
+```
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 mpirun -n 16 python examples/twores_ex.py \
+    --ntods 7 --direct --cg 600 --cg-tol 0 --lattice-tol 1e-3 --min-hits 0 --cache <dir> --outroot <dir>/MOOJ1142
+```
+
+- `--ntods` is TODs per rank (`--ntods-total` caps the total, `--tod-list` takes an explicit list).
+- `--cg N` iterations of CG; `--cg-save` writes the coefficients at chosen iterations. The residual is over all
+  needlet coefficients, not a map error.
+- `--direct` without `--cg` applies the block solve once (ignores cross-band coupling): a quick look only.
+- `--min-hits 0` (no hits mask) is the baseline; a mask makes large-scale modes drift at its edge.
+- The response matrices are cached in `--cache`; the cache does not record the TODs, radius or units, so use a new
+  directory per configuration. Every MPI rank holds all the matrices: `--dry-run` prints each band's size and the
+  memory per rank before anything is probed.
+- `--act-ivar-scale 0` gives an M2-only map; `--sim-sky` replaces the data by a simulation of a known sky;
+  `--outside-prior` adds an optional prior on chosen bands and region. `--debug` runs a small one-TOD problem.
