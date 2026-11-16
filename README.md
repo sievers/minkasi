@@ -177,25 +177,28 @@ from minkasi import minkasi_all as minkasi
  ```
  git checkout v1.1.1
  ```
-## Needlet mapmaking solvers
+## Needlet mapmaking (MUSTANG-2 TODs + ACT maps)
 
-`examples/twores_ex.py` makes joint M2 + ACT maps in a needlet (wavelet) basis. "CG" below is the map
-from conjugate gradient on `A^T N^-1 A m = A^T N^-1 d` in that basis, with the ACT term added to the operator.
-See `reports/needlet.html` for the tests behind these recommendations.
+`examples/twores_ex.py` makes a joint map from MUSTANG-2 TODs and ACT maps in a needlet basis,
+`m = sum_i F_i x_i`; the pipeline is `minkasi.needlet.joint.JointMapper`. It solves
+`(A^T N^-1 A + ACT term) x = A^T N^-1 d + ACT rhs` by CG on the full, band-coupled operator, preconditioned by
+the block solve (the probed diagonal blocks `G_i` of each band). M2 and ACT are combined only through their noise
+models: no masks or priors are needed. The one cut is that ACT enters only the bands its beam transmits
+(beam transfer of at least `--act-min-transfer`, default 0.05), since deconvolving the others only amplifies noise.
 
-| Option | What it does | Cost (40 TODs, 16 ranks) | Verdict |
-|---|---|---|---|
-| `--direct --cg N` | CG on the full M2 + ACT operator, block solve as preconditioner | Response 15 min (cached after the first run), factorization 8 min, 40 iterations 8 min | **Recommended.** Solves the real equation; matches PCG on the 4-rank control and recovers the full source amplitude. |
-| `--direct` (no `--cg`) | Block solve only: `ANA^-1 @ rhs` per band, ignoring cross-band coupling | About 9 min on a cached response | Quick look at compact sources (93% of the CG peak). Wrong extended structure (correlation 0.3-0.6 with CG). |
-| `--min-hits 0` | No hits mask | Same as the run it is added to | Same rms as the masked run on the common pixels. Keep `--min-hits 20` to compare with `minkasi_mask_example`. |
-| PCG examples | `minkasi_mpi_example`, `minkasi_mask_example` | Minutes | Reference maps. Plain PCG has a large-scale gradient; mask=20 is the better reference. |
+```
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 mpirun -n 16 python examples/twores_ex.py \
+    --ntods 7 --direct --cg 600 --cg-tol 0 --lattice-tol 1e-3 --cache <dir> --outroot <dir>/MOOJ1142
+```
 
-Notes:
-- The block solve is the approximate inverse that keeps each band's own response `G_i` and drops the
-  cross-band blocks. In `--cg` it is only the preconditioner (`--inner` fixed iterations), so it changes the
-  convergence speed, not the answer.
-- Run with `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 mpirun -n N python twores_ex.py ...`;
-  `--ntods` is per rank and `--ntods-total` caps the total.
-- `--cg` residuals stagnate at about 3-4e-4 after 40 iterations; the reason is not yet understood.
-- Wavelet-map results from before the `SkyMap.mpi_reduce` fix (large maps, more than one rank) are wrong
-  and should be regenerated.
+- `--ntods` is TODs per rank (`--ntods-total` caps the total, `--tod-list` takes an explicit list).
+- `--cg N` iterations of CG; `--cg-save` writes the coefficients at chosen iterations. The residual is over all
+  needlet coefficients, not a map error.
+- `--direct` without `--cg` applies the block solve once (ignores cross-band coupling): a quick look only.
+- No hits mask by default (`--min-hits 0`). `--min-hits N` masks pixels with fewer than N hits, but large-scale
+  modes then drift at the mask edge.
+- The response matrices are cached in `--cache`; the cache does not record the TODs, radius or units, so use a new
+  directory per configuration. Every MPI rank holds all the matrices: `--dry-run` prints each band's size and the
+  memory per rank before anything is probed.
+- `--act-ivar-scale 0` gives an M2-only map; `--sim-sky` replaces the data by a simulation of a known sky;
+  `--outside-prior` adds an optional prior on chosen bands and region. `--debug` runs a small one-TOD problem.
