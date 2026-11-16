@@ -24,7 +24,7 @@ from ..maps.mapset import Mapset
 from ..maps.utils import sample_image
 from ..parallel import barrier, myrank
 from ..tods.io import read_tods
-from .act import ACT_OSAMP, ActTerm, act_conversion, edge_taper, read_act, sim_act
+from .act import ACT_OSAMP, ActTerm, act_conversion, read_act, sim_act
 from .cmb import cmb_fourier_weight, lensed_cmb_cl
 from .diagnostics import (
     coefficient_support,
@@ -272,10 +272,9 @@ class JointMapper:
         ivar_pix = np.median(
             ivar[ivar > 0]
         )  # of one ACT pixel, before the weights below
-        # The filters are periodic but the ACT map is not: taper the weights at the edges. ivar is that of an ACT
-        # pixel repeated on its ACT_OSAMP**2 fine pixels, which the sum over fine pixels would count that many
-        # times: weight every fine pixel by 1/ACT_OSAMP**2
-        norm = edge_taper(ivar.shape, cfg.taper) * cfg.act_ivar_scale / ACT_OSAMP**2
+        # ivar is that of an ACT pixel repeated on its ACT_OSAMP**2 fine pixels, which the sum over fine pixels
+        # would count that many times: weight every fine pixel by 1/ACT_OSAMP**2
+        norm = cfg.act_ivar_scale / ACT_OSAMP**2
         ivar, wdata = ivar * norm, wdata * norm
         # ACT only constrains the bands its beam transmits; deconvolving the others amplifies noise
         transfer = self.wmap.band_transfer(fwhm_pix)
@@ -306,7 +305,8 @@ class JointMapper:
         )
         self.act_rhs = self.act.rhs(resid)
         tag = (
-            f"_act_t{cfg.taper}_c{conv:.3g}_b{cfg.act_beam}_pw_tr{cfg.act_min_transfer}"
+            # _t0 is left from the removed edge taper (always 0), kept so existing caches are found
+            f"_act_t0_c{conv:.3g}_b{cfg.act_beam}_pw_tr{cfg.act_min_transfer}"
             + f"_n{ACT_OSAMP}_wcs"  # _wcs: ACT placed by sky position (fix of 2026-11-10)
             + (f"_s{cfg.act_ivar_scale:g}" if cfg.act_ivar_scale != 1 else "")
             + (f"_cmb{cfg.act_cmb:g}" if cfg.act_cmb > 0 else "")
@@ -686,7 +686,6 @@ def parse_args(
         help="Unit of the M2 TODs (K_RJ: Rayleigh-Jeans temperature; Jy, mJy: per M2 beam)",
     )
     a("--m2-beam", type=float, default=9.0, help="M2 beam FWHM in arcsec")
-    a("--taper", type=int, default=0, help="Pixels; edge taper of the ACT weights")
     a(
         "--pad-frac",
         type=float,
