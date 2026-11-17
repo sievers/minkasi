@@ -2,7 +2,6 @@ import os
 from setuptools import Extension, setup, find_packages
 import subprocess
 
-from distutils.core import setup, Extension
 from collections import defaultdict
 from extension_helpers import get_compiler
 from extension_helpers import add_openmp_flags_if_available

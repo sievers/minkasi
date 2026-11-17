@@ -6,7 +6,6 @@ otherwise the modern equivalent is called.
 These functions may not be actively maintained.
 """
 import os
-from distutils.util import strtobool
 
 import numpy as np
 from typing_extensions import deprecated
@@ -16,8 +15,19 @@ from ..mapmaking.noise import NoiseBinnedEig, NoiseCMWhite, NoiseSmoothedSVD
 from ..tools import fft
 from ..tools.smooth import smooth_many_vecs
 
+
+def _strtobool(val):
+    """Same accepted values as the removed distutils.util.strtobool."""
+    val = val.lower()
+    if val in ("y", "yes", "t", "true", "on", "1"):
+        return True
+    if val in ("n", "no", "f", "false", "off", "0"):
+        return False
+    raise ValueError(f"invalid truth value {val!r}")
+
+
 try:
-    use_dep = strtobool(os.environ.get("MINKASI_USE_DEPRECATED", "false"))
+    use_dep = _strtobool(os.environ.get("MINKASI_USE_DEPRECATED", "false"))
 except ValueError:
     use_dep = False
 
