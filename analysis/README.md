@@ -2,8 +2,7 @@
 
 Tests, diagnostics and figures for the joint MUSTANG-2 + ACT needlet maps made with `examples/twores_ex.py`
 (`minkasi.needlet.joint.JointMapper`). Run them from this directory: some import functions from each other.
-`plot_*_aplpy.py` need `aplpy` and `compare_gif.py` needs `reproject`. `slurm/` holds the A399-401 batch jobs
-(dry run, smoke test, full run, post-processing) and a per-node memory sampler.
+`plot_*_aplpy.py` need `aplpy` and `compare_gif.py` needs `reproject`.
 
 - `a399_401_fig1.py`: Figure 1 (right) of Hincks et al. 2022 (arXiv:2107.04611) redone with the joint M2 + ACT two-resolution map of A399-401: the 90 GHz multiscale display map (multiscale_map.py, same colour scale) of the joint solve, with their ACT + Planck y-map as contours at 3, 5, ..., 15 sigma, the clusters' R500c circles (their Tables 1 and 4), the ACT compact sources coloured by band and sized by the beam, and the beams. Next to it, cutouts of the M2 region in ACT f090 alone and in the joint map, same pixels and colour scale, to show what M2 adds.
 - `act_consistency.py`: Does a joint M2 + ACT map agree with ACT where both measure? The joint map (twores_ex _final.fits) is seen as ACT sees it (ACT beam, normalised to the M2 footprint, then averaged over each ACT pixel) and compared with the ACT coadd in the ACT pixels fully inside the region where M2 has at least --min-hits hits, in units of the ACT noise per pixel. Prints the rms of that difference after removing an offset (1 = consistent with ACT's white noise), its tilt and bowl at the edge of the region, and the rms left after removing them. With --sim-sky the ACT map is simulated from the sky with the real ACT noise, as a check of the method.

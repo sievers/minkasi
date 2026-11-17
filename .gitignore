@@ -18,3 +18,7 @@ scratch/
 *.pk
 .coverage
 .ipynb_checkpoints/
+
+# batch job scripts (cluster specific)
+slurm/
+*.sbatch
