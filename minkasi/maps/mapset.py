@@ -1,5 +1,5 @@
 import sys
-from typing import TYPE_CHECKING, List, Union, Optional
+from typing import TYPE_CHECKING, List, Union
 
 from ..parallel import have_mpi
 from .polmap import PolMap
@@ -8,7 +8,6 @@ from .skymap import SkyMap
 if TYPE_CHECKING:
     from ..needlet.needlet import WavSkyMap
 
-import numpy as np
 
 MapType = Union[SkyMap, PolMap, "WavSkyMap"]
 
@@ -264,7 +263,6 @@ class PriorMapset(Mapset):
         """
         for i in range(self.nmap):
             if not (self.maps[i] is None):
-                temp_x, temp_Ax = x.maps[i].map, Ax.maps[i].map
                 self.maps[i].apply_prior(x.maps[i], Ax.maps[i])
                 
 
