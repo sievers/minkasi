@@ -1,7 +1,10 @@
 """
-Plot the final M2 map, the final map at ACT resolution on the ACT scale and the ACT map with aplpy
-(sky coordinates, colour bars in Jy/beam). With --compare, plot a second final map and the
-difference between them in percent of the rms of the first instead.
+Plot final maps with aplpy (sky coordinates, colour bars in Jy/beam), blanking pixels with fewer than --min-hits
+hits. The colour scale of the final map comes from the pixels with at least --scale-hits hits, so the noisy edge
+does not set the range. Three modes:
+- with --act: the final M2 map, the final map at ACT resolution on the ACT scale and the ACT map;
+- with --compare: the final map, a second final map and their difference in percent of the rms of the first;
+- with neither: the final map alone.
 """
 
 import argparse
@@ -108,10 +111,27 @@ def main(args: argparse.Namespace):
         Parsed command line arguments.
     """
     final, hdr = load(args.final)
-    bad = load(args.hits)[0] < args.min_hits
-    pct = lambda x: tuple(np.percentile(x[~bad], [1, 99]))
+    hits = load(args.hits)[0]
+    bad = hits < args.min_hits
+    scale = hits >= (args.min_hits if args.scale_hits is None else args.scale_hits)
+    pct = lambda x: tuple(np.percentile(x[scale], [args.pct, 100 - args.pct]))
     shown = np.where(bad, np.nan, final)
-    fig = plt.figure(figsize=(5.5 * 3, 5), dpi=100 if args.debug else 150)
+    dpi = 100 if args.debug else 150
+    if not args.compare and not args.act:
+        fig = plt.figure(figsize=(7, 6), dpi=dpi)
+        panel(
+            fig,
+            (1, 1, 1),
+            shown,
+            hdr,
+            args.label,
+            pct(final),
+            beam_arcmin=args.m2_beam / 60,
+        )
+        fig.tight_layout()
+        fig.savefig(args.out, bbox_inches="tight")
+        return
+    fig = plt.figure(figsize=(5.5 * 3, 5), dpi=dpi)
     if args.compare:
         other = load(args.compare)[0]
         diff = 100 * (final - other) / final[~bad].std()
@@ -178,16 +198,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--final", required=True, help="Final map FITS")
     parser.add_argument("--hits", required=True, help="Hits map FITS used for the mask")
-    parser.add_argument("--act", help="ACT map FITS (not needed with --compare)")
+    parser.add_argument("--act", help="ACT map FITS (three panels with ACT)")
     parser.add_argument("--compare", help="Second final map FITS to compare to --final")
     parser.add_argument("--label", default="final")
     parser.add_argument("--compare-label", default="other")
     parser.add_argument("--out", required=True, help="Output figure")
-    parser.add_argument("--min-hits", type=float, default=20)
+    parser.add_argument(
+        "--min-hits", type=float, default=20, help="Blank pixels below this"
+    )
+    parser.add_argument(
+        "--scale-hits",
+        type=float,
+        default=None,
+        help="Pixels used for the colour scale (default --min-hits)",
+    )
+    parser.add_argument("--pct", type=float, default=1, help="Colour scale percentile")
     parser.add_argument("--act-beam", type=float, default=2.1, help="ACT FWHM, arcmin")
     parser.add_argument("--m2-beam", type=float, default=9.0, help="M2 FWHM, arcsec")
     parser.add_argument("--debug", action="store_true", help="Lower resolution figure")
-    args = parser.parse_args()
-    if not args.compare and not args.act:
-        parser.error("--act is required unless --compare is given")
-    main(args)
+    main(parser.parse_args())
