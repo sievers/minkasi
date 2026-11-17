@@ -5,7 +5,8 @@ The map is a stack of needlet bands. The M2 term is the TOD operator A^T N^-1 A 
 F_i B^T s W s B (sum_j F_j x_j) on the bands ACT's beam transmits, and an optional prior acts on chosen bands in a chosen
 region. The combined system is solved by CG on the full (band coupled) operator, with the block solve of the probed
 diagonal blocks as preconditioner, or by the block solve alone. JointMapper(parse_args()).run() does everything;
-examples/twores_ex.py is the command line front end.
+examples/twores_ex.py is the command line front end. Callers that already hold the data (e.g. WITCH) build the
+options with options({...}) and pass the TODs and ACT maps in: JointMapper(cfg, todvec=..., act_maps=...).run().
 """
 
 import argparse
@@ -16,6 +17,7 @@ from collections.abc import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
+from pixell import enmap
 
 from ..mapmaking.noise import NoiseSmoothedSVD
 from ..mapmaking.pcg import pcg, run_pcg_wprior
@@ -23,8 +25,16 @@ from ..mapmaking.tod2map import make_hits
 from ..maps.mapset import Mapset
 from ..maps.utils import sample_image
 from ..parallel import barrier, myrank
+from ..tods import TodVec
 from ..tods.io import read_tods
-from .act import ACT_OSAMP, ActTerm, act_conversion, read_act, sim_act
+from .act import (
+    ACT_OSAMP,
+    ActTerm,
+    act_conversion,
+    act_onto_grid,
+    read_act,
+    sim_act,
+)
 from .cmb import cmb_fourier_weight, lensed_cmb_cl
 from .diagnostics import (
     coefficient_support,
@@ -45,7 +55,14 @@ class JointMapper:
     Parameters
     ----------
     cfg : argparse.Namespace
-        Options as returned by parse_args (see its help for each).
+        Options as returned by parse_args or options (see parse_args' help for each).
+    todvec : TodVec | None, default: None
+        TODs of this rank, calibrated and with common mode/polynomial already removed. If given, --idir, --ntods,
+        --ntods-total and --tod-list are ignored. Pass an empty TodVec on ranks without M2 data: every rank must
+        call run(), since the TOD operations reduce over minkasi.parallel.comm (COMM_WORLD).
+    act_maps : Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None, default: None
+        ACT (map, ivar) pairs in uK_CMB; if given, --act-glob is ignored. Must be the same on every rank (the ACT
+        term is computed redundantly on each).
 
     Attributes
     ----------
@@ -61,8 +78,19 @@ class JointMapper:
         The ACT term, None without ACT maps.
     """
 
-    def __init__(self, cfg: argparse.Namespace):
+    def __init__(
+        self,
+        cfg: argparse.Namespace,
+        todvec: TodVec | None = None,
+        act_maps: Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None = None,
+    ):
+        if todvec is not None and cfg.sim_sky:
+            raise ValueError(
+                "--sim-sky needs raw TODs read from disk, not a todvec passed in"
+            )
         self.cfg = cfg
+        self.todvec = todvec
+        self.act_maps = act_maps
         self.sky = None
         self.act = None
         self.act_bands: list[int] = []
@@ -79,17 +107,19 @@ class JointMapper:
 
     def read(self) -> None:
         """
-        Read the TODs, build the needlet map and, with --sim-sky, replace the data by a simulation of that sky.
+        Read the TODs (unless passed in), build the needlet map and, with --sim-sky, replace the data by a simulation
+        of that sky.
         """
         cfg = self.cfg
-        self.todvec = read_tods(
-            cfg.idir,
-            cfg.ntods,
-            cfg.name,
-            cfg.ntods_total,
-            raw=bool(cfg.sim_sky),
-            tod_list=cfg.tod_list,
-        )
+        if self.todvec is None:
+            self.todvec = read_tods(
+                cfg.idir,
+                cfg.ntods,
+                cfg.name,
+                cfg.ntods_total,
+                raw=bool(cfg.sim_sky),
+                tod_list=cfg.tod_list,
+            )
         self.wmap = wavskymap_for_tods(
             self.todvec, cfg.pixsize, cfg.nfilt, cfg.pad_frac
         )
@@ -249,18 +279,23 @@ class JointMapper:
 
     def act_term(self) -> None:
         """
-        Read ACT (or simulate it with --sim-sky), write the ACT-only map to _act.fits, and build the ACT term, its
-        right hand side and its response matrices (cached).
+        Read ACT (or take the maps passed in, or simulate it with --sim-sky), write the ACT-only map to _act.fits,
+        and build the ACT term, its right hand side and its response matrices (cached).
         """
         cfg = self.cfg
         t0 = time.time()
-        paths = sorted(glob.glob(cfg.act_glob))[: 2 if cfg.debug else None]
-        if not paths:
-            return
         # TODO: ivar is treated as a diagonal map space inverse covariance. Replace this with a
         # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
         conv = cfg.act_conv or act_conversion(cfg.freq, cfg.m2_beam, cfg.m2_unit)
-        ivar, wdata = read_act(paths, self.wmap.lims, self.wmap, conv=conv)
+        if self.act_maps is not None:
+            if not self.act_maps:
+                return
+            ivar, wdata = act_onto_grid(self.act_maps, self.wmap, conv=conv)
+        else:
+            paths = sorted(glob.glob(cfg.act_glob))[: 2 if cfg.debug else None]
+            if not paths:
+                return
+            ivar, wdata = read_act(paths, self.wmap.lims, self.wmap, conv=conv)
         fwhm_pix = cfg.act_beam * 60 / cfg.pixsize
         if self.sky is not None:
             wdata = ivar * sim_act(self.sky, ivar, fwhm_pix, cfg.sim_seed)
@@ -597,7 +632,7 @@ class JointMapper:
             )
         return xsol.maps[0].map
 
-    def write(self, wsol: NDArray) -> None:
+    def write(self, wsol: NDArray) -> NDArray:
         """
         Write the solution: _combined.fits (the solve) and _final.fits (with the PCG map added back unless --direct).
 
@@ -605,25 +640,38 @@ class JointMapper:
         ----------
         wsol : NDArray
             Solution as a wavelet array.
+
+        Returns
+        -------
+        NDArray
+            The final real space map (as in _final.fits), on every rank; its pixelization is self.wmap.real_map.
         """
         mmap = wav2map_real(wsol, self.filt)[0] * self.mask
-        self.wmap.real_map.map = mmap
+        final = mmap if self.cfg.direct else mmap + self.pcg_map
         if myrank == 0:
+            self.wmap.real_map.map = mmap
             self.wmap.real_map.write(self.cfg.outroot + "_combined.fits")
             # Unless --direct, the combined solution is for the residual after PCG: add the PCG map back.
-            self.wmap.real_map.map = mmap if self.cfg.direct else mmap + self.pcg_map
+            self.wmap.real_map.map = final
             self.wmap.real_map.write(self.cfg.outroot + "_final.fits")
+        self.wmap.real_map.map = final
+        return final
 
-    def run(self) -> None:
+    def run(self) -> NDArray | None:
         """
         The whole pipeline.
+
+        Returns
+        -------
+        NDArray | None
+            The final real space map (see write), None after --dry-run or --symcheck.
         """
         self.read()
         if self.cfg.dry_run:
             self.lattice()
             if myrank == 0:
                 self.memory_estimate()
-            return
+            return None
         self.prepare()
         self.initial_pcg()
         self.lattice()
@@ -634,21 +682,22 @@ class JointMapper:
             self.prior_term()
             wsol = self.cg_solve()
             if wsol is None:
-                return
+                return None
         else:
             wsol = self.wmap.solve_bands(
                 self.rhs.maps[0].map + self.act_rhs, self.responses
             )
         print(f"solve took {time.time() - t0:.1f} s")
-        self.write(wsol)
+        return self.write(wsol)
 
 
 def parse_args(
-    description: str | None = None, argv: Sequence[str] | None = None
+    description: str | None = None,
+    argv: Sequence[str] | None = None,
+    normalise: bool = True,
 ) -> argparse.Namespace:
     """
-    Command line options of JointMapper, parsed and normalised (--cg implies --direct, --radius < 0 means exact,
-    --debug makes a small problem).
+    Command line options of JointMapper, parsed and normalised (see _normalise).
 
     Parameters
     ----------
@@ -656,6 +705,8 @@ def parse_args(
         Help text of the program.
     argv : Sequence[str] | None, default: None
         Arguments (default sys.argv).
+    normalise : bool, default: True
+        Apply _normalise; options() turns it off to normalise after its overrides.
 
     Returns
     -------
@@ -877,6 +928,52 @@ def parse_args(
     )
     a("--debug", action="store_true", help="Fewer TODs/iterations, coarser pixels")
     cfg = p.parse_args(argv)
+    return _normalise(cfg) if normalise else cfg
+
+
+def options(overrides: dict | None = None) -> argparse.Namespace:
+    """
+    JointMapper options from a dict instead of the command line, e.g. a block of a WITCH yaml: the parse_args
+    defaults with the given values on top, then normalised as parse_args does.
+
+    Parameters
+    ----------
+    overrides : dict | None, default: None
+        Option values keyed by the option name with "-" or "_" (e.g. "act_beam" or "act-beam").
+
+    Returns
+    -------
+    argparse.Namespace
+        The options.
+
+    Raises
+    ------
+    KeyError
+        If a key is not a JointMapper option.
+    """
+    cfg = parse_args(argv=[], normalise=False)
+    for key, val in (overrides or {}).items():
+        key = key.replace("-", "_")
+        if not hasattr(cfg, key):
+            raise KeyError(f"{key} is not a JointMapper option")
+        setattr(cfg, key, val)
+    return _normalise(cfg)
+
+
+def _normalise(cfg: argparse.Namespace) -> argparse.Namespace:
+    """
+    Normalise parsed options: --cg implies --direct, --radius < 0 means exact, --debug makes a small problem.
+
+    Parameters
+    ----------
+    cfg : argparse.Namespace
+        Options as parsed; modified in place.
+
+    Returns
+    -------
+    argparse.Namespace
+        cfg.
+    """
     cfg.direct |= cfg.cg > 0
     if cfg.radius < 0:
         cfg.radius = None

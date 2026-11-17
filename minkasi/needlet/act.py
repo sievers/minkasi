@@ -98,6 +98,46 @@ def read_act(
             [max(lims[2:]) + pad, max(lims[:2]) + pad],
         ]
     )
+    pairs = [
+        (
+            enmap.read_map(path.replace("_ivar", "_map"), box=box),
+            enmap.read_map(path, box=box),
+        )
+        for path in paths
+    ]
+    return act_onto_grid(pairs, wmap, fac, conv)
+
+
+def act_onto_grid(
+    pairs: Sequence[tuple[enmap.ndmap, enmap.ndmap]],
+    wmap: WavSkyMap,
+    fac: int = ACT_OSAMP,
+    conv: float = 1.0,
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """
+    Coadd ACT (map, ivar) pairs already in memory onto the (fine) wavelet map pixelization. This is read_act without
+    the reading, for callers that hold the maps themselves (e.g. WITCH); see read_act for the block placement.
+
+    Parameters
+    ----------
+    pairs : Sequence[tuple[enmap.ndmap, enmap.ndmap]]
+        (map, ivar) per split, in ACT units, in pixell (dec, ra) layout with their WCS. Cutouts of any size are fine;
+        fine-grid blocks whose centre falls outside a cutout get zero weight from it.
+    wmap : WavSkyMap
+        Map whose real_map pixelization to use.
+    fac : int, default: ACT_OSAMP
+        Fine pixels per ACT pixel along each axis.
+    conv : float, default: 1.0
+        Factor converting ACT map units to the units of the M2 data. Maps are multiplied by it and ivar divided by
+        its square.
+
+    Returns
+    -------
+    ivar : NDArray[np.floating]
+        Total inverse variance on the wmap pixelization, shape (nx, ny), constant on each block.
+    wdata : NDArray[np.floating]
+        Sum over splits of ivar * map on the wmap pixelization, shape (nx, ny), constant on each block.
+    """
     nx, ny = wmap.real_map.map.shape
     # block centres on the fine grid; map[i, j] is FITS pixel (i, j), i along RA
     bi = np.arange(-(-nx // fac)) * fac + (fac - 1) / 2
@@ -106,9 +146,9 @@ def read_act(
     bra, bdec = np.deg2rad(wmap.real_map.wcs.wcs_pix2world(ii, jj, 0))
     ivar = np.zeros((nx, ny))
     wdata = np.zeros((nx, ny))
-    for path in paths:
-        ivar_map = enmap.read_map(path, box=box) / conv**2
-        act_map = enmap.read_map(path.replace("_ivar", "_map"), box=box) * conv
+    for act_map, ivar_map in pairs:
+        ivar_map = ivar_map / conv**2
+        act_map = act_map * conv
         if act_map.ndim == 3:
             act_map = act_map[0]  # temperature
         while ivar_map.ndim > 2:  # (T, Q, U) or (3, 3) covariance diagonal: keep TT
