@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 import astropy.constants as const
 import astropy.units as u
 import numpy as np
+from astropy.wcs import WCS
 from numpy.typing import NDArray
 from pixell import enmap, utils
 
@@ -20,7 +21,54 @@ from .needlet import (
     wav2map_real,
 )
 
-ACT_OSAMP = 10  # fine pixels per ACT pixel
+ACT_OSAMP = 10  # fine pixels per ACT pixel: the 30" ACT pixels need 3" map pixels (check_act_pixels)
+
+
+def check_act_pixels(
+    act_wcs: Sequence[WCS],
+    map_wcs: WCS,
+    fac: int = ACT_OSAMP,
+    strict: bool = True,
+    rtol: float = 1e-3,
+) -> None:
+    """
+    Check that the ACT maps fit the ACT term's pixel model. The ACT term treats every ACT pixel as a fac x fac block of
+    map pixels (reading ACT onto the map, the block average in its forward operator, the ivar weights), which is only
+    right if an ACT pixel is fac map pixels across. Otherwise ACT is sampled, averaged and weighted on blocks of the
+    wrong size and the joint map does not fit the real ACT data, without any error. With 30" ACT pixels and
+    ACT_OSAMP = 10 the map pixel must be 3".
+
+    Parameters
+    ----------
+    act_wcs : Sequence[WCS]
+        WCS of each ACT map (CDELT or PC/CD scaled, e.g. from pixell or a FITS header).
+    map_wcs : WCS
+        WCS of the fine map (WavSkyMap.real_map.wcs).
+    fac : int, default: ACT_OSAMP
+        Map pixels per ACT pixel along each axis.
+    strict : bool, default: True
+        Raise on a mismatch; if False, print a warning instead (for --debug, whose 6" pixels are a plumbing test).
+    rtol : float, default: 1e-3
+        Relative tolerance on the pixel size ratio.
+
+    Raises
+    ------
+    ValueError
+        If strict and an ACT map's pixel is not fac map pixels across, along either axis.
+    """
+    pix = np.abs(np.diag(map_wcs.celestial.pixel_scale_matrix)) * 3600
+    for wcs in act_wcs:
+        act = np.abs(np.diag(wcs.celestial.pixel_scale_matrix)) * 3600
+        if np.allclose(act, fac * pix, rtol=rtol):
+            continue
+        msg = (
+            f'ACT pixels are {act[0]:.4g}" x {act[1]:.4g}", but the ACT term models each as ACT_OSAMP = {fac} map '
+            f'pixels of {pix[0]:.4g}" ({fac * pix[0]:.4g}" across): use --pixsize {act[0] / fac:.4g}'
+        )
+        if strict:
+            raise ValueError(msg)
+        print("WARNING:", msg)
+        return
 
 
 def act_conversion(

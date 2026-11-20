@@ -32,6 +32,7 @@ from .act import (
     ActTerm,
     act_conversion,
     act_onto_grid,
+    check_act_pixels,
     read_act,
     sim_act,
 )
@@ -126,6 +127,7 @@ class JointMapper:
         self.wmap = wavskymap_for_tods(
             self.todvec, cfg.pixsize, cfg.nfilt, cfg.pad_frac
         )
+        self.check_act_grid()
         if cfg.sim_sky:  # replace the data by a simulation of a known sky
             self.sky = sample_image(cfg.sim_sky, self.wmap.real_map)
             inject_sim(self.todvec, self.wmap, self.sky, cfg.sim_noise, cfg.sim_seed)
@@ -133,6 +135,35 @@ class JointMapper:
                 truth = self.wmap.real_map.copy()
                 truth.map = self.sky
                 truth.write(cfg.outroot + "_truth.fits")
+
+    def check_act_grid(
+        self, act_maps: Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None = None
+    ) -> None:
+        """
+        Check that the ACT maps' pixels are ACT_OSAMP map pixels across (see check_act_pixels), before anything is
+        probed (so also in --dry-run). Raises on a mismatch, warns with --debug (6" pixels, a plumbing test).
+
+        Parameters
+        ----------
+        act_maps : Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None, default: None
+            (map, ivar) pairs to check; by default those passed in, or the headers of the --act-glob files.
+
+        Raises
+        ------
+        ValueError
+            If an ACT map does not fit and --debug is off.
+        """
+        cfg = self.cfg
+        # With --debug it only warns, once is enough; otherwise every rank checks, so all raise and none hangs
+        if cfg.debug and myrank != 0:
+            return
+        act_maps = self.act_maps if act_maps is None else act_maps
+        if act_maps is not None:
+            wcs = [ivar.wcs for _, ivar in act_maps]
+        else:
+            paths = sorted(glob.glob(cfg.act_glob))[: 2 if cfg.debug else None]
+            wcs = [enmap.read_map_geometry(path)[1] for path in paths]
+        check_act_pixels(wcs, self.wmap.real_map.wcs, strict=not cfg.debug)
 
     def prepare(self) -> None:
         """
@@ -773,7 +804,8 @@ class JointMapper:
         RuntimeError
             If run() has not solved yet.
         ValueError
-            If tod_data does not match the TODs, or ACT maps are missing.
+            If tod_data does not match the TODs, or ACT maps are missing or their pixels do not fit the map's (see
+            check_act_pixels).
         """
         if not self.solved:
             raise RuntimeError("remap needs a completed run()")
@@ -783,6 +815,8 @@ class JointMapper:
             )
         if self.act is not None and not act_maps:
             raise ValueError("run() used ACT, so remap needs its ACT maps")
+        if act_maps:
+            self.check_act_grid(act_maps)
         cfg = self.cfg
         old_outroot, cfg.outroot = cfg.outroot, outroot
         try:
