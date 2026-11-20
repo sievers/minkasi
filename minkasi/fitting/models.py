@@ -18,7 +18,7 @@ def timestreams_from_gauss(ra, dec, fwhm, tod, pred=None):
         # pred=np.zeros(tod.info['dat_calib'].shape)
         pred = tod.get_empty(True)
     # n=tod.info['dat_calib'].size
-    n = np.product(tod.get_data_dims())
+    n = np.prod(tod.get_data_dims())
     assert pred.size == n
     npar_src = 4  # x,y,sig,amp
     dx = tod.info["dx"]
@@ -39,7 +39,7 @@ def timestreams_from_isobeta_c(params, tod, pred=None):
         # pred=np.zeros(tod.info['dat_calib'].shape)
         pred = tod.get_empty(True)
     # n=tod.info['dat_calib'].size
-    n = np.product(tod.get_data_dims())
+    n = np.prod(tod.get_data_dims())
     assert pred.size == n
     dx = tod.info["dx"]
     dy = tod.info["dy"]
@@ -91,7 +91,7 @@ def derivs_from_isobeta_c(params, tod, *args, **kwargs):
     npar = 5
     # n=tod.info['dat_calib'].size
     dims = tod.get_data_dims()
-    n = np.product(dims)
+    n = np.prod(dims)
     # sz_deriv=np.append(npar,tod.info['dat_calib'].shape)
     sz_deriv = np.append(npar, dims)
     # pred=np.zeros(tod.info['dat_calib'].shape)

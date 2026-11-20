@@ -70,15 +70,15 @@ def get_timestream_chisq_curve_deriv_from_func(
         derivs, pred = func(pars, tod, *args, **kwargs)
         if not (rotmat is None):
             derivs = np.dot(rotmat.transpose(), derivs)
-        derivs = np.reshape(derivs, [derivs.shape[0], np.product(derivs.shape[1:])])
+        derivs = np.reshape(derivs, [derivs.shape[0], np.prod(derivs.shape[1:])])
         derivs_filt = 0 * derivs
         # print('derivs_filt shape is ',derivs_filt.shape)
-        # derivs_filt=np.reshape(derivs_filt,[derivs_filt.shape[0],np.product(derivs_filt.shape[1:])])
+        # derivs_filt=np.reshape(derivs_filt,[derivs_filt.shape[0],np.prod(derivs_filt.shape[1:])])
         # sz=tod.info['dat_calib'].shape
         sz = tod.get_data_dims()
         tmp = np.zeros(sz)
         npp = derivs.shape[0]
-        nn = np.product(derivs.shape[1:])
+        nn = np.prod(derivs.shape[1:])
         # delt=tod.info['dat_calib']-pred
         delt = tod.get_data() - pred
         delt_filt = tod.apply_noise(delt)
