@@ -355,7 +355,7 @@ class Tod:
         dat: Optional[NDArray[np.floating]] = None,
         delayed: bool = False,
         *args,
-        **kwargs
+        **kwargs,
     ):
         """
         Setup the noise model for this TOD.
@@ -823,7 +823,8 @@ class TodVec:
         """
         Get global limits of all TODs.
         This function is MPI aware, so the limits are the same across processes.
-        If ntod is 0 then None is returned.
+        A process with no TODs still takes part in the reduction (so it does not deadlock the others) and gets the
+        global limits; without MPI and with no TODs, None is returned.
 
         Returns
         -------
@@ -836,9 +837,11 @@ class TodVec:
         ymax : float
             The max dec value.
         """
-        if self.ntod == 0:
+        if self.ntod == 0 and not have_mpi:
             return None
-        xmin, xmax, ymin, ymax = self.tods[0].lims()
+        xmin, xmax, ymin, ymax = (
+            self.tods[0].lims() if self.ntod else (np.inf, -np.inf, np.inf, -np.inf)
+        )
         for i in range(1, self.ntod):
             x1, x2, y1, y2 = self.tods[i].lims()
             xmin = min(x1, xmin)

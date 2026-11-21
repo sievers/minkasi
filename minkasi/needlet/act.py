@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 import astropy.constants as const
 import astropy.units as u
 import numpy as np
+from astropy.wcs import WCS
 from numpy.typing import NDArray
 from pixell import enmap, utils
 
@@ -20,7 +21,54 @@ from .needlet import (
     wav2map_real,
 )
 
-ACT_OSAMP = 10  # fine pixels per ACT pixel
+ACT_OSAMP = 10  # fine pixels per ACT pixel: the 30" ACT pixels need 3" map pixels (check_act_pixels)
+
+
+def check_act_pixels(
+    act_wcs: Sequence[WCS],
+    map_wcs: WCS,
+    fac: int = ACT_OSAMP,
+    strict: bool = True,
+    rtol: float = 1e-3,
+) -> None:
+    """
+    Check that the ACT maps fit the ACT term's pixel model. The ACT term treats every ACT pixel as a fac x fac block of
+    map pixels (reading ACT onto the map, the block average in its forward operator, the ivar weights), which is only
+    right if an ACT pixel is fac map pixels across. Otherwise ACT is sampled, averaged and weighted on blocks of the
+    wrong size and the joint map does not fit the real ACT data, without any error. With 30" ACT pixels and
+    ACT_OSAMP = 10 the map pixel must be 3".
+
+    Parameters
+    ----------
+    act_wcs : Sequence[WCS]
+        WCS of each ACT map (CDELT or PC/CD scaled, e.g. from pixell or a FITS header).
+    map_wcs : WCS
+        WCS of the fine map (WavSkyMap.real_map.wcs).
+    fac : int, default: ACT_OSAMP
+        Map pixels per ACT pixel along each axis.
+    strict : bool, default: True
+        Raise on a mismatch; if False, print a warning instead (for --debug, whose 6" pixels are a plumbing test).
+    rtol : float, default: 1e-3
+        Relative tolerance on the pixel size ratio.
+
+    Raises
+    ------
+    ValueError
+        If strict and an ACT map's pixel is not fac map pixels across, along either axis.
+    """
+    pix = np.abs(np.diag(map_wcs.celestial.pixel_scale_matrix)) * 3600
+    for wcs in act_wcs:
+        act = np.abs(np.diag(wcs.celestial.pixel_scale_matrix)) * 3600
+        if np.allclose(act, fac * pix, rtol=rtol):
+            continue
+        msg = (
+            f'ACT pixels are {act[0]:.4g}" x {act[1]:.4g}", but the ACT term models each as ACT_OSAMP = {fac} map '
+            f'pixels of {pix[0]:.4g}" ({fac * pix[0]:.4g}" across): use --pixsize {act[0] / fac:.4g}'
+        )
+        if strict:
+            raise ValueError(msg)
+        print("WARNING:", msg)
+        return
 
 
 def act_conversion(
@@ -98,6 +146,46 @@ def read_act(
             [max(lims[2:]) + pad, max(lims[:2]) + pad],
         ]
     )
+    pairs = [
+        (
+            enmap.read_map(path.replace("_ivar", "_map"), box=box),
+            enmap.read_map(path, box=box),
+        )
+        for path in paths
+    ]
+    return act_onto_grid(pairs, wmap, fac, conv)
+
+
+def act_onto_grid(
+    pairs: Sequence[tuple[enmap.ndmap, enmap.ndmap]],
+    wmap: WavSkyMap,
+    fac: int = ACT_OSAMP,
+    conv: float = 1.0,
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """
+    Coadd ACT (map, ivar) pairs already in memory onto the (fine) wavelet map pixelization. This is read_act without
+    the reading, for callers that hold the maps themselves (e.g. WITCH); see read_act for the block placement.
+
+    Parameters
+    ----------
+    pairs : Sequence[tuple[enmap.ndmap, enmap.ndmap]]
+        (map, ivar) per split, in ACT units, in pixell (dec, ra) layout with their WCS. Cutouts of any size are fine;
+        fine-grid blocks whose centre falls outside a cutout get zero weight from it.
+    wmap : WavSkyMap
+        Map whose real_map pixelization to use.
+    fac : int, default: ACT_OSAMP
+        Fine pixels per ACT pixel along each axis.
+    conv : float, default: 1.0
+        Factor converting ACT map units to the units of the M2 data. Maps are multiplied by it and ivar divided by
+        its square.
+
+    Returns
+    -------
+    ivar : NDArray[np.floating]
+        Total inverse variance on the wmap pixelization, shape (nx, ny), constant on each block.
+    wdata : NDArray[np.floating]
+        Sum over splits of ivar * map on the wmap pixelization, shape (nx, ny), constant on each block.
+    """
     nx, ny = wmap.real_map.map.shape
     # block centres on the fine grid; map[i, j] is FITS pixel (i, j), i along RA
     bi = np.arange(-(-nx // fac)) * fac + (fac - 1) / 2
@@ -106,9 +194,9 @@ def read_act(
     bra, bdec = np.deg2rad(wmap.real_map.wcs.wcs_pix2world(ii, jj, 0))
     ivar = np.zeros((nx, ny))
     wdata = np.zeros((nx, ny))
-    for path in paths:
-        ivar_map = enmap.read_map(path, box=box) / conv**2
-        act_map = enmap.read_map(path.replace("_ivar", "_map"), box=box) * conv
+    for act_map, ivar_map in pairs:
+        ivar_map = ivar_map / conv**2
+        act_map = act_map * conv
         if act_map.ndim == 3:
             act_map = act_map[0]  # temperature
         while ivar_map.ndim > 2:  # (T, Q, U) or (3, 3) covariance diagonal: keep TT

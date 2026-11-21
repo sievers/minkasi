@@ -5,7 +5,8 @@ The map is a stack of needlet bands. The M2 term is the TOD operator A^T N^-1 A 
 F_i B^T s W s B (sum_j F_j x_j) on the bands ACT's beam transmits, and an optional prior acts on chosen bands in a chosen
 region. The combined system is solved by CG on the full (band coupled) operator, with the block solve of the probed
 diagonal blocks as preconditioner, or by the block solve alone. JointMapper(parse_args()).run() does everything;
-examples/twores_ex.py is the command line front end.
+examples/twores_ex.py is the command line front end. Callers that already hold the data (e.g. WITCH) build the
+options with options({...}) and pass the TODs and ACT maps in: JointMapper(cfg, todvec=..., act_maps=...).run().
 """
 
 import argparse
@@ -16,6 +17,7 @@ from collections.abc import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
+from pixell import enmap
 
 from ..mapmaking.noise import NoiseSmoothedSVD
 from ..mapmaking.pcg import pcg, run_pcg_wprior
@@ -23,8 +25,17 @@ from ..mapmaking.tod2map import make_hits
 from ..maps.mapset import Mapset
 from ..maps.utils import sample_image
 from ..parallel import barrier, myrank
+from ..tods import TodVec
 from ..tods.io import read_tods
-from .act import ACT_OSAMP, ActTerm, act_conversion, read_act, sim_act
+from .act import (
+    ACT_OSAMP,
+    ActTerm,
+    act_conversion,
+    act_onto_grid,
+    check_act_pixels,
+    read_act,
+    sim_act,
+)
 from .cmb import cmb_fourier_weight, lensed_cmb_cl
 from .diagnostics import (
     coefficient_support,
@@ -45,7 +56,14 @@ class JointMapper:
     Parameters
     ----------
     cfg : argparse.Namespace
-        Options as returned by parse_args (see its help for each).
+        Options as returned by parse_args or options (see parse_args' help for each).
+    todvec : TodVec | None, default: None
+        TODs of this rank, calibrated and with common mode/polynomial already removed. If given, --idir, --ntods,
+        --ntods-total and --tod-list are ignored. Pass an empty TodVec on ranks without M2 data: every rank must
+        call run(), since the TOD operations reduce over minkasi.parallel.comm (COMM_WORLD).
+    act_maps : Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None, default: None
+        ACT (map, ivar) pairs in uK_CMB; if given, --act-glob is ignored. Must be the same on every rank (the ACT
+        term is computed redundantly on each).
 
     Attributes
     ----------
@@ -61,13 +79,27 @@ class JointMapper:
         The ACT term, None without ACT maps.
     """
 
-    def __init__(self, cfg: argparse.Namespace):
+    def __init__(
+        self,
+        cfg: argparse.Namespace,
+        todvec: TodVec | None = None,
+        act_maps: Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None = None,
+    ):
+        if todvec is not None and cfg.sim_sky:
+            raise ValueError(
+                "--sim-sky needs raw TODs read from disk, not a todvec passed in"
+            )
         self.cfg = cfg
+        self.todvec = todvec
+        self.act_maps = act_maps
         self.sky = None
         self.act = None
         self.act_bands: list[int] = []
         self.act_rhs: NDArray | float = 0
         self.prior_rhs: NDArray | float = 0
+        self.act_conv = 1.0
+        self.solve = None
+        self.solved = False
         self.prior = None
         self.keep = None
         self.t0 = time.time()
@@ -79,20 +111,23 @@ class JointMapper:
 
     def read(self) -> None:
         """
-        Read the TODs, build the needlet map and, with --sim-sky, replace the data by a simulation of that sky.
+        Read the TODs (unless passed in), build the needlet map and, with --sim-sky, replace the data by a simulation
+        of that sky.
         """
         cfg = self.cfg
-        self.todvec = read_tods(
-            cfg.idir,
-            cfg.ntods,
-            cfg.name,
-            cfg.ntods_total,
-            raw=bool(cfg.sim_sky),
-            tod_list=cfg.tod_list,
-        )
+        if self.todvec is None:
+            self.todvec = read_tods(
+                cfg.idir,
+                cfg.ntods,
+                cfg.name,
+                cfg.ntods_total,
+                raw=bool(cfg.sim_sky),
+                tod_list=cfg.tod_list,
+            )
         self.wmap = wavskymap_for_tods(
             self.todvec, cfg.pixsize, cfg.nfilt, cfg.pad_frac
         )
+        self.check_act_grid()
         if cfg.sim_sky:  # replace the data by a simulation of a known sky
             self.sky = sample_image(cfg.sim_sky, self.wmap.real_map)
             inject_sim(self.todvec, self.wmap, self.sky, cfg.sim_noise, cfg.sim_seed)
@@ -100,6 +135,35 @@ class JointMapper:
                 truth = self.wmap.real_map.copy()
                 truth.map = self.sky
                 truth.write(cfg.outroot + "_truth.fits")
+
+    def check_act_grid(
+        self, act_maps: Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None = None
+    ) -> None:
+        """
+        Check that the ACT maps' pixels are ACT_OSAMP map pixels across (see check_act_pixels), before anything is
+        probed (so also in --dry-run). Raises on a mismatch, warns with --debug (6" pixels, a plumbing test).
+
+        Parameters
+        ----------
+        act_maps : Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None, default: None
+            (map, ivar) pairs to check; by default those passed in, or the headers of the --act-glob files.
+
+        Raises
+        ------
+        ValueError
+            If an ACT map does not fit and --debug is off.
+        """
+        cfg = self.cfg
+        # With --debug it only warns, once is enough; otherwise every rank checks, so all raise and none hangs
+        if cfg.debug and myrank != 0:
+            return
+        act_maps = self.act_maps if act_maps is None else act_maps
+        if act_maps is not None:
+            wcs = [ivar.wcs for _, ivar in act_maps]
+        else:
+            paths = sorted(glob.glob(cfg.act_glob))[: 2 if cfg.debug else None]
+            wcs = [enmap.read_map_geometry(path)[1] for path in paths]
+        check_act_pixels(wcs, self.wmap.real_map.wcs, strict=not cfg.debug)
 
     def prepare(self) -> None:
         """
@@ -119,12 +183,26 @@ class JointMapper:
             )  # mask pixels with hits < min_hits
         self.mask = 1.0 if self.wmap.mask is None else self.wmap.mask
 
-    def initial_pcg(self) -> None:
+    def initial_pcg(self, reset_noise: bool = True) -> None:
         """
         A few PCG iterations of the M2 problem (--maxiter, preconditioned by 1 / hits). With --direct the model only
         cleans the noise estimate; otherwise it is subtracted from the TODs and added back at the end.
+
+        Parameters
+        ----------
+        reset_noise : bool, default: True
+            Re-estimate the TOD noise after the PCG. False (remap) runs the PCG with the noise the first PCG used
+            and keeps the current (final) noise for the rest, so the same data gives the same map.
         """
         cfg = self.cfg
+        tods = self.todvec.tods
+        final_noise = None
+        if reset_noise:  # keep what this PCG uses for remap
+            self.pcg_noise = [tod.noise for tod in tods]
+        else:
+            final_noise = [tod.noise for tod in tods]
+            for tod, noise in zip(tods, self.pcg_noise):
+                tod.noise = noise
         self.mapset = Mapset()
         self.mapset.add_map(self.wmap)
         rhs = self.mapset.copy()
@@ -144,20 +222,25 @@ class JointMapper:
             save_iters=[cfg.maxiter],
             outroot=cfg.outroot,
         )
+        if final_noise is not None:
+            for tod, noise in zip(tods, final_noise):
+                tod.noise = noise
         self.pcg_map = wav2map_real(out.maps[0].map, self.filt)[0] * self.mask
         if myrank == 0:
             out.maps[0].write(cfg.outroot + "_need.fits")
         barrier()
-        for tod in self.todvec.tods:
+        for tod in tods:
             tmp = np.zeros(tod.info["dat_calib"].shape)
             out.maps[0].map2tod(tod, tmp)
             if (
                 cfg.direct
             ):  # the PCG model only cleans the noise estimate, the data keep the signal
-                tod.set_noise(NoiseSmoothedSVD, dat=tod.info["dat_calib"] - tmp)
+                if reset_noise:
+                    tod.set_noise(NoiseSmoothedSVD, dat=tod.info["dat_calib"] - tmp)
             else:
                 tod.info["dat_calib"] -= tmp
-                tod.set_noise(NoiseSmoothedSVD)
+                if reset_noise:
+                    tod.set_noise(NoiseSmoothedSVD)
         self.rhs = self.mapset.copy()
         self.todvec.make_rhs(
             self.rhs
@@ -249,18 +332,24 @@ class JointMapper:
 
     def act_term(self) -> None:
         """
-        Read ACT (or simulate it with --sim-sky), write the ACT-only map to _act.fits, and build the ACT term, its
-        right hand side and its response matrices (cached).
+        Read ACT (or take the maps passed in, or simulate it with --sim-sky), write the ACT-only map to _act.fits,
+        and build the ACT term, its right hand side and its response matrices (cached).
         """
         cfg = self.cfg
         t0 = time.time()
-        paths = sorted(glob.glob(cfg.act_glob))[: 2 if cfg.debug else None]
-        if not paths:
-            return
         # TODO: ivar is treated as a diagonal map space inverse covariance. Replace this with a
         # robust map space noise covariance estimate once we have one (see tools.noise_estimation).
         conv = cfg.act_conv or act_conversion(cfg.freq, cfg.m2_beam, cfg.m2_unit)
-        ivar, wdata = read_act(paths, self.wmap.lims, self.wmap, conv=conv)
+        self.act_conv = conv
+        if self.act_maps is not None:
+            if not self.act_maps:
+                return
+            ivar, wdata = act_onto_grid(self.act_maps, self.wmap, conv=conv)
+        else:
+            paths = sorted(glob.glob(cfg.act_glob))[: 2 if cfg.debug else None]
+            if not paths:
+                return
+            ivar, wdata = read_act(paths, self.wmap.lims, self.wmap, conv=conv)
         fwhm_pix = cfg.act_beam * 60 / cfg.pixsize
         if self.sky is not None:
             wdata = ivar * sim_act(self.sky, ivar, fwhm_pix, cfg.sim_seed)
@@ -296,14 +385,7 @@ class JointMapper:
                 cfg.act_cmb,
             )
         self.act = ActTerm(ivar, wdata, self.wmap, fwhm_pix, self.act_bands, weight)
-        # ACT sees the sky through its beam; without --direct the PCG model is removed from the M2 TODs, so ACT
-        # enters through its residual with respect to the beam smoothed PCG map
-        resid = (
-            self.act.act_map
-            if cfg.direct
-            else self.act.act_map - self.act.forward(self.pcg_map)
-        )
-        self.act_rhs = self.act.rhs(resid)
+        self.act_rhs = self.act_rhs_of(self.act.act_map)
         tag = (
             # _t0 is left from the removed edge taper (always 0), kept so existing caches are found
             f"_act_t0_c{conv:.3g}_b{cfg.act_beam}_pw_tr{cfg.act_min_transfer}"
@@ -321,6 +403,25 @@ class JointMapper:
             )
         )
         print(f"ACT took {time.time() - t0:.1f} s")
+
+    def act_rhs_of(self, act_map: NDArray) -> NDArray:
+        """
+        Right hand side of the ACT term for an ACT map on the fine grid. ACT sees the sky through its beam; without
+        --direct the PCG model is removed from the M2 TODs, so ACT enters through its residual with respect to the
+        beam smoothed PCG map.
+
+        Parameters
+        ----------
+        act_map : NDArray
+            ACT map (M2 units) on the wmap pixelization.
+
+        Returns
+        -------
+        NDArray
+            Wavelet array, zero outside the ACT bands.
+        """
+        resid = act_map if self.cfg.direct else act_map - self.act.forward(self.pcg_map)
+        return self.act.rhs(resid)
 
     def prior_term(self) -> None:
         """
@@ -523,15 +624,18 @@ class JointMapper:
         """
         cfg = self.cfg
         self.t0 = time.time()
-        self.solve = self.wmap.block_solver(
-            self.responses[-1:] if cfg.act_only else self.responses,
-            ridge=cfg.ridge,
-            inner=cfg.inner,
-            lmin_cache=self.cache + "_lmin.json",
-        )
-        print(f"factorized the block preconditioner in {time.time() - self.t0:.1f} s")
-        for resp in self.responses:  # the solver holds what it needs, free the rest
-            resp[:] = None
+        if self.solve is None:  # kept for remap
+            self.solve = self.wmap.block_solver(
+                self.responses[-1:] if cfg.act_only else self.responses,
+                ridge=cfg.ridge,
+                inner=cfg.inner,
+                lmin_cache=self.cache + "_lmin.json",
+            )
+            print(
+                f"factorized the block preconditioner in {time.time() - self.t0:.1f} s"
+            )
+            for resp in self.responses:  # the solver holds what it needs, free the rest
+                resp[:] = None
         act_dot = None if self.act is None else self.act.dot
         if cfg.symcheck:
             symmetry_check(self.todvec.dot, act_dot, self.rhs, self.solve)
@@ -597,7 +701,7 @@ class JointMapper:
             )
         return xsol.maps[0].map
 
-    def write(self, wsol: NDArray) -> None:
+    def write(self, wsol: NDArray) -> NDArray:
         """
         Write the solution: _combined.fits (the solve) and _final.fits (with the PCG map added back unless --direct).
 
@@ -605,50 +709,147 @@ class JointMapper:
         ----------
         wsol : NDArray
             Solution as a wavelet array.
+
+        Returns
+        -------
+        NDArray
+            The final real space map (as in _final.fits), on every rank; its pixelization is self.wmap.real_map.
         """
         mmap = wav2map_real(wsol, self.filt)[0] * self.mask
-        self.wmap.real_map.map = mmap
+        final = mmap if self.cfg.direct else mmap + self.pcg_map
         if myrank == 0:
+            self.wmap.real_map.map = mmap
             self.wmap.real_map.write(self.cfg.outroot + "_combined.fits")
             # Unless --direct, the combined solution is for the residual after PCG: add the PCG map back.
-            self.wmap.real_map.map = mmap if self.cfg.direct else mmap + self.pcg_map
+            self.wmap.real_map.map = final
             self.wmap.real_map.write(self.cfg.outroot + "_final.fits")
+        self.wmap.real_map.map = final
+        return final
 
-    def run(self) -> None:
+    def run(self) -> NDArray | None:
         """
         The whole pipeline.
+
+        Returns
+        -------
+        NDArray | None
+            The final real space map (see write), None after --dry-run or --symcheck.
         """
         self.read()
         if self.cfg.dry_run:
             self.lattice()
             if myrank == 0:
                 self.memory_estimate()
-            return
+            return None
         self.prepare()
         self.initial_pcg()
         self.lattice()
         self.m2_response()
         self.act_term()
-        t0 = time.time()
         if self.cfg.cg:
             self.prior_term()
+        return self.solve_and_write()
+
+    def solve_and_write(self) -> NDArray | None:
+        """
+        Solve for the current right hand sides (self.rhs, self.act_rhs, self.prior_rhs) and write the map.
+
+        Returns
+        -------
+        NDArray | None
+            The final real space map (see write), None after --symcheck.
+        """
+        t0 = time.time()
+        if self.cfg.cg:
             wsol = self.cg_solve()
             if wsol is None:
-                return
+                return None
         else:
             wsol = self.wmap.solve_bands(
                 self.rhs.maps[0].map + self.act_rhs, self.responses
             )
         print(f"solve took {time.time() - t0:.1f} s")
-        self.write(wsol)
+        self.solved = True
+        return self.write(wsol)
+
+    def remap(
+        self,
+        tod_data: Sequence[NDArray],
+        act_maps: Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None,
+        outroot: str,
+    ) -> NDArray | None:
+        """
+        Map other data, e.g. a model, through the same mapmaker as run(): same TOD noise, response matrices, block
+        solver, ACT weights and bands, so the result is filtered exactly like the run() map. Call after run(); it
+        replaces the TOD data, so the run() data is gone afterwards (remap can be called again). The prior, if
+        any, keeps its operator but not its mean: this is the mapmaker's linear response to the new data.
+
+        Parameters
+        ----------
+        tod_data : Sequence[NDArray]
+            New dat_calib of each TOD of this rank, in todvec order and shape (empty on ranks without TODs).
+        act_maps : Sequence[tuple[enmap.ndmap, enmap.ndmap]] | None
+            New ACT (map, ivar) pairs in uK_CMB, needed if run() used ACT. The ivar only weights the coadd of the
+            splits; the ACT noise of the operator stays that of run().
+        outroot : str
+            Output root of this map (replaces --outroot for the files written here).
+
+        Returns
+        -------
+        NDArray | None
+            The final real space map (see write), None after --symcheck.
+
+        Raises
+        ------
+        RuntimeError
+            If run() has not solved yet.
+        ValueError
+            If tod_data does not match the TODs, or ACT maps are missing or their pixels do not fit the map's (see
+            check_act_pixels).
+        """
+        if not self.solved:
+            raise RuntimeError("remap needs a completed run()")
+        if len(tod_data) != self.todvec.ntod:
+            raise ValueError(
+                f"{len(tod_data)} TODs given, this rank has {self.todvec.ntod}"
+            )
+        if self.act is not None and not act_maps:
+            raise ValueError("run() used ACT, so remap needs its ACT maps")
+        if act_maps:
+            self.check_act_grid(act_maps)
+        cfg = self.cfg
+        old_outroot, cfg.outroot = cfg.outroot, outroot
+        try:
+            for tod, dat in zip(self.todvec.tods, tod_data):
+                # a copy: without --direct the PCG model is subtracted from it in place
+                tod.info["dat_calib"] = np.array(dat, dtype=float, order="C")
+            if cfg.direct:  # the PCG only served the noise estimate, which is kept
+                self.rhs = self.mapset.copy()
+                self.todvec.make_rhs(self.rhs)
+            else:
+                self.initial_pcg(reset_noise=False)
+            if self.act is not None:
+                ivar, wdata = act_onto_grid(act_maps, self.wmap, conv=self.act_conv)
+                act_map = np.divide(
+                    wdata, ivar, out=np.zeros_like(wdata), where=ivar > 0
+                )
+                if myrank == 0:
+                    self.wmap.real_map.map = act_map
+                    self.wmap.real_map.write(cfg.outroot + "_act.fits")
+                self.act_rhs = self.act_rhs_of(act_map)
+            self.prior_rhs = 0
+            return self.solve_and_write()
+        finally:
+            cfg.outroot = old_outroot
 
 
 def parse_args(
-    description: str | None = None, argv: Sequence[str] | None = None
+    description: str | None = None,
+    argv: Sequence[str] | None = None,
+    normalise: bool = True,
 ) -> argparse.Namespace:
     """
-    Command line options of JointMapper, parsed and normalised (--cg implies --direct, --radius < 0 means exact,
-    --debug makes a small problem).
+    Command line options of JointMapper, parsed and normalised (see _normalise).
 
     Parameters
     ----------
@@ -656,6 +857,8 @@ def parse_args(
         Help text of the program.
     argv : Sequence[str] | None, default: None
         Arguments (default sys.argv).
+    normalise : bool, default: True
+        Apply _normalise; options() turns it off to normalise after its overrides.
 
     Returns
     -------
@@ -877,6 +1080,52 @@ def parse_args(
     )
     a("--debug", action="store_true", help="Fewer TODs/iterations, coarser pixels")
     cfg = p.parse_args(argv)
+    return _normalise(cfg) if normalise else cfg
+
+
+def options(overrides: dict | None = None) -> argparse.Namespace:
+    """
+    JointMapper options from a dict instead of the command line, e.g. a block of a WITCH yaml: the parse_args
+    defaults with the given values on top, then normalised as parse_args does.
+
+    Parameters
+    ----------
+    overrides : dict | None, default: None
+        Option values keyed by the option name with "-" or "_" (e.g. "act_beam" or "act-beam").
+
+    Returns
+    -------
+    argparse.Namespace
+        The options.
+
+    Raises
+    ------
+    KeyError
+        If a key is not a JointMapper option.
+    """
+    cfg = parse_args(argv=[], normalise=False)
+    for key, val in (overrides or {}).items():
+        key = key.replace("-", "_")
+        if not hasattr(cfg, key):
+            raise KeyError(f"{key} is not a JointMapper option")
+        setattr(cfg, key, val)
+    return _normalise(cfg)
+
+
+def _normalise(cfg: argparse.Namespace) -> argparse.Namespace:
+    """
+    Normalise parsed options: --cg implies --direct, --radius < 0 means exact, --debug makes a small problem.
+
+    Parameters
+    ----------
+    cfg : argparse.Namespace
+        Options as parsed; modified in place.
+
+    Returns
+    -------
+    argparse.Namespace
+        cfg.
+    """
     cfg.direct |= cfg.cg > 0
     if cfg.radius < 0:
         cfg.radius = None
